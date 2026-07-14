@@ -191,12 +191,27 @@ part of request-limit review, while temporary-disk capacity bounds responses.
 - For a Typst-only image, also verify the project creation UI has no type
   selector and the image contains no `/app/web-dist/busytex` directory.
 
-Migration filenames and contents are immutable after publication. Fresh
-databases run the complete history; existing databases apply only newer
-migrations. Do not replace released history with a consolidated baseline.
-Back up PostgreSQL and persistent Git data before a release that changes
-storage schemas or Git history behavior. Object storage should use its own
-versioning and backup policy.
+## Database compatibility
+
+The first Community release starts at
+`backend/migrations/202607120001_baseline.sql`. It does not support an in-place
+upgrade from an earlier TOSS database or another pre-Community migration
+history. The first deployment on this line requires an empty PostgreSQL
+database and a new `DATA_DIR`/`GIT_STORAGE_PATH`; reusing an older Git volume
+with a fresh database leaves unowned repositories and is not a supported
+migration path.
+
+An earlier database can contain the same SQLx migration version with a
+different checksum. The resulting startup failure is intentional. Do not edit
+`_sqlx_migrations`, mark the baseline as applied manually, or run it against an
+already populated schema. Export required content before the cutover and keep
+the old database and Git volume as one recoverable backup.
+
+The baseline is immutable. After the first Community release, existing
+Community databases apply only newer forward migrations, and releases that
+change storage schemas require both fresh-install and supported-upgrade tests.
+Back up PostgreSQL and persistent Git data before such a release. Object
+storage should use its own versioning and backup policy.
 
 ## Deployment overlay boundary
 
@@ -211,3 +226,4 @@ in that repository and cluster rather than in the Community application Wiki.
 - [Configuration index](../configuration/README.md)
 - [Architecture overview](../architecture/overview.md)
 - [Typst runtime](../runtimes/typst.md)
+- [Decision: Community database baseline](../decisions/0007-community-database-baseline.md)

@@ -114,8 +114,22 @@ browser behavior. A parent monorepo may provide an aggregate wrapper and add
 downstream distribution jobs, but those deployment-specific commands are not
 part of the Community contract.
 
+## Migration baseline
+
+`node scripts/check-migration-baseline.mjs` verifies the exact immutable
+Community baseline checksum and rejects migration versions at or below the
+baseline. Repository-wide CI then starts the application against an empty
+PostgreSQL database, which proves the baseline creates a usable current schema.
+
+Pre-Community database histories are deliberately outside the supported test
+matrix. After the first Community release adds a forward migration, migration
+changes must additionally test an upgrade from the latest released Community
+schema with representative data. Never make an unsupported historical database
+appear compatible by rewriting `_sqlx_migrations`.
+
 ## Related
 
 - [Development setup](./setup.md)
 - [API reference](../reference/api.md)
 - [Protocol contract](../../../protocol/README.md)
+- [Decision: Community database baseline](../decisions/0007-community-database-baseline.md)

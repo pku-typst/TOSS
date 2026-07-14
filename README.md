@@ -113,6 +113,19 @@ administrator first registers or signs in, set `BOOTSTRAP_ADMIN_EMAILS` in
 `.env` to that account's exact email address. The matching account is promoted
 after successful authentication.
 
+## Database compatibility
+
+Community TOSS starts from the single
+`backend/migrations/202607120001_baseline.sql` schema baseline. It does not
+support an in-place database upgrade from earlier TOSS releases or other
+pre-Community migration histories. Use an empty PostgreSQL database and a new
+Git data directory for the first Community deployment, and export any data
+that must be retained before replacing an older installation.
+
+The baseline and every migration published after the first Community release
+are immutable. Future Community releases evolve the baseline only through new,
+forward migrations.
+
 ## Build from source
 
 The pinned tools are Node.js 24.x with npm 11.x, Rust 1.97.0, PostgreSQL 16,
@@ -169,3 +182,4 @@ history.
 - [Community documentation](./docs/community/README.md)
 - [Product overview](./docs/community/product/overview.md)
 - [Development setup](./docs/community/development/setup.md)
+- [Deployment and database compatibility](./docs/community/operations/deployment.md)

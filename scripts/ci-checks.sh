@@ -14,6 +14,7 @@ node -e 'if (process.versions.node.split(".")[0] !== "24") { throw new Error(`No
 echo "[ci] install protocol tooling + validate docs and runtime provenance"
 (cd protocol && npm ci)
 node scripts/check-docs.mjs
+node scripts/check-migration-baseline.mjs
 node scripts/prebuilt-typst-compiler.mjs verify
 
 cleanup() {

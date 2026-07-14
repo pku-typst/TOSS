@@ -31,6 +31,7 @@ module. They do not duplicate implementation guides or track unfinished work.
 | [ADR-0004](./0004-single-application-replica.md) | Operate one application replica until coordination is distributed |
 | [ADR-0005](./0005-explicit-provider-bindings.md) | Bind provider accounts explicitly to one stable platform account |
 | [ADR-0006](./0006-defer-background-rendering.md) | Defer server rendering and keep preview exclusively in the browser |
+| [ADR-0007](./0007-community-database-baseline.md) | Start Community TOSS from one new database baseline |
 
 Add a decision only for a durable, cross-cutting tradeoff. Current behavior and
 operations still belong in architecture and guide pages.

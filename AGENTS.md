@@ -68,9 +68,12 @@ The root `protocol/` directory and `backend/src/protocol/` form an integration
 boundary, not a shared domain model. Regenerate the checked-in OpenAPI and web
 types together after a wire change.
 
-Published database migrations are immutable. Add a forward migration for
-schema changes; never edit, renumber, delete, or consolidate released files.
-Validate both a fresh database and an upgrade from the latest release when a
+Community TOSS begins with `202607120001_baseline.sql` and intentionally does
+not support in-place upgrades from earlier TOSS database histories. That
+baseline is checksum-compatible with the audited pre-extraction schema and is
+immutable. Add a forward migration for schema changes; never edit, renumber,
+delete, or consolidate the baseline or any published migration. Validate both
+a fresh database and an upgrade from the latest Community release when a
 migration transforms existing data.
 
 ## Distribution boundary
