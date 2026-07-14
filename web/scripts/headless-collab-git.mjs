@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
@@ -59,11 +60,13 @@ async function parseJson(res) {
 }
 
 async function bearerApi(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -116,7 +119,7 @@ async function registerOrLogin(email, password, displayName) {
 }
 
 async function login(page, email, password) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -150,8 +153,7 @@ async function waitForCollaboratorName(page, expected, timeoutMs = 10000) {
   const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
   while (Date.now() - start < timeoutMs) {
     const info = await page.evaluate(() => {
-      const pills = Array.from(document.querySelectorAll(".panel-status .status-pill"));
-      const collab = pills.find((node) => (node.textContent || "").includes("👥"));
+      const collab = document.querySelector(".panel-status-toolbar .editor-peer-count");
       if (!collab) return { text: "", title: "" };
       return {
         text: collab.textContent || "",
@@ -284,20 +286,8 @@ async function main() {
     await login(pageB, collaborator.email, collaborator.password);
     await openWorkspace(pageA, projectId);
     await openWorkspace(pageB, projectId);
-    await pageA.waitForFunction(
-      () => !!document.querySelector(".panel-status .status-pill.ok, .panel-status .status-pill.warn"),
-      undefined,
-      {
-        timeout: 30000
-      }
-    );
-    await pageB.waitForFunction(
-      () => !!document.querySelector(".panel-status .status-pill.ok, .panel-status .status-pill.warn"),
-      undefined,
-      {
-        timeout: 30000
-      }
-    );
+    await pageA.getByText("Online", { exact: true }).waitFor({ timeout: 30000 });
+    await pageB.getByText("Online", { exact: true }).waitFor({ timeout: 30000 });
     await waitForCollaboratorName(pageA, "Git Collaborator", 15000);
     await waitForCanvas(pageA, 45000);
     await assertVisiblePreviewPage(pageA);

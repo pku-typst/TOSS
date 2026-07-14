@@ -1,16 +1,23 @@
 import { UiButton } from "@/components/ui";
-import { ChevronDown, Eye, FileText, FolderOpen, History, LayoutGrid, LogOut, Settings, UserRound } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-type ToolbarProject = {
-  id: string;
-  name: string;
-  archived?: boolean;
-};
+import {
+  Eye,
+  FileText,
+  FolderOpen,
+  History,
+  LayoutGrid,
+  LoaderCircle,
+  LogOut,
+  Pencil,
+  Settings,
+  UserRound
+} from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { Translator, UiLocale } from "@/lib/i18n";
+import type { WorkspacePanelView } from "@/pages/workspace/types";
 
 export function WorkspaceToolbar({
   projectId,
-  projects,
+  projectName,
   showFilesPanel,
   showPreviewPanel,
   showProjectSettingsPanel,
@@ -18,7 +25,6 @@ export function WorkspaceToolbar({
   collapsePanelsIntoMenu,
   singlePanelMode,
   activePanel,
-  onProjectChange,
   onRenameProject,
   canRenameProject,
   onToggleFiles,
@@ -31,235 +37,273 @@ export function WorkspaceToolbar({
   onOpenProfile,
   onLogout,
   readOnly,
+  locale,
+  onLocaleChange,
   t
 }: {
   projectId: string;
-  projects: ToolbarProject[];
+  projectName: string;
   showFilesPanel: boolean;
   showPreviewPanel: boolean;
   showProjectSettingsPanel: boolean;
   showRevisionPanel: boolean;
   collapsePanelsIntoMenu: boolean;
   singlePanelMode: boolean;
-  activePanel: "editor" | "files" | "preview" | "settings" | "revisions";
-  onProjectChange: (projectId: string) => void;
-  onRenameProject: () => void;
+  activePanel: WorkspacePanelView;
+  onRenameProject: (nextName: string) => Promise<boolean>;
   canRenameProject: boolean;
   onToggleFiles: () => void;
   onTogglePreview: () => void;
   onToggleSettings: () => void;
   onToggleRevisions: () => void;
-  onSelectPanel: (panel: "editor" | "files" | "preview" | "settings" | "revisions") => void;
+  onSelectPanel: (panel: WorkspacePanelView) => void;
   showAccountControlsInViewMenu: boolean;
   accountDisplayName: string | null;
   onOpenProfile: () => void;
   onLogout: () => void;
   readOnly: boolean;
-  t: (key: string) => string;
+  locale: UiLocale;
+  onLocaleChange: (locale: UiLocale) => void;
+  t: Translator;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [viewMenuOpen, setViewMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const viewMenuRef = useRef<HTMLDivElement | null>(null);
-  const currentProject = useMemo(() => projects.find((item) => item.id === projectId) ?? null, [projectId, projects]);
-  const otherProjects = useMemo(
-    () => projects.filter((item) => item.id !== projectId && !item.archived),
-    [projectId, projects]
-  );
+  const [editingProjectName, setEditingProjectName] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState(projectName);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const projectNameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameInFlightRef = useRef(false);
+  const ignoreNextBlurRef = useRef(false);
+  const viewMenuId = "workspace-view-menu-" + projectId;
+  const closePopover = (id: string) => document.getElementById(id)?.hidePopover();
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [menuOpen]);
+    if (!editingProjectName) {
+      setProjectNameDraft(projectName);
+    }
+  }, [editingProjectName, projectName]);
 
   useEffect(() => {
-    if (!viewMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!viewMenuRef.current) return;
-      if (!viewMenuRef.current.contains(event.target as Node)) {
-        setViewMenuOpen(false);
+    if (!editingProjectName) return;
+    projectNameInputRef.current?.focus();
+    projectNameInputRef.current?.select();
+  }, [editingProjectName]);
+
+  function beginProjectRename() {
+    if (!canRenameProject) return;
+    setProjectNameDraft(projectName);
+    setEditingProjectName(true);
+  }
+
+  function cancelProjectRename() {
+    setProjectNameDraft(projectName);
+    setEditingProjectName(false);
+  }
+
+  async function commitProjectRename() {
+    if (ignoreNextBlurRef.current) {
+      ignoreNextBlurRef.current = false;
+      return;
+    }
+    if (renameInFlightRef.current) return;
+
+    const nextName = projectNameDraft.trim();
+    if (!nextName || nextName === projectName) {
+      setProjectNameDraft(projectName);
+      setEditingProjectName(false);
+      return;
+    }
+
+    renameInFlightRef.current = true;
+    setRenameBusy(true);
+    try {
+      if (await onRenameProject(nextName)) {
+        setEditingProjectName(false);
+      } else {
+        requestAnimationFrame(() => projectNameInputRef.current?.focus());
       }
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [viewMenuOpen]);
+    } finally {
+      renameInFlightRef.current = false;
+      setRenameBusy(false);
+    }
+  }
+
+  function handleProjectNameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.blur();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      ignoreNextBlurRef.current = true;
+      event.currentTarget.blur();
+      cancelProjectRename();
+    }
+  }
 
   return (
     <div className="workspace-topbar-controls">
-      <div className="workspace-project-menu-wrap" ref={menuRef}>
-        <button
-          type="button"
-          className="workspace-project-title-button"
-          onClick={() => setMenuOpen((open) => !open)}
-          aria-label={t("nav.projects")}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-        >
-          <span className="workspace-project-title">{currentProject?.name ?? t("common.loading")}</span>
-          {readOnly && <span className="workspace-project-readonly">{t("workspace.readOnlyTag")}</span>}
-          <ChevronDown className="workspace-project-chevron" size={14} aria-hidden />
-        </button>
-        {menuOpen && (
-          <div className="workspace-project-menu" role="menu">
-            {canRenameProject && (
-              <button
-                type="button"
-                className="workspace-project-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onRenameProject();
-                }}
-              >
-                {t("common.rename")}
-              </button>
-            )}
-            {canRenameProject && otherProjects.length > 0 && <div className="workspace-project-menu-divider" aria-hidden />}
-            {otherProjects.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="workspace-project-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onProjectChange(item.id);
-                }}
-              >
-                {item.name}
-              </button>
-            ))}
+      <div className="workspace-project-title-wrap">
+        {editingProjectName ? (
+          <div className="workspace-project-title-editor">
+            <input
+              ref={projectNameInputRef}
+              className="workspace-project-title-input"
+              value={projectNameDraft}
+              onChange={(event) => setProjectNameDraft(event.target.value)}
+              onKeyDown={handleProjectNameKeyDown}
+              onBlur={() => void commitProjectRename()}
+              aria-label={t("projects.rename")}
+              disabled={renameBusy}
+              spellCheck={false}
+            />
+            {renameBusy && <LoaderCircle className="workspace-project-title-spinner" size={14} aria-hidden />}
           </div>
+        ) : canRenameProject ? (
+          <button
+            type="button"
+            className="workspace-project-title-button"
+            onClick={beginProjectRename}
+            aria-label={`${t("projects.rename")}: ${projectName}`}
+            title={t("projects.rename")}
+          >
+            <span className="workspace-project-title">{projectName || t("common.loading")}</span>
+            <Pencil className="workspace-project-edit-icon" size={13} aria-hidden />
+          </button>
+        ) : (
+          <span className="workspace-project-title-static">
+            <span className="workspace-project-title">{projectName || t("common.loading")}</span>
+          </span>
         )}
+        {readOnly && <span className="workspace-project-readonly">{t("workspace.readOnlyTag")}</span>}
       </div>
       <div className="workspace-icon-toggles">
         {collapsePanelsIntoMenu ? (
-          <div className="workspace-view-menu-wrap" ref={viewMenuRef}>
-            <UiButton
+          <div className="workspace-view-menu-wrap">
+            <nve-button
               className="icon-toggle"
+              role="button"
+              container="flat"
+              aria-label={t("workspace.view")}
+              title={t("workspace.view")}
               aria-haspopup="menu"
-              aria-expanded={viewMenuOpen}
-              onClick={() => setViewMenuOpen((open) => !open)}
+              popovertarget={viewMenuId}
             >
               <LayoutGrid size={14} aria-hidden />
               <span>{t("workspace.view")}</span>
-            </UiButton>
-            {viewMenuOpen && (
-              <div className="workspace-view-menu" role="menu">
+            </nve-button>
+            <nve-dropdown
+              id={viewMenuId}
+              className="workspace-view-dropdown"
+              position="bottom"
+              alignment="end"
+            >
+              <nve-menu className="workspace-view-menu">
                 {singlePanelMode && (
-                  <button
-                    type="button"
-                    className={`workspace-view-menu-item ${activePanel === "editor" ? "active" : ""}`}
+                  <nve-menu-item
                     role="menuitem"
+                    current={activePanel === "editor" ? "page" : undefined}
                     onClick={() => {
-                      setViewMenuOpen(false);
+                      closePopover(viewMenuId);
                       onSelectPanel("editor");
                     }}
                   >
-                    <span className="view-item-icon" aria-hidden>
-                      <FileText size={14} />
-                    </span>
+                    <FileText size={14} aria-hidden />
                     <span>{t("workspace.editor")}</span>
-                  </button>
+                  </nve-menu-item>
                 )}
-                <button
-                  type="button"
-                  className={`workspace-view-menu-item ${showFilesPanel ? "active" : ""}`}
+                <nve-menu-item
                   role="menuitem"
+                  current={showFilesPanel ? "page" : undefined}
                   onClick={() => {
-                    setViewMenuOpen(false);
+                    closePopover(viewMenuId);
                     singlePanelMode ? onSelectPanel("files") : onToggleFiles();
                   }}
                 >
-                  <span className="view-item-icon" aria-hidden>
-                    <FolderOpen size={14} />
-                  </span>
+                  <FolderOpen size={14} aria-hidden />
                   <span>{t("workspace.files")}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`workspace-view-menu-item ${showPreviewPanel ? "active" : ""}`}
+                </nve-menu-item>
+                <nve-menu-item
                   role="menuitem"
+                  current={showPreviewPanel ? "page" : undefined}
                   onClick={() => {
-                    setViewMenuOpen(false);
+                    closePopover(viewMenuId);
                     singlePanelMode ? onSelectPanel("preview") : onTogglePreview();
                   }}
                 >
-                  <span className="view-item-icon" aria-hidden>
-                    <Eye size={14} />
-                  </span>
+                  <Eye size={14} aria-hidden />
                   <span>{t("workspace.preview")}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`workspace-view-menu-item ${showProjectSettingsPanel ? "active" : ""}`}
+                </nve-menu-item>
+                <nve-menu-item
                   role="menuitem"
+                  current={showProjectSettingsPanel ? "page" : undefined}
                   onClick={() => {
-                    setViewMenuOpen(false);
+                    closePopover(viewMenuId);
                     singlePanelMode ? onSelectPanel("settings") : onToggleSettings();
                   }}
                 >
-                  <span className="view-item-icon" aria-hidden>
-                    <Settings size={14} />
-                  </span>
+                  <Settings size={14} aria-hidden />
                   <span>{t("workspace.settings")}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`workspace-view-menu-item ${showRevisionPanel ? "active" : ""}`}
+                </nve-menu-item>
+                <nve-menu-item
                   role="menuitem"
+                  current={showRevisionPanel ? "page" : undefined}
                   onClick={() => {
-                    setViewMenuOpen(false);
+                    closePopover(viewMenuId);
                     singlePanelMode ? onSelectPanel("revisions") : onToggleRevisions();
                   }}
                 >
-                  <span className="view-item-icon" aria-hidden>
-                    <History size={14} />
-                  </span>
+                  <History size={14} aria-hidden />
                   <span>{t("workspace.revisions")}</span>
-                </button>
+                </nve-menu-item>
+                <nve-divider />
+                <nve-menu-item
+                  role="menuitemradio"
+                  current={locale === "en" ? "page" : undefined}
+                  onClick={() => {
+                    closePopover(viewMenuId);
+                    onLocaleChange("en");
+                  }}
+                >
+                  <span>{t("language.english")}</span>
+                </nve-menu-item>
+                <nve-menu-item
+                  role="menuitemradio"
+                  current={locale === "zh-CN" ? "page" : undefined}
+                  onClick={() => {
+                    closePopover(viewMenuId);
+                    onLocaleChange("zh-CN");
+                  }}
+                >
+                  <span>{t("language.chineseSimplified")}</span>
+                </nve-menu-item>
                 {showAccountControlsInViewMenu && (
                   <>
-                    <div className="workspace-view-menu-divider" aria-hidden />
-                    <button
-                      type="button"
-                      className="workspace-view-menu-item"
+                    <nve-divider />
+                    <nve-menu-item
                       role="menuitem"
                       onClick={() => {
-                        setViewMenuOpen(false);
+                        closePopover(viewMenuId);
                         onOpenProfile();
                       }}
                     >
-                      <span className="view-item-icon" aria-hidden>
-                        <UserRound size={14} />
-                      </span>
+                      <UserRound size={14} aria-hidden />
                       <span>{accountDisplayName || t("nav.profile")}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="workspace-view-menu-item"
+                    </nve-menu-item>
+                    <nve-menu-item
                       role="menuitem"
+                      status="danger"
                       onClick={() => {
-                        setViewMenuOpen(false);
+                        closePopover(viewMenuId);
                         onLogout();
                       }}
                     >
-                      <span className="view-item-icon" aria-hidden>
-                        <LogOut size={14} />
-                      </span>
+                      <LogOut size={14} aria-hidden />
                       <span>{t("nav.logout")}</span>
-                    </button>
+                    </nve-menu-item>
                   </>
                 )}
-              </div>
-            )}
+              </nve-menu>
+            </nve-dropdown>
           </div>
         ) : (
           <>

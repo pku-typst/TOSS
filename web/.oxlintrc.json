@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "allow"
+  },
+  "plugins": ["react"],
+  "options": {
+    "reportUnusedDisableDirectives": "deny"
+  },
+  "rules": {
+    "react-hooks/exhaustive-deps": "error",
+    "react-hooks/rules-of-hooks": "error"
+  },
+  "ignorePatterns": ["dist/**", "public/**"]
+}

@@ -1,0 +1,213 @@
+---
+title: "Deployment and operations"
+summary: "Image variants, persistent state, secrets, limits, health, backups, and rollout constraints."
+status: current
+type: guide
+scope: community
+audience:
+  - operator
+  - contributor
+  - coding-agent
+topics:
+  - deployment
+  - operations
+  - persistence
+  - security
+related:
+  - docs/community/configuration/README.md
+  - docs/community/architecture/overview.md
+  - docs/community/runtimes/typst.md
+code_paths:
+  - backend/Dockerfile
+  - docker-compose.yml
+  - .env.example
+  - backend/migrations
+---
+
+# Deployment and operations
+
+## Deployment unit
+
+Production uses one application image containing:
+
+- the Rust/Axum API and background workers;
+- database migrations;
+- the precompressed React SPA;
+- versioned distribution files;
+- the selected built-in Typst catalog.
+
+PostgreSQL is required. S3-compatible storage is optional and recommended for
+production project assets. An external Git provider is a durability target,
+not a prerequisite for normal editing.
+
+## Image variants
+
+`backend/Dockerfile` accepts one build argument:
+
+```bash
+docker build -f backend/Dockerfile \
+  --build-arg TOSS_DISTRIBUTION=community \
+  -t typst-collaboration:<immutable-tag> .
+```
+
+`community` includes Typst and optional LaTeX. A downstream distribution may
+produce a smaller Typst-only frontend without the LaTeX worker, CodeMirror
+LaTeX language bundle, or BusyTeX WASM/data files.
+
+The final image sets `TOSS_CONFIG` to the matching in-image distribution. An
+operator may override it only with a capability-compatible config. Use immutable
+commit-derived image tags in deployment manifests; do not infer a tag from a
+different repository's commit.
+
+## Persistent state
+
+| State | Default location | Production expectation |
+| --- | --- | --- |
+| Users, sessions, RBAC, projects, documents, Yjs updates/snapshots, PDF artifacts, external Git jobs | PostgreSQL | Managed PostgreSQL with backups |
+| Project assets | Inline PostgreSQL bytes or S3-compatible storage | S3/MinIO for large or numerous assets |
+| Git repositories/revision history and thumbnails | `DATA_DIR` / `GIT_STORAGE_PATH` | Persistent volume with backup |
+| Typst Universe cache | `TYPST_PACKAGE_CACHE_DIR` | Bounded local cache; reproducible from upstream/catalog |
+| Built-in packages and fonts | Image or mounted catalog | Immutable, versioned release input |
+
+External Git checkpoints are not the primary live-editing store. A provider
+outage should affect repository operations and requested checkpoints, while
+existing authenticated users continue editing against workspace storage.
+
+PDF artifacts are currently stored directly in PostgreSQL. Include them in
+database capacity and retention planning; configuring S3 does not move existing
+or new PDF artifacts out of the database.
+
+## Replica and filesystem constraint
+
+Run one application replica. WebSocket fan-out and per-project Git worktree
+locks are process-local, so two replicas can accept collaborators that cannot
+see each other's live events and can race while mutating the same repository.
+A shared database, shared volume, or sticky sessions do not fully remove this
+constraint. Horizontal scaling first requires a shared realtime bus and
+distributed Git locking.
+
+The application volume must be mounted read-write and survive pod replacement.
+Losing it loses local Git revision history even when the live document rows in
+PostgreSQL remain intact. Back up PostgreSQL and the Git volume as one logical
+recovery point; object storage follows its own versioning/backup policy.
+
+## Configuration and secrets
+
+Use `.env.example` as the canonical common application template. At minimum a
+production deployment must provide:
+
+- `DATABASE_URL`;
+- a high-entropy `SESSION_SECRET`;
+- `COOKIE_SECURE=true` behind HTTPS;
+- `TOSS_CONFIG` if the in-image default is not used;
+- persistent `DATA_DIR`/`GIT_STORAGE_PATH`;
+- the selected authentication configuration.
+
+OIDC deployments additionally configure `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+`OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, the groups claim, and user-facing
+`IDENTITY_PROVIDER_ID`/`IDENTITY_PROVIDER_DISPLAY_NAME` metadata.
+
+External repository support is optional. Set `EXTERNAL_GIT_CONFIG` to the
+public provider-registry TOML, provide one deployment encryption key and the
+derived per-instance client-secret variables, and register one callback per
+instance. Generic OIDC credentials are never reused for repository access.
+Provider schemas, callback paths, scopes, brand rules, and secret names have one
+canonical reference: [External Git configuration](../configuration/external-git.md).
+
+Set `OIDC_REDIRECT_URI` to exactly one of the supported callback routes and
+register that exact absolute URL in the provider application:
+
+- `/v1/auth/oidc/callback` for a generic OIDC naming convention; or
+- `/v1/auth/gitlab/callback` when GitLab is the configured issuer.
+
+The two routes are aliases, not two independent OAuth clients.
+
+The public auth configuration returns an ordered `identity_providers` list.
+Generic OIDC and each external provider with login enabled appear as separate
+buttons. Provider-login account binding and email-conflict semantics are
+described in [Identity and access](../architecture/identity-and-access.md).
+
+Authentication settings normally live in PostgreSQL and are editable by a site
+administrator. Non-empty `OIDC_*` values and explicit `AUTH_*` values in the
+environment override the database at runtime; use that mechanism only for
+deployment-managed policy.
+
+The service does not create a default administrator or print a one-time
+password. Before the intended administrator first signs in or registers, set
+`BOOTSTRAP_ADMIN_EMAILS` to a comma-separated list of exact email addresses.
+Each matching account is promoted after successful authentication. Remove the
+bootstrap value after verifying administrator access if ongoing promotion is
+not desired.
+
+Distribution JSON is not a secret store. Keep passwords, OAuth secrets, token
+encryption keys, S3 credentials, and session keys in Kubernetes Secrets or an
+equivalent secret manager.
+
+## Request and package limits
+
+`MAX_REQUEST_BODY_BYTES` defaults to 64 MiB and bounds HTTP uploads, including
+uploads whose final backing store is S3. Uploads currently pass through and are
+buffered by the application; there is no multipart or presigned direct-to-S3
+path yet. Raising the limit therefore requires application-memory, ingress
+timeout/body-size, and storage capacity review. S3 reduces PostgreSQL growth,
+but does not bypass this request limit.
+
+Typst package downloads are guarded by archive, extracted-size, per-file, file
+count, and total-cache limits. Keep the `TYPST_PACKAGE_*` values aligned with
+the policy in `.env.example`; disabling `TYPST_UNIVERSE_ENABLED` leaves only the
+built-in catalog available.
+
+Community LaTeX has a separate `DATA_DIR/texlive` cache and
+`LATEX_TEXLIVE_*` limits. Its BusyTeX/TeX Live 2026 browser assets are
+revision/hash pinned, and the default on-demand endpoint matches that build.
+Production Community deployments may use a monitored, compatible immutable
+mirror; see
+[Community LaTeX runtime](../runtimes/latex.md). These settings have no effect
+in a Typst-only distribution.
+
+External Git checkpoints and branch imports are asynchronous: each request
+records a durable queue item instead of keeping an HTTP request open for a
+clone/pull/push. `EXTERNAL_GIT_COMMAND_TIMEOUT_SECONDS`
+defaults to 600 seconds for each authenticated Git command, and transient
+failures enter bounded retry. Inbound concurrency and repository limits use
+`EXTERNAL_GIT_INBOUND_WORKER_*` and `EXTERNAL_GIT_IMPORT_MAX_*`. Direct Git
+smart-HTTP traffic waits for the Git subprocess and post-push Workspace apply;
+`GIT_HTTP_BACKEND_TIMEOUT_SECONDS` bounds the subprocess at 120 seconds by
+default. The ingress timeout must still accommodate the largest supported
+clone, pull, or push without exceeding that application deadline. Direct-Git
+request bodies are currently buffered; subprocess output is spooled to a
+temporary file and streamed to the client. Memory capacity therefore remains
+part of request-limit review, while temporary-disk capacity bounds responses.
+
+## Health, startup, and rollout
+
+- `GET /health` is the application health endpoint.
+- Startup validates the distribution schema and referenced catalog/templates,
+  connects to PostgreSQL, and runs migrations before listening.
+- A malformed capability set or a missing required artifact fails startup
+  instead of silently falling back.
+- Roll out an immutable image, wait for health, and verify `/v1/auth/config`
+  reports the expected `distribution_id` and `enabled_project_types`.
+- For a Typst-only image, also verify the project creation UI has no type
+  selector and the image contains no `/app/web-dist/busytex` directory.
+
+Migration filenames and contents are immutable after publication. Fresh
+databases run the complete history; existing databases apply only newer
+migrations. Do not replace released history with a consolidated baseline.
+Back up PostgreSQL and persistent Git data before a release that changes
+storage schemas or Git history behavior. Object storage should use its own
+versioning and backup policy.
+
+## Deployment overlay boundary
+
+Application behavior and generic image construction live in this repository.
+A deployment repository owns its namespace and orchestration resources,
+Services, ingress and domains, resource requests and limits, immutable image
+reference, Secrets, volumes, and live rollout state. Exact live values belong
+in that repository and cluster rather than in the Community application Wiki.
+
+## Related
+
+- [Configuration index](../configuration/README.md)
+- [Architecture overview](../architecture/overview.md)
+- [Typst runtime](../runtimes/typst.md)

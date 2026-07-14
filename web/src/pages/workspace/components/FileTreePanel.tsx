@@ -3,6 +3,7 @@ import { Archive, FilePlus2, FolderPlus, Upload } from "lucide-react";
 import { UiIconButton } from "@/components/ui";
 import { TreeNodeRow } from "@/pages/workspace/components/TreeNodeRow";
 import type { ContextMenuState, ProjectTreeNodeView } from "@/pages/workspace/types";
+import type { Translator } from "@/lib/i18n";
 
 export function FileTreePanel({
   width,
@@ -41,13 +42,13 @@ export function FileTreePanel({
   setExpandedDirs: (next: Set<string>) => void;
   onOpenTreePath: (path: string) => void;
   onRequestContextMenu: (menu: ContextMenuState) => void;
-  t: (key: string) => string;
+  t: Translator;
 }) {
   return (
     <aside className="panel panel-files" style={{ width }}>
       <div className="panel-header workspace-main-header">
         <h2>{t("workspace.files")}</h2>
-        <div className="toolbar compact">
+        <nve-toolbar className="panel-toolbar" container="inset" content="wrap">
           <UiIconButton
             tooltip={t("workspace.newFile")}
             label={t("workspace.newFile")}
@@ -75,7 +76,7 @@ export function FileTreePanel({
           <UiIconButton tooltip={t("preview.downloadZip")} label={t("preview.downloadZip")} onClick={onDownloadArchive}>
             <Archive size={16} />
           </UiIconButton>
-        </div>
+        </nve-toolbar>
       </div>
       <div
         className={`panel-content ${filesDropActive ? "drop-active" : ""}`}
@@ -94,6 +95,7 @@ export function FileTreePanel({
               onOpen={onOpenTreePath}
               canManage={canWrite && !isRevisionMode}
               onRequestContextMenu={onRequestContextMenu}
+              t={t}
             />
           ))}
         </div>

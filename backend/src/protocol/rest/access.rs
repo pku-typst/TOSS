@@ -1,0 +1,293 @@
+use super::ApiErrorResponse;
+use crate::access::{
+    AdminAuthSettingsResponse, AuthConfigResponse, AuthMeResponse, CreateOrganizationInput,
+    CreatePatInput, CreatePatResponse, CreateProjectShareLinkInput, CreateProjectShareLinkResponse,
+    JoinProjectShareLinkResponse, LocalLoginInput, LocalRegisterInput, OrgGroupRoleMapping,
+    Organization, OrganizationListResponse, OrganizationMembershipListResponse,
+    PersonalAccessTokenListResponse, ProjectAccessUserListResponse, ProjectGroupRoleBinding,
+    ProjectOrganizationAccess, ProjectRoleBinding, ProjectShareLink,
+    ResolveProjectShareLinkResponse, SessionResponse, TemporaryShareLoginInput,
+    TemporaryShareLoginResponse, UpsertAdminAuthSettingsInput, UpsertOrgGroupRoleMappingInput,
+    UpsertProjectGroupRoleInput, UpsertProjectOrganizationAccessInput, UpsertRoleInput,
+};
+
+json_operation!(
+    auth_config,
+    get,
+    "/v1/auth/config",
+    "identity-access",
+    200,
+    AuthConfigResponse
+);
+json_operation!(
+    local_login,
+    post,
+    "/v1/auth/local/login",
+    "identity-access",
+    LocalLoginInput,
+    200,
+    SessionResponse
+);
+json_operation!(
+    local_register,
+    post,
+    "/v1/auth/local/register",
+    "identity-access",
+    LocalRegisterInput,
+    200,
+    SessionResponse
+);
+empty_operation!(
+    oidc_login,
+    get,
+    "/v1/auth/oidc/login",
+    "identity-access",
+    307
+);
+empty_operation!(
+    oidc_callback,
+    get,
+    "/v1/auth/oidc/callback",
+    "identity-access",
+    307
+);
+empty_operation!(
+    gitlab_login,
+    get,
+    "/v1/auth/gitlab/login",
+    "identity-access",
+    307
+);
+empty_operation!(
+    gitlab_callback,
+    get,
+    "/v1/auth/gitlab/callback",
+    "identity-access",
+    307
+);
+json_operation!(
+    auth_me,
+    get,
+    "/v1/auth/me",
+    "identity-access",
+    200,
+    AuthMeResponse
+);
+empty_operation!(auth_logout, post, "/v1/auth/logout", "identity-access", 204);
+
+json_operation!(
+    list_personal_access_tokens,
+    get,
+    "/v1/profile/security/tokens",
+    "identity-access",
+    200,
+    PersonalAccessTokenListResponse
+);
+json_operation!(
+    create_personal_access_token,
+    post,
+    "/v1/profile/security/tokens",
+    "identity-access",
+    CreatePatInput,
+    200,
+    CreatePatResponse
+);
+empty_operation!(
+    revoke_personal_access_token,
+    delete,
+    "/v1/profile/security/tokens/{token_id}",
+    "identity-access",
+    204
+);
+
+json_operation!(
+    list_organizations,
+    get,
+    "/v1/organizations",
+    "identity-access",
+    200,
+    OrganizationListResponse
+);
+json_operation!(
+    create_organization,
+    post,
+    "/v1/organizations",
+    "identity-access",
+    CreateOrganizationInput,
+    200,
+    Organization
+);
+json_operation!(
+    list_my_organizations,
+    get,
+    "/v1/organizations/mine",
+    "identity-access",
+    200,
+    OrganizationMembershipListResponse
+);
+
+json_array_operation!(
+    list_project_roles,
+    get,
+    "/v1/projects/{project_id}/roles",
+    "identity-access",
+    200,
+    ProjectRoleBinding
+);
+json_operation!(
+    upsert_project_role,
+    post,
+    "/v1/projects/{project_id}/roles",
+    "identity-access",
+    UpsertRoleInput,
+    200,
+    ProjectRoleBinding
+);
+json_operation!(
+    list_project_access_users,
+    get,
+    "/v1/projects/{project_id}/access-users",
+    "identity-access",
+    200,
+    ProjectAccessUserListResponse
+);
+json_array_operation!(
+    list_project_organization_access,
+    get,
+    "/v1/projects/{project_id}/organization-access",
+    "identity-access",
+    200,
+    ProjectOrganizationAccess
+);
+json_operation!(
+    upsert_project_organization_access,
+    put,
+    "/v1/projects/{project_id}/organization-access/{org_id}",
+    "identity-access",
+    UpsertProjectOrganizationAccessInput,
+    200,
+    ProjectOrganizationAccess
+);
+empty_operation!(
+    delete_project_organization_access,
+    delete,
+    "/v1/projects/{project_id}/organization-access/{org_id}",
+    "identity-access",
+    204
+);
+json_array_operation!(
+    list_project_share_links,
+    get,
+    "/v1/projects/{project_id}/share-links",
+    "identity-access",
+    200,
+    ProjectShareLink
+);
+json_operation!(
+    create_project_share_link,
+    post,
+    "/v1/projects/{project_id}/share-links",
+    "identity-access",
+    CreateProjectShareLinkInput,
+    200,
+    CreateProjectShareLinkResponse
+);
+empty_operation!(
+    revoke_project_share_link,
+    delete,
+    "/v1/projects/{project_id}/share-links/{share_link_id}",
+    "identity-access",
+    204
+);
+json_array_operation!(
+    list_project_group_roles,
+    get,
+    "/v1/projects/{project_id}/group-roles",
+    "identity-access",
+    200,
+    ProjectGroupRoleBinding
+);
+json_operation!(
+    upsert_project_group_role,
+    post,
+    "/v1/projects/{project_id}/group-roles",
+    "identity-access",
+    UpsertProjectGroupRoleInput,
+    200,
+    ProjectGroupRoleBinding
+);
+empty_operation!(
+    delete_project_group_role,
+    delete,
+    "/v1/projects/{project_id}/group-roles/{group_name}",
+    "identity-access",
+    204
+);
+
+json_operation!(
+    resolve_project_share,
+    get,
+    "/v1/share/{token}/resolve",
+    "identity-access",
+    200,
+    ResolveProjectShareLinkResponse
+);
+json_operation!(
+    temporary_share_login,
+    post,
+    "/v1/share/{token}/temporary-login",
+    "identity-access",
+    TemporaryShareLoginInput,
+    200,
+    TemporaryShareLoginResponse
+);
+json_operation!(
+    join_project_share,
+    post,
+    "/v1/share/{token}/join",
+    "identity-access",
+    200,
+    JoinProjectShareLinkResponse
+);
+
+json_array_operation!(
+    list_org_group_role_mappings,
+    get,
+    "/v1/admin/orgs/{org_id}/oidc-group-role-mappings",
+    "identity-access",
+    200,
+    OrgGroupRoleMapping
+);
+json_operation!(
+    upsert_org_group_role_mapping,
+    post,
+    "/v1/admin/orgs/{org_id}/oidc-group-role-mappings",
+    "identity-access",
+    UpsertOrgGroupRoleMappingInput,
+    200,
+    OrgGroupRoleMapping
+);
+empty_operation!(
+    delete_org_group_role_mapping,
+    delete,
+    "/v1/admin/orgs/{org_id}/oidc-group-role-mappings/{group_name}",
+    "identity-access",
+    204
+);
+json_operation!(
+    get_admin_auth_settings,
+    get,
+    "/v1/admin/settings/auth",
+    "identity-access",
+    200,
+    AdminAuthSettingsResponse
+);
+json_operation!(
+    upsert_admin_auth_settings,
+    put,
+    "/v1/admin/settings/auth",
+    "identity-access",
+    UpsertAdminAuthSettingsInput,
+    200,
+    AdminAuthSettingsResponse
+);

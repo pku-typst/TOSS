@@ -1,0 +1,242 @@
+use super::ApiErrorResponse;
+use crate::workspace::{
+    CreateDocumentInput, CreateProjectCopyInput, CreateProjectFileInput, CreateProjectInput,
+    Document, DocumentsResponse, MoveProjectFileInput, PdfArtifact, Project, ProjectAsset,
+    ProjectAssetContentResponse, ProjectAssetListResponse, ProjectListResponse, ProjectSettings,
+    ProjectTreeResponse, UpdateDocumentInput, UpdateProjectArchivedInput,
+    UpdateProjectEntryFileInput, UpdateProjectLatexEngineInput, UpdateProjectNameInput,
+    UploadAssetInput, UploadPdfArtifactInput, UploadProjectThumbnailInput,
+    UpsertDocumentByPathInput,
+};
+
+json_operation!(
+    list_projects,
+    get,
+    "/v1/projects",
+    "workspace",
+    200,
+    ProjectListResponse
+);
+json_operation!(
+    create_project,
+    post,
+    "/v1/projects",
+    "workspace",
+    CreateProjectInput,
+    200,
+    Project
+);
+empty_operation!(
+    rename_project,
+    patch,
+    "/v1/projects/{project_id}",
+    "workspace",
+    UpdateProjectNameInput,
+    204
+);
+json_operation!(
+    copy_project,
+    post,
+    "/v1/projects/{project_id}/copy",
+    "workspace",
+    CreateProjectCopyInput,
+    200,
+    Project
+);
+binary_operation!(
+    project_thumbnail,
+    get,
+    "/v1/projects/{project_id}/thumbnail",
+    "workspace",
+    "image/*"
+);
+empty_operation!(
+    upload_project_thumbnail,
+    put,
+    "/v1/projects/{project_id}/thumbnail",
+    "workspace",
+    UploadProjectThumbnailInput,
+    204
+);
+
+json_operation!(
+    project_tree,
+    get,
+    "/v1/projects/{project_id}/tree",
+    "workspace",
+    200,
+    ProjectTreeResponse
+);
+empty_operation!(
+    create_project_file,
+    post,
+    "/v1/projects/{project_id}/files",
+    "workspace",
+    CreateProjectFileInput,
+    204
+);
+empty_operation!(
+    move_project_file,
+    patch,
+    "/v1/projects/{project_id}/files/move",
+    "workspace",
+    MoveProjectFileInput,
+    204
+);
+empty_operation!(
+    delete_project_file,
+    delete,
+    "/v1/projects/{project_id}/files/{path}",
+    "workspace",
+    204
+);
+
+json_operation!(
+    project_settings,
+    get,
+    "/v1/projects/{project_id}/settings",
+    "workspace",
+    200,
+    ProjectSettings
+);
+json_operation!(
+    update_project_entry_file,
+    patch,
+    "/v1/projects/{project_id}/settings/entry-file",
+    "workspace",
+    UpdateProjectEntryFileInput,
+    200,
+    ProjectSettings
+);
+json_operation!(
+    update_project_latex_engine,
+    patch,
+    "/v1/projects/{project_id}/settings/latex-engine",
+    "workspace",
+    UpdateProjectLatexEngineInput,
+    200,
+    ProjectSettings
+);
+
+json_operation!(
+    list_documents,
+    get,
+    "/v1/projects/{project_id}/documents",
+    "workspace",
+    200,
+    DocumentsResponse
+);
+json_operation!(
+    create_document,
+    post,
+    "/v1/projects/{project_id}/documents",
+    "workspace",
+    CreateDocumentInput,
+    200,
+    Document
+);
+json_operation!(
+    upsert_document_by_path,
+    put,
+    "/v1/projects/{project_id}/documents/by-path/{path}",
+    "workspace",
+    UpsertDocumentByPathInput,
+    200,
+    Document
+);
+json_operation!(
+    get_document,
+    get,
+    "/v1/projects/{project_id}/documents/{document_id}",
+    "workspace",
+    200,
+    Document
+);
+json_operation!(
+    update_document,
+    put,
+    "/v1/projects/{project_id}/documents/{document_id}",
+    "workspace",
+    UpdateDocumentInput,
+    200,
+    Document
+);
+empty_operation!(
+    delete_document,
+    delete,
+    "/v1/projects/{project_id}/documents/{document_id}",
+    "workspace",
+    204
+);
+
+json_operation!(
+    list_project_assets,
+    get,
+    "/v1/projects/{project_id}/assets",
+    "workspace",
+    200,
+    ProjectAssetListResponse
+);
+json_operation!(
+    upload_project_asset,
+    post,
+    "/v1/projects/{project_id}/assets",
+    "workspace",
+    UploadAssetInput,
+    200,
+    ProjectAsset
+);
+json_operation!(
+    get_project_asset,
+    get,
+    "/v1/projects/{project_id}/assets/{asset_id}",
+    "workspace",
+    200,
+    ProjectAssetContentResponse
+);
+empty_operation!(
+    delete_project_asset,
+    delete,
+    "/v1/projects/{project_id}/assets/{asset_id}",
+    "workspace",
+    204
+);
+binary_operation!(
+    get_project_asset_raw,
+    get,
+    "/v1/projects/{project_id}/assets/{asset_id}/raw",
+    "workspace",
+    "application/octet-stream"
+);
+
+binary_operation!(
+    download_project_archive,
+    get,
+    "/v1/projects/{project_id}/archive",
+    "workspace",
+    "application/zip"
+);
+empty_operation!(
+    update_project_archived,
+    patch,
+    "/v1/projects/{project_id}/archive",
+    "workspace",
+    UpdateProjectArchivedInput,
+    204
+);
+json_operation!(
+    upload_pdf_artifact,
+    post,
+    "/v1/projects/{project_id}/pdf-artifacts",
+    "workspace",
+    UploadPdfArtifactInput,
+    200,
+    PdfArtifact
+);
+binary_operation!(
+    download_latest_pdf_artifact,
+    get,
+    "/v1/projects/{project_id}/pdf-artifacts/latest",
+    "workspace",
+    "application/pdf"
+);

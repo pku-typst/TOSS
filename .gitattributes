@@ -1,0 +1,4 @@
+prebuilt/typst-compiler/package/pkg/*.wasm filter=lfs diff=lfs merge=lfs -text
+prebuilt/busytex/package/*.wasm filter=lfs diff=lfs merge=lfs -text
+prebuilt/busytex/package/*.data filter=lfs diff=lfs merge=lfs -text
+prebuilt/busytex/package/*.js whitespace=-blank-at-eol,-space-before-tab,-blank-at-eof

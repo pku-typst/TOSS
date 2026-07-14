@@ -1,0 +1,19 @@
+{
+  "name": "@typst-collab/protocol-tools",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": "24.x",
+    "npm": "11.x"
+  },
+  "scripts": {
+    "check:types": "node scripts/protocol-types.mjs",
+    "generate:types": "node scripts/protocol-types.mjs --write"
+  },
+  "devDependencies": {
+    "js-yaml": "4.2.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "^5.9.3"
+  }
+}

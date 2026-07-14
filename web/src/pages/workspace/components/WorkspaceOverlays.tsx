@@ -2,7 +2,8 @@ import { AuthForm } from "@/components/AuthForm";
 import { UiButton, UiDialog, UiInput } from "@/components/ui";
 import type { AuthConfig } from "@/lib/api";
 import type { ContextMenuState, PathDialogState } from "@/pages/workspace/types";
-import type { ProjectCopyDialogState, ProjectRenameDialogState } from "@/types/project-ui";
+import type { ProjectCopyDialogState } from "@/types/project-ui";
+import type { Translator } from "@/lib/i18n";
 
 export function WorkspaceOverlays({
   contextMenu,
@@ -16,11 +17,6 @@ export function WorkspaceOverlays({
   onCloseCopyDialog,
   onCreateProjectFromTemplate,
   onChangeCopyName,
-  renameDialog,
-  renameBusy,
-  onCloseRenameDialog,
-  onSubmitProjectRename,
-  onChangeRenameName,
   pathDialog,
   onClosePathDialog,
   onSubmitPathDialog,
@@ -35,6 +31,7 @@ export function WorkspaceOverlays({
   authConfig,
   onSignedIn,
   guestAuthError,
+  guestAuthPending,
   onCloseAuthModal,
   t
 }: {
@@ -49,11 +46,6 @@ export function WorkspaceOverlays({
   onCloseCopyDialog: () => void;
   onCreateProjectFromTemplate: () => void;
   onChangeCopyName: (name: string) => void;
-  renameDialog: ProjectRenameDialogState | null;
-  renameBusy: boolean;
-  onCloseRenameDialog: () => void;
-  onSubmitProjectRename: () => void;
-  onChangeRenameName: (name: string) => void;
   pathDialog: PathDialogState | null;
   onClosePathDialog: () => void;
   onSubmitPathDialog: () => void;
@@ -68,34 +60,37 @@ export function WorkspaceOverlays({
   authConfig: AuthConfig | null;
   onSignedIn: () => Promise<void>;
   guestAuthError: string | null;
+  guestAuthPending: boolean;
   onCloseAuthModal: () => void;
-  t: (key: string) => string;
+  t: Translator;
 }) {
   return (
     <>
       {contextMenu && canWrite && (
-        <div className="context-menu context-menu-floating" style={{ left: contextMenu.x, top: contextMenu.y }}>
-          {contextMenu.kind === "directory" && (
-            <UiButton className="mini" size="sm" onClick={() => onAddPath("file", contextMenu.path)}>
-              {t("workspace.newFile")}
-            </UiButton>
-          )}
-          {contextMenu.kind === "directory" && (
-            <UiButton className="mini" size="sm" onClick={() => onAddPath("directory", contextMenu.path)}>
-              {t("workspace.newFolder")}
-            </UiButton>
-          )}
-          {contextMenu.kind === "directory" && (
-            <UiButton className="mini" size="sm" onClick={() => onUploadFromPicker(contextMenu.path)}>
-              {t("workspace.upload")}
-            </UiButton>
-          )}
-          <UiButton className="mini" size="sm" onClick={() => onRenamePath(contextMenu.path)}>
-            {t("common.rename")}
-          </UiButton>
-          <UiButton className="mini" size="sm" variant="danger" onClick={() => onRemovePath(contextMenu.path)}>
-            {t("common.delete")}
-          </UiButton>
+        <div className="context-menu-floating" style={{ left: contextMenu.x, top: contextMenu.y }}>
+          <nve-menu className="context-menu">
+            {contextMenu.kind === "directory" && (
+              <nve-menu-item role="menuitem" onClick={() => onAddPath("file", contextMenu.path)}>
+                {t("workspace.newFile")}
+              </nve-menu-item>
+            )}
+            {contextMenu.kind === "directory" && (
+              <nve-menu-item role="menuitem" onClick={() => onAddPath("directory", contextMenu.path)}>
+                {t("workspace.newFolder")}
+              </nve-menu-item>
+            )}
+            {contextMenu.kind === "directory" && (
+              <nve-menu-item role="menuitem" onClick={() => onUploadFromPicker(contextMenu.path)}>
+                {t("workspace.upload")}
+              </nve-menu-item>
+            )}
+            <nve-menu-item role="menuitem" onClick={() => onRenamePath(contextMenu.path)}>
+              {t("common.rename")}
+            </nve-menu-item>
+            <nve-menu-item role="menuitem" status="danger" onClick={() => onRemovePath(contextMenu.path)}>
+              {t("common.delete")}
+            </nve-menu-item>
+          </nve-menu>
         </div>
       )}
 
@@ -120,31 +115,6 @@ export function WorkspaceOverlays({
         <UiInput
           value={copyDialog?.suggestedName ?? ""}
           onChange={(event) => onChangeCopyName(event.target.value)}
-          placeholder={t("projects.namePlaceholder")}
-        />
-      </UiDialog>
-
-      <UiDialog
-        open={!!renameDialog}
-        title={t("projects.renameDialogTitle")}
-        description={renameDialog ? `${t("projects.renameDialogHint")} ${renameDialog.sourceName}` : undefined}
-        onClose={onCloseRenameDialog}
-        actions={
-          <>
-            <UiButton onClick={onCloseRenameDialog}>{t("common.cancel")}</UiButton>
-            <UiButton
-              variant="primary"
-              onClick={onSubmitProjectRename}
-              disabled={renameBusy || !renameDialog?.nextName.trim()}
-            >
-              {renameBusy ? t("common.loading") : t("projects.renameAction")}
-            </UiButton>
-          </>
-        }
-      >
-        <UiInput
-          value={renameDialog?.nextName ?? ""}
-          onChange={(event) => onChangeRenameName(event.target.value)}
           placeholder={t("projects.namePlaceholder")}
         />
       </UiDialog>
@@ -189,9 +159,9 @@ export function WorkspaceOverlays({
         title={canRequestGuestWrite ? t("share.guestEditTitle") : t("auth.signIn")}
         description={
           canRequestGuestWrite
-            ? `${t("share.guestEditDescription")} ${projectName}.`
+            ? t("share.guestEditDescription", { name: projectName })
             : isAnonymousShareTemplate
-              ? t("share.templateSavePrompt").replace("{name}", projectName)
+              ? t("share.templateSavePrompt", { name: projectName })
               : t("share.savePrompt")
         }
         onClose={onCloseAuthModal}
@@ -203,8 +173,12 @@ export function WorkspaceOverlays({
               onChange={(event) => onChangeGuestNameInput(event.target.value)}
               placeholder={t("share.yourName")}
             />
-            <UiButton variant="primary" onClick={onBeginTemporaryGuestEditing}>
-              {t("share.startGuestEdit")}
+            <UiButton
+              variant="primary"
+              onClick={onBeginTemporaryGuestEditing}
+              disabled={guestAuthPending || !guestNameInput.trim()}
+            >
+              {guestAuthPending ? t("common.loading") : t("share.startGuestEdit")}
             </UiButton>
             <div className="auth-divider">
               <span>{t("share.orLogin")}</span>

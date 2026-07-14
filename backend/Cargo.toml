@@ -2,34 +2,58 @@
 name = "core-api"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.97"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+allow_attributes_without_reason = "deny"
 
 [dependencies]
-argon2 = "0.5"
+aes-gcm = "0.11"
+argon2 = { version = "0.5", features = ["std"] }
 aws-config = "1"
 aws-credential-types = "1"
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { version = "1", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 axum = { version = "0.8", features = ["ws", "macros"] }
-axum-extra = { version = "0.10", features = ["cookie"] }
+axum-extra = { version = "0.12", features = ["cookie"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 futures = "0.3"
-git2 = "0.20"
+flate2 = "1"
+git2 = { version = "0.21", features = ["https", "ssh"] }
+hex = "0.4"
 openidconnect = "4"
-rand = "0.9"
-password-hash = "0.5"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rand = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+semver = "1"
 http = "1"
+mime_guess = "2"
+mime = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
+sha2 = "0.11"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }
 tempfile = "3"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
-tower-http = { version = "0.6", features = ["trace", "fs"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "fs", "io-util", "process", "time"] }
+toml = "1"
+tower-http = { version = "0.7", features = ["trace", "fs", "request-id"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = { version = "5", features = ["chrono", "preserve_order", "preserve_path_order", "uuid"] }
+url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 tar = "0.4"
 xz2 = "0.1"
+yrs = "0.27"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

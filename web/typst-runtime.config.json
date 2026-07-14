@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "runtime_version": "0.8.0-rc3-source-map.b1e7009",
+  "compiler": {
+    "package": "@myriaddreamin/typst-ts-web-compiler",
+    "package_version": "0.8.0-rc3",
+    "source_revision": "b1e700986082cce2bd3dd0db8b27af9f4418883b"
+  },
+  "renderer": {
+    "package": "@myriaddreamin/typst-ts-renderer",
+    "package_version": "0.8.0-rc3"
+  }
+}

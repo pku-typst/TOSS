@@ -1,12 +1,10 @@
-import type { Revision } from "@/lib/api";
 import type { AssetMeta, ProjectNode } from "@/pages/workspace/types";
-import { prependUniqueById } from "@/pages/workspace/utils";
 
 export function sameAssetMeta(a: AssetMeta | undefined, b: AssetMeta | undefined) {
   if (!a || !b) return a === b;
   return (
     a.id === b.id &&
-    a.objectKey === b.objectKey &&
+    a.contentRevision === b.contentRevision &&
     a.contentType === b.contentType &&
     a.sizeBytes === b.sizeBytes &&
     a.createdAt === b.createdAt
@@ -42,13 +40,4 @@ export function sameProjectNodeList(a: ProjectNode[], b: ProjectNode[]) {
     if (left.path !== right.path || left.kind !== right.kind) return false;
   }
   return true;
-}
-
-export function mergeRevisionsStable(primary: Revision[], previous: Revision[]) {
-  const merged = prependUniqueById(primary, previous);
-  if (merged.length !== previous.length) return merged;
-  for (let i = 0; i < merged.length; i += 1) {
-    if (merged[i].id !== previous[i].id) return merged;
-  }
-  return previous;
 }

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import * as Y from "yjs";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const CORE_API = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
 const REALTIME_WS = process.env.REALTIME_WS_URL ?? "ws://127.0.0.1:18080";
@@ -28,11 +29,13 @@ async function parseJson(res) {
 }
 
 async function api(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(CORE_API, method, route, token);
   const res = await fetch(`${CORE_API}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -200,7 +203,7 @@ async function main() {
   const projectId = project.id;
   await api("POST", `/v1/projects/${projectId}/roles`, owner.sessionToken, {
     user_id: collaborator.userId,
-    role: "Student"
+    role: "ReadWrite"
   });
   await api(
     "PUT",

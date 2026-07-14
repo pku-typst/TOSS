@@ -1,12 +1,29 @@
-use crate::types::ObjectStorage;
 use aws_config::BehaviorVersion;
 use aws_config::Region;
 use aws_credential_types::Credentials;
-use aws_sdk_s3::config::Builder as S3ConfigBuilder;
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::Client as S3Client;
 use std::env;
 use std::str::FromStr;
+use thiserror::Error;
+
+#[derive(Clone)]
+pub(crate) struct ObjectStorage {
+    client: aws_sdk_s3::Client,
+    bucket: String,
+    key_prefix: String,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum ObjectStorageError {
+    #[error("object upload request failed")]
+    Put(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("object download request failed")]
+    Get(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("object download body failed")]
+    GetBody(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("object deletion request failed")]
+    Delete(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
 
 pub async fn init_object_storage_from_env() -> Option<ObjectStorage> {
     let bucket = env::var("S3_BUCKET").ok()?;
@@ -27,7 +44,7 @@ pub async fn init_object_storage_from_env() -> Option<ObjectStorage> {
         .region(Region::new(region.clone()))
         .load()
         .await;
-    let mut builder = S3ConfigBuilder::from(&shared).region(Region::new(region));
+    let mut builder = aws_sdk_s3::config::Builder::from(&shared).region(Region::new(region));
     if let Some(ep) = endpoint {
         if let Ok(uri) = http::Uri::from_str(&ep) {
             builder = builder.endpoint_url(uri.to_string()).force_path_style(true);
@@ -36,7 +53,7 @@ pub async fn init_object_storage_from_env() -> Option<ObjectStorage> {
     if let (Some(ak), Some(sk)) = (access_key, secret_key) {
         builder = builder.credentials_provider(Credentials::new(ak, sk, None, None, "env"));
     }
-    let client = S3Client::from_conf(builder.build());
+    let client = aws_sdk_s3::Client::from_conf(builder.build());
     Some(ObjectStorage {
         client,
         bucket,
@@ -61,7 +78,7 @@ pub async fn put_object(
     key: &str,
     content_type: &str,
     data: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<(), ObjectStorageError> {
     let final_key = storage_key(storage, key);
     storage
         .client
@@ -72,11 +89,11 @@ pub async fn put_object(
         .body(ByteStream::from(data))
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|source| ObjectStorageError::Put(Box::new(source)))?;
     Ok(())
 }
 
-pub async fn get_object(storage: &ObjectStorage, key: &str) -> Result<Vec<u8>, String> {
+pub async fn get_object(storage: &ObjectStorage, key: &str) -> Result<Vec<u8>, ObjectStorageError> {
     let final_key = storage_key(storage, key);
     let output = storage
         .client
@@ -85,18 +102,18 @@ pub async fn get_object(storage: &ObjectStorage, key: &str) -> Result<Vec<u8>, S
         .key(final_key)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|source| ObjectStorageError::Get(Box::new(source)))?;
     let bytes = output
         .body
         .collect()
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|source| ObjectStorageError::GetBody(Box::new(source)))?
         .into_bytes()
         .to_vec();
     Ok(bytes)
 }
 
-pub async fn delete_object(storage: &ObjectStorage, key: &str) -> Result<(), String> {
+pub async fn delete_object(storage: &ObjectStorage, key: &str) -> Result<(), ObjectStorageError> {
     let final_key = storage_key(storage, key);
     storage
         .client
@@ -105,6 +122,6 @@ pub async fn delete_object(storage: &ObjectStorage, key: &str) -> Result<(), Str
         .key(final_key)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|source| ObjectStorageError::Delete(Box::new(source)))?;
     Ok(())
 }

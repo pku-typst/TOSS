@@ -1,4 +1,4 @@
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { ExternalChange } from "@uiw/react-codemirror";
 import {
   StateEffect,
   type StateEffectType,
@@ -18,15 +18,17 @@ import {
 import {
   Decoration,
   EditorView,
+  keymap,
   ViewPlugin,
   type DecorationSet,
   type ViewUpdate,
   WidgetType
 } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { tags } from "@lezer/highlight";
-import { TypstParser, typstHighlight as typstNodeHighlight } from "codemirror-lang-typst";
+import { TypstParser, typstHighlight } from "codemirror-lang-typst";
+import { minimalTextChange } from "@/lib/editorSync";
 
 export type EditorChange = {
   from: number;
@@ -122,11 +124,45 @@ const remoteCursorPlugin = ViewPlugin.fromClass(
   }
 );
 
+const editorChromeTheme = EditorView.theme(
+  {
+    "&": {
+      color: "var(--toss-text)",
+      backgroundColor: "var(--toss-surface)"
+    },
+    ".cm-content": {
+      caretColor: "var(--toss-brand-strong)"
+    },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "var(--toss-brand-strong)"
+    },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
+      backgroundColor: "var(--toss-brand-highlight)"
+    },
+    ".cm-activeLine": {
+      backgroundColor: "var(--toss-brand-subtle)"
+    },
+    ".cm-gutters": {
+      color: "var(--toss-text-muted)",
+      backgroundColor: "var(--toss-surface-subtle)",
+      borderRight: "var(--nve-ref-border-width-sm) solid var(--toss-border-subtle)"
+    },
+    ".cm-activeLineGutter": {
+      color: "var(--toss-brand-ink)",
+      backgroundColor: "var(--toss-brand-muted)"
+    },
+    "&.cm-focused": {
+      outline: "none"
+    }
+  },
+  { dark: false }
+);
+
 const typstEditorHighlight = HighlightStyle.define([
-  { tag: tags.heading, color: "#0b3a63", fontWeight: "700" },
-  { tag: tags.comment, color: "#667085", fontStyle: "italic" },
-  { tag: [tags.string, tags.special(tags.string)], color: "#0a7a52" },
-  { tag: [tags.number, tags.integer, tags.float, tags.bool], color: "#9a3d02" },
+  { tag: tags.heading, color: "var(--toss-brand-ink)", fontWeight: "700" },
+  { tag: tags.comment, color: "var(--toss-text-muted)", fontStyle: "italic" },
+  { tag: [tags.string, tags.special(tags.string)], color: "var(--nve-ref-color-green-grass-1100)" },
+  { tag: [tags.number, tags.integer, tags.float, tags.bool], color: "var(--nve-ref-color-orange-pumpkin-1100)" },
   {
     tag: [
       tags.controlKeyword,
@@ -135,13 +171,13 @@ const typstEditorHighlight = HighlightStyle.define([
       tags.operatorKeyword,
       tags.keyword
     ],
-    color: "#5b3cc4",
+    color: "var(--nve-ref-color-purple-violet-1100)",
     fontWeight: "650"
   },
-  { tag: [tags.variableName, tags.name], color: "#243447" },
-  { tag: [tags.labelName, tags.link], color: "#0e65aa" },
-  { tag: [tags.monospace, tags.contentSeparator, tags.controlOperator], color: "#1f4f7a" },
-  { tag: tags.invalid, color: "#b42318", textDecoration: "wavy underline" }
+  { tag: [tags.variableName, tags.name], color: "var(--toss-text)" },
+  { tag: [tags.labelName, tags.link], color: "var(--toss-brand-strong)" },
+  { tag: [tags.monospace, tags.contentSeparator, tags.controlOperator], color: "var(--nve-ref-color-green-jade-1100)" },
+  { tag: tags.invalid, color: "var(--toss-danger)", textDecoration: "wavy underline" }
 ]);
 
 const typstLanguageData = defineLanguageFacet({
@@ -149,7 +185,7 @@ const typstLanguageData = defineLanguageFacet({
 });
 
 function buildTypstLanguageSupport() {
-  const parser = new (TypstParser as unknown as new (highlighting: unknown) => TypstParser)(typstNodeHighlight);
+  const parser = new (TypstParser as unknown as new (highlighting: unknown) => TypstParser)(typstHighlight);
   const resetParserEffect = StateEffect.define<null>();
   const safeParserSync = StateField.define<null>({
     create() {
@@ -187,7 +223,9 @@ type Props = {
   value: string;
   onChange?: (value: string) => void;
   onDelta?: (changes: EditorChange[]) => EditorDeltaHandlerResult;
-  onCursorChange?: (cursor: { line: number; column: number }) => void;
+  onCursorChange?: (cursor: { line: number; column: number; offset: number }) => void;
+  onSourceClick?: (position: { line: number; column: number; offset: number }) => void;
+  onSave?: () => void;
   readOnly?: boolean;
   lineWrap?: boolean;
   language?: "typst" | "latex" | "markdown" | "plain";
@@ -202,6 +240,8 @@ export function EditorPane({
   onChange,
   onDelta,
   onCursorChange,
+  onSourceClick,
+  onSave,
   readOnly,
   lineWrap = true,
   language = "plain",
@@ -214,18 +254,40 @@ export function EditorPane({
   const onDeltaRef = useRef<Props["onDelta"]>(onDelta);
   const onChangeRef = useRef<Props["onChange"]>(onChange);
   const onCursorChangeRef = useRef<Props["onCursorChange"]>(onCursorChange);
+  const onSourceClickRef = useRef<Props["onSourceClick"]>(onSourceClick);
+  const onSaveRef = useRef<Props["onSave"]>(onSave);
+  const latestValueRef = useRef(value);
+  const initialEditorValueRef = useRef({ key: editorInstanceKey, value });
   const typstLanguage = useMemo(() => buildTypstLanguageSupport(), []);
   const typstResetEffectRef = useRef<StateEffectType<null> | null>(typstLanguage.resetParserEffect);
+
+  latestValueRef.current = value;
+  if (initialEditorValueRef.current.key !== editorInstanceKey) {
+    initialEditorValueRef.current = { key: editorInstanceKey, value };
+  }
 
   useEffect(() => {
     onDeltaRef.current = onDelta;
     onChangeRef.current = onChange;
     onCursorChangeRef.current = onCursorChange;
-  }, [onChange, onCursorChange, onDelta]);
+    onSourceClickRef.current = onSourceClick;
+    onSaveRef.current = onSave;
+  }, [onChange, onCursorChange, onDelta, onSave, onSourceClick]);
 
   useEffect(() => {
     typstResetEffectRef.current = typstLanguage.resetParserEffect;
   }, [typstLanguage]);
+
+  useLayoutEffect(() => {
+    const view = editorRef.current;
+    if (!view) return;
+    const change = minimalTextChange(view.state.doc.toString(), value);
+    if (!change) return;
+    view.dispatch({
+      changes: change,
+      annotations: ExternalChange.of(true)
+    });
+  }, [editorInstanceKey, value]);
 
   const cursorListener = useMemo(
     () =>
@@ -235,8 +297,27 @@ export function EditorPane({
         const line = update.state.doc.lineAt(head);
         onCursorChangeRef.current?.({
           line: line.number,
-          column: head - line.from + 1
+          column: head - line.from + 1,
+          offset: head
         });
+      }),
+    []
+  );
+
+  const sourceClickHandler = useMemo(
+    () =>
+      EditorView.domEventHandlers({
+        click: (event, view) => {
+          const offset = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (offset === null) return false;
+          const line = view.state.doc.lineAt(offset);
+          onSourceClickRef.current?.({
+            line: line.number,
+            column: offset - line.from + 1,
+            offset
+          });
+          return false;
+        }
       }),
     []
   );
@@ -274,6 +355,21 @@ export function EditorPane({
     []
   );
 
+  const saveKeymap = useMemo(
+    () =>
+      keymap.of([
+        {
+          key: "Mod-s",
+          preventDefault: true,
+          run: () => {
+            onSaveRef.current?.();
+            return true;
+          }
+        }
+      ]),
+    []
+  );
+
   const extensions = useMemo(() => {
     const languageExtensions =
       language === "typst"
@@ -283,10 +379,18 @@ export function EditorPane({
         : language === "markdown"
           ? [markdown()]
           : [];
-    const base = [...languageExtensions, cursorListener, changeListener, remoteCursorPlugin];
+    const base = [
+      ...languageExtensions,
+      editorChromeTheme,
+      cursorListener,
+      sourceClickHandler,
+      changeListener,
+      saveKeymap,
+      remoteCursorPlugin
+    ];
     if (lineWrap) base.push(EditorView.lineWrapping);
     return base;
-  }, [changeListener, cursorListener, language, lineWrap, typstLanguage]);
+  }, [changeListener, cursorListener, language, lineWrap, saveKeymap, sourceClickHandler, typstLanguage]);
 
   useEffect(() => {
     if (language !== "typst") return;
@@ -323,14 +427,25 @@ export function EditorPane({
     onJumpHandled?.();
   }, [jumpTo, onJumpHandled]);
 
+  // nve-page renders application content through a shadow-DOM slot.
+  // CodeMirror follows assignedSlot when inferring its style root, but the
+  // editor itself remains in light DOM. Pin the dynamic styles to document.
   return (
     <CodeMirror
       key={editorInstanceKey}
-      value={value}
+      value={initialEditorValueRef.current.value}
+      root={document}
       height="100%"
       extensions={extensions}
       onCreateEditor={(view) => {
         editorRef.current = view;
+        const change = minimalTextChange(view.state.doc.toString(), latestValueRef.current);
+        if (change) {
+          view.dispatch({
+            changes: change,
+            annotations: ExternalChange.of(true)
+          });
+        }
       }}
       onChange={(v) => {
         if (!onDelta && onChange) onChange(v);

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? baseUrl;
@@ -21,11 +22,13 @@ async function parseJson(res) {
 }
 
 async function bearerApi(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -69,7 +72,7 @@ async function registerOrLogin(email, password, displayName) {
 }
 
 async function loginUi(page, email, password) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -136,7 +139,7 @@ async function main() {
   const projectId = project.id;
   await bearerApi("POST", `/v1/projects/${projectId}/roles`, owner.sessionToken, {
     user_id: collaborator.userId,
-    role: "Student"
+    role: "ReadWrite"
   });
   await bearerApi(
     "PUT",

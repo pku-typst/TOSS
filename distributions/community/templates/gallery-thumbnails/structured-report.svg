@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Structured report preview">
+  <rect width="640" height="360" fill="#edf0fb"/>
+  <rect x="110" y="24" width="420" height="312" rx="5" fill="#fff" stroke="#cbd2ed"/>
+  <rect x="110" y="24" width="420" height="12" rx="5" fill="#5b6ee1"/>
+  <rect x="148" y="66" width="214" height="20" rx="4" fill="#26316f"/>
+  <rect x="148" y="102" width="335" height="7" rx="3" fill="#cfd5e8"/>
+  <rect x="148" y="118" width="304" height="7" rx="3" fill="#d9deec"/>
+  <rect x="148" y="153" width="92" height="11" rx="3" fill="#5b6ee1"/>
+  <rect x="148" y="180" width="216" height="112" rx="6" fill="#e9eefc" stroke="#b7c4ef"/>
+  <rect x="382" y="180" width="101" height="12" rx="3" fill="#6f7d91"/>
+  <rect x="382" y="205" width="92" height="7" rx="3" fill="#d3d9e3"/>
+  <rect x="382" y="220" width="101" height="7" rx="3" fill="#d3d9e3"/>
+  <rect x="382" y="235" width="82" height="7" rx="3" fill="#d3d9e3"/>
+</svg>

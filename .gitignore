@@ -11,4 +11,8 @@ tmp
 ops/minio/data
 ops/postgres/data
 web/.cache
+web/test-results
+web/playwright-report
 web/public/vendor/typst-assets/fonts
+web/public/typst-runtime
+web/public/busytex

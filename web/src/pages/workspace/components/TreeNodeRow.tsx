@@ -1,5 +1,6 @@
-import { File, FileCode2, FileImage, FileText, Folder } from "lucide-react";
+import { ChevronDown, ChevronRight, File, FileCode2, FileImage, FileText, Folder, MoreVertical } from "lucide-react";
 import type { ContextMenuState, ProjectTreeNodeView } from "@/pages/workspace/types";
+import type { Translator } from "@/lib/i18n";
 
 export function TreeNodeRow({
   node,
@@ -8,7 +9,8 @@ export function TreeNodeRow({
   setExpanded,
   onOpen,
   canManage,
-  onRequestContextMenu
+  onRequestContextMenu,
+  t
 }: {
   node: ProjectTreeNodeView;
   activePath: string;
@@ -17,6 +19,7 @@ export function TreeNodeRow({
   onOpen: (path: string) => void;
   canManage: boolean;
   onRequestContextMenu: (menu: ContextMenuState) => void;
+  t: Translator;
 }) {
   const isExpanded = expanded.has(node.path);
   const isActive = activePath === node.path;
@@ -48,34 +51,56 @@ export function TreeNodeRow({
         }}
       >
         {node.kind === "directory" ? (
-          <button className="tree-toggle" onClick={toggleDirectory}>
-            {isExpanded ? "▾" : "▸"}
-          </button>
+          <nve-icon-button
+            className="tree-toggle"
+            role="button"
+            container="flat"
+            size="sm"
+            aria-label={
+              isExpanded
+                ? t("workspace.collapseDirectory", { name: node.name })
+                : t("workspace.expandDirectory", { name: node.name })
+            }
+            onClick={toggleDirectory}
+          >
+            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </nve-icon-button>
         ) : (
           <span className="tree-toggle tree-placeholder" />
         )}
-        <button className="tree-label" onClick={() => (node.kind === "file" ? onOpen(node.path) : toggleDirectory())}>
-          <span className={`tree-icon ${node.kind}`} aria-hidden>
-            {node.kind === "directory" ? (
-              <Folder size={14} />
-            ) : isTypstFile ? (
-              <FileCode2 size={14} />
-            ) : isImageFile ? (
-              <FileImage size={14} />
-            ) : isTextLikeFile ? (
-              <FileText size={14} />
-            ) : (
-              <File size={14} />
-            )}
+        <nve-button
+          className="tree-label"
+          role="button"
+          container="flat"
+          onClick={() => (node.kind === "file" ? onOpen(node.path) : toggleDirectory())}
+        >
+          <span className="tree-label-content">
+            <span className={`tree-icon ${node.kind}`} aria-hidden>
+              {node.kind === "directory" ? (
+                <Folder size={14} />
+              ) : isTypstFile ? (
+                <FileCode2 size={14} />
+              ) : isImageFile ? (
+                <FileImage size={14} />
+              ) : isTextLikeFile ? (
+                <FileText size={14} />
+              ) : (
+                <File size={14} />
+              )}
+            </span>
+            <span className="tree-name">{node.name}</span>
           </span>
-          <span className="tree-name">{node.name}</span>
-        </button>
+        </nve-button>
         {canManage && (
-          <button
+          <nve-icon-button
             className="mini"
+            role="button"
+            container="flat"
+            size="sm"
+            aria-label={t("workspace.actionsFor", { name: node.name })}
             onClick={(event) => {
               event.stopPropagation();
-              const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect();
+              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
               onRequestContextMenu({
                 path: node.path,
                 kind: node.kind,
@@ -84,8 +109,8 @@ export function TreeNodeRow({
               });
             }}
           >
-            ⋮
-          </button>
+            <MoreVertical size={14} />
+          </nve-icon-button>
         )}
       </div>
       {node.kind === "directory" && isExpanded && node.children.length > 0 && (
@@ -100,6 +125,7 @@ export function TreeNodeRow({
               onOpen={onOpen}
               canManage={canManage}
               onRequestContextMenu={onRequestContextMenu}
+              t={t}
             />
           ))}
         </div>

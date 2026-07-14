@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const CORE_API = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
 const REALTIME_WS = process.env.REALTIME_WS_URL ?? "ws://127.0.0.1:18080";
@@ -40,11 +41,13 @@ async function authJson(method, route, body) {
 }
 
 async function api(method, path, sessionToken, body) {
+  const contentEpochHeader = await projectContentEpochHeader(CORE_API, method, path, sessionToken);
   const response = await fetch(`${CORE_API}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
-      ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {})
+      ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -158,7 +161,7 @@ async function main() {
   const projectId = project.id;
   await api("POST", `/v1/projects/${projectId}/roles`, owner.sessionToken, {
     user_id: collaborator.userId,
-    role: "Student"
+    role: "ReadWrite"
   });
   await api(
     "PUT",

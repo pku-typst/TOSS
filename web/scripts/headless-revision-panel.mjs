@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
@@ -17,11 +18,13 @@ async function parseJson(res) {
 }
 
 async function api(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -57,7 +60,7 @@ async function registerOrLogin(email, password, displayName) {
 }
 
 async function login(page, email, password) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -127,15 +130,7 @@ async function main() {
       undefined,
       { timeout: 10000 }
     );
-    await page.waitForFunction(
-      () => {
-        const status = document.querySelector(".status-pill.ok, .status-pill.warn");
-        if (!status) return false;
-        return status.classList.contains("ok") && !/offline/i.test(status.textContent || "");
-      },
-      undefined,
-      { timeout: 15000 }
-    );
+    await page.getByText("Online", { exact: true }).waitFor({ timeout: 15000 });
     await page.waitForFunction(
       () => !!document.querySelector(".pdf-frame canvas, .pdf-frame .typst-page"),
       undefined,

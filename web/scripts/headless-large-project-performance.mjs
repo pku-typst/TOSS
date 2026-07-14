@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? baseUrl;
@@ -24,11 +25,13 @@ async function parseJson(res) {
 }
 
 async function request(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -104,7 +107,7 @@ async function ensureLargeProject(sessionToken) {
 }
 
 async function loginUi(page) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 120000 });
   await page.getByPlaceholder("Email").fill(userEmail);
   await page.getByPlaceholder("Password").fill(userPassword);
   await page.getByRole("button", { name: "Continue" }).click();

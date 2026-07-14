@@ -1,12 +1,204 @@
 <!doctype html>
-<html lang="en">
+<html
+  lang="en"
+  nve-theme="root light inter compact"
+  style="--toss-brand-accent: var(--app-boot-accent); --toss-brand-contrast: var(--app-boot-contrast)"
+>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A self-hostable collaborative workspace for Typst documents and presentations." />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="robots" content="index,follow" />
+    <link rel="icon" href="/v1/product-assets/favicon" />
+    <!-- TOSS_TOUCH_ICON -->
     <title>Typst Collaboration</title>
+    <script>
+      document.documentElement.dataset.appBoot = /^\/(?:project|share)\//.test(
+        window.location.pathname
+      )
+        ? "workspace"
+        : "product";
+    </script>
+    <style>
+      :root { --app-boot-accent: #2563eb; --app-boot-contrast: #ffffff; }
+      html, body, #root { width: 100%; height: 100%; margin: 0; }
+      .app-boot {
+        width: 100%;
+        height: 100%;
+        min-height: 100vh;
+        overflow: hidden;
+        background: #f3f5f4;
+        color: #151a16;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .app-boot__bar {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 14px;
+        border-top: 3px solid var(--app-boot-accent);
+        border-bottom: 1px solid #d8ddd9;
+        background: #fff;
+      }
+      .app-boot__mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 4px;
+        background: var(--app-boot-accent);
+      }
+      .app-boot__product {
+        width: min(1180px, calc(100% - 40px));
+        height: calc(100% - 50px);
+        margin-inline: auto;
+        display: grid;
+        grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr);
+        align-items: center;
+        gap: clamp(40px, 7vw, 96px);
+      }
+      .app-boot__product-copy { min-width: 0; }
+      .app-boot__product-visual { min-width: 0; padding: 20px; }
+      .app-boot__product-window {
+        overflow: hidden;
+        aspect-ratio: 16 / 10;
+        border: 1px solid #cbd1cd;
+        border-radius: 10px;
+        background: #fff;
+        box-shadow: 0 24px 70px color-mix(in srgb, var(--app-boot-accent) 16%, transparent);
+      }
+      .app-boot__product-window-bar { height: 38px; border-bottom: 1px solid #d8ddd9; }
+      .app-boot__product-window-body {
+        height: calc(100% - 38px);
+        padding: 15%;
+        display: grid;
+        align-content: center;
+        gap: 12px;
+        background: #e9ecea;
+      }
+      .app-boot__product-window-body span {
+        display: block;
+        width: 80%;
+        height: 9px;
+        border-radius: 999px;
+        background: #fff;
+      }
+      .app-boot__line {
+        height: 10px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e1e5e2;
+        position: relative;
+      }
+      .app-boot__line::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-boot-accent) 22%, transparent), transparent);
+        animation: app-boot-shimmer 1.35s ease-in-out infinite;
+      }
+      .app-boot__line--title { width: 42%; height: 13px; }
+      .app-boot__panel > .app-boot__line--title,
+      .app-boot__page > .app-boot__line--title { margin-bottom: 10px; }
+      .app-boot__line--medium { width: 72%; }
+      .app-boot__line--short { width: 54%; }
+      .app-boot__line--eyebrow { width: 34%; height: 7px; background: color-mix(in srgb, var(--app-boot-accent) 42%, #e1e5e2); }
+      .app-boot__line--headline { width: 92%; height: 34px; margin-top: 20px; }
+      .app-boot__line--headline-short { width: 68%; height: 34px; }
+      .app-boot__line--body { width: 82%; margin-top: 28px; }
+      .app-boot__line--body-short { width: 62%; }
+      .app-boot__product-actions { display: flex; gap: 10px; margin-top: 28px; }
+      .app-boot__product-actions span { width: 112px; height: 34px; border-radius: 999px; background: #d8ddd9; }
+      .app-boot__product-actions span:first-child { background: var(--app-boot-accent); }
+      .app-static-boot.app-boot--workspace { display: none; }
+      html[data-app-boot="workspace"] .app-static-boot.app-boot--product { display: none; }
+      html[data-app-boot="workspace"] .app-static-boot.app-boot--workspace { display: block; }
+      .app-boot__layout {
+        height: calc(100% - 50px);
+        display: grid;
+        grid-template-columns: minmax(180px, 19%) minmax(320px, 1fr) minmax(280px, .85fr);
+        gap: 1px;
+        background: #d8ddd9;
+      }
+      .app-boot__panel { min-width: 0; padding: 14px; background: #fff; }
+      .app-boot__preview { display: grid; place-items: center; background: #e3e7e4; }
+      .app-boot__page {
+        width: min(78%, 440px);
+        aspect-ratio: 4 / 3;
+        padding: 13%;
+        border-radius: 2px;
+        background: #fff;
+        box-shadow: 0 12px 32px rgb(0 0 0 / 14%);
+      }
+      .app-boot__rail .app-boot__line { height: 28px; margin-bottom: 8px; }
+      @keyframes app-boot-shimmer { to { transform: translateX(100%); } }
+      @media (max-width: 760px) {
+        .app-boot__product { grid-template-columns: 1fr; align-content: center; }
+        .app-boot__product-visual { display: none; }
+        .app-boot__layout { grid-template-columns: 1fr; }
+        .app-boot__rail, .app-boot__preview { display: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .app-boot__line::after { animation: none; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="app-boot app-boot--product app-static-boot" aria-hidden="true">
+        <div class="app-boot__bar">
+          <span class="app-boot__mark"></span>
+          <span class="app-boot__line app-boot__line--title"></span>
+        </div>
+        <div class="app-boot__product">
+          <section class="app-boot__product-copy">
+            <div class="app-boot__line app-boot__line--eyebrow"></div>
+            <div class="app-boot__line app-boot__line--headline"></div>
+            <div class="app-boot__line app-boot__line--headline-short"></div>
+            <div class="app-boot__line app-boot__line--body"></div>
+            <div class="app-boot__line app-boot__line--body-short"></div>
+            <div class="app-boot__product-actions"><span></span><span></span></div>
+          </section>
+          <aside class="app-boot__product-visual">
+            <div class="app-boot__product-window">
+              <div class="app-boot__product-window-bar"></div>
+              <div class="app-boot__product-window-body">
+                <span></span><span></span><span></span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div class="app-boot app-boot--workspace app-static-boot" aria-hidden="true">
+        <div class="app-boot__bar">
+          <span class="app-boot__mark"></span>
+          <span class="app-boot__line app-boot__line--title"></span>
+        </div>
+        <div class="app-boot__layout">
+          <aside class="app-boot__panel app-boot__rail">
+            <div class="app-boot__line app-boot__line--medium"></div>
+            <div class="app-boot__line"></div>
+            <div class="app-boot__line app-boot__line--short"></div>
+          </aside>
+          <section class="app-boot__panel">
+            <div class="app-boot__line app-boot__line--title"></div>
+            <div class="app-boot__line"></div>
+            <div class="app-boot__line app-boot__line--medium"></div>
+            <div class="app-boot__line"></div>
+            <div class="app-boot__line app-boot__line--short"></div>
+          </section>
+          <aside class="app-boot__panel app-boot__preview">
+            <div class="app-boot__page">
+              <div class="app-boot__line app-boot__line--title"></div>
+              <div class="app-boot__line"></div>
+              <div class="app-boot__line app-boot__line--medium"></div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

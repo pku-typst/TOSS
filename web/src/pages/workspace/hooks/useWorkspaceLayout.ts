@@ -1,8 +1,17 @@
-import { useEffect, useState } from "react";
-import type { WorkspaceLayoutPrefs } from "@/pages/workspace/types";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent as ReactMouseEvent
+} from "react";
+import type {
+  WorkspaceLayoutPrefs,
+  WorkspacePanelView
+} from "@/pages/workspace/types";
 import {
   clampNumber,
-  DEFAULT_LAYOUT_PREFS,
   MAX_EDITOR_RATIO,
   MAX_SIDE_PANEL_WIDTH,
   MIN_EDITOR_RATIO,
@@ -11,40 +20,199 @@ import {
   WORKSPACE_LAYOUT_KEY
 } from "@/pages/workspace/utils";
 
-export function useWorkspaceLayout() {
-  const [filesPanelWidth, setFilesPanelWidth] = useState(DEFAULT_LAYOUT_PREFS.filesWidth);
-  const [settingsPanelWidth, setSettingsPanelWidth] = useState(DEFAULT_LAYOUT_PREFS.settingsWidth);
-  const [revisionsPanelWidth, setRevisionsPanelWidth] = useState(DEFAULT_LAYOUT_PREFS.revisionsWidth);
-  const [editorRatio, setEditorRatio] = useState(DEFAULT_LAYOUT_PREFS.editorRatio);
+const COLLAPSED_PANEL_CONTROLS_MAX_WIDTH = 1320;
+const ACCOUNT_CONTROLS_IN_MENU_MAX_WIDTH = 1180;
+const SINGLE_PANEL_MAX_WIDTH = 980;
+const LAYOUT_PERSIST_DELAY_MS = 250;
 
-  useEffect(() => {
-    const stored = readWorkspaceLayoutPrefs();
-    setFilesPanelWidth(stored.filesWidth);
-    setSettingsPanelWidth(stored.settingsWidth);
-    setRevisionsPanelWidth(stored.revisionsWidth);
-    setEditorRatio(stored.editorRatio);
+type SidePanel = Exclude<WorkspacePanelView, "editor">;
+type ViewportBand = 0 | 1 | 2 | 3;
+
+function viewportBandForWidth(width: number): ViewportBand {
+  if (width <= SINGLE_PANEL_MAX_WIDTH) return 3;
+  if (width <= ACCOUNT_CONTROLS_IN_MENU_MAX_WIDTH) return 2;
+  if (width <= COLLAPSED_PANEL_CONTROLS_MAX_WIDTH) return 1;
+  return 0;
+}
+
+function currentViewportBand(): ViewportBand {
+  if (typeof window === "undefined") return 0;
+  return viewportBandForWidth(window.innerWidth);
+}
+
+function subscribeViewport(onStoreChange: () => void) {
+  window.addEventListener("resize", onStoreChange);
+  return () => window.removeEventListener("resize", onStoreChange);
+}
+
+export function useWorkspaceLayout() {
+  const [preferences, setPreferences] = useState<WorkspaceLayoutPrefs>(
+    readWorkspaceLayoutPrefs
+  );
+  const [visiblePanels, setVisiblePanels] = useState<Record<SidePanel, boolean>>({
+    files: true,
+    preview: true,
+    settings: false,
+    revisions: false
+  });
+  const [compactPanelView, selectCompactPanel] =
+    useState<WorkspacePanelView>("editor");
+  const viewportBand = useSyncExternalStore(
+    subscribeViewport,
+    currentViewportBand,
+    () => 0
+  );
+  const latestPreferencesRef = useRef(preferences);
+  const persistTimerRef = useRef<number | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  const flushPreferences = useCallback(() => {
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    window.localStorage.setItem(
+      WORKSPACE_LAYOUT_KEY,
+      JSON.stringify(latestPreferencesRef.current)
+    );
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const payload: WorkspaceLayoutPrefs = {
-      filesWidth: clampNumber(filesPanelWidth, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH),
-      settingsWidth: clampNumber(settingsPanelWidth, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH),
-      revisionsWidth: clampNumber(revisionsPanelWidth, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH),
-      editorRatio: clampNumber(editorRatio, MIN_EDITOR_RATIO, MAX_EDITOR_RATIO)
-    };
-    window.localStorage.setItem(WORKSPACE_LAYOUT_KEY, JSON.stringify(payload));
-  }, [editorRatio, filesPanelWidth, revisionsPanelWidth, settingsPanelWidth]);
+    latestPreferencesRef.current = preferences;
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current);
+    }
+    persistTimerRef.current = window.setTimeout(
+      flushPreferences,
+      LAYOUT_PERSIST_DELAY_MS
+    );
+  }, [flushPreferences, preferences]);
+
+  useEffect(
+    () => () => {
+      flushPreferences();
+      resizeCleanupRef.current?.();
+      resizeCleanupRef.current = null;
+    },
+    [flushPreferences]
+  );
+
+  const resizeFilesPanel = useCallback((deltaX: number) => {
+    setPreferences((current) => ({
+      ...current,
+      filesWidth: clampNumber(
+        current.filesWidth + deltaX,
+        MIN_SIDE_PANEL_WIDTH,
+        MAX_SIDE_PANEL_WIDTH
+      )
+    }));
+  }, []);
+  const resizeSettingsPanel = useCallback((deltaX: number) => {
+    setPreferences((current) => ({
+      ...current,
+      settingsWidth: clampNumber(
+        current.settingsWidth - deltaX,
+        MIN_SIDE_PANEL_WIDTH,
+        MAX_SIDE_PANEL_WIDTH
+      )
+    }));
+  }, []);
+  const resizeRevisionsPanel = useCallback((deltaX: number) => {
+    setPreferences((current) => ({
+      ...current,
+      revisionsWidth: clampNumber(
+        current.revisionsWidth - deltaX,
+        MIN_SIDE_PANEL_WIDTH,
+        MAX_SIDE_PANEL_WIDTH
+      )
+    }));
+  }, []);
+  const resizeEditorSplit = useCallback((deltaX: number, totalWidth: number) => {
+    setPreferences((current) => ({
+      ...current,
+      editorRatio: clampNumber(
+        current.editorRatio + deltaX / Math.max(totalWidth, 1),
+        MIN_EDITOR_RATIO,
+        MAX_EDITOR_RATIO
+      )
+    }));
+  }, []);
+
+  const singlePanelMode = viewportBand >= 3;
+  const collapsePanelToggles = viewportBand >= 1;
+  const showAccountControlsInViewMenu = viewportBand >= 2;
+  const effectiveShowFilesPanel = singlePanelMode
+    ? compactPanelView === "files"
+    : visiblePanels.files;
+  const effectiveShowPreviewPanel = singlePanelMode
+    ? compactPanelView === "preview"
+    : visiblePanels.preview;
+  const effectiveShowSettingsPanel = singlePanelMode
+    ? compactPanelView === "settings"
+    : visiblePanels.settings;
+  const effectiveShowRevisionsPanel = singlePanelMode
+    ? compactPanelView === "revisions"
+    : visiblePanels.revisions;
+  const effectiveShowEditorPanel =
+    !singlePanelMode || compactPanelView === "editor";
+
+  const togglePanel = useCallback(
+    (panel: SidePanel) => {
+      if (singlePanelMode) {
+        selectCompactPanel(panel);
+        return;
+      }
+      setVisiblePanels((current) => ({
+        ...current,
+        [panel]: !current[panel]
+      }));
+    },
+    [singlePanelMode]
+  );
+
+  const beginHorizontalResize = useCallback(
+    (onDelta: (deltaX: number) => void) =>
+      (event: ReactMouseEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        resizeCleanupRef.current?.();
+        let lastX = event.clientX;
+        const onMove = (moveEvent: MouseEvent) => {
+          const deltaX = moveEvent.clientX - lastX;
+          lastX = moveEvent.clientX;
+          if (deltaX !== 0) onDelta(deltaX);
+        };
+        const finish = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", finish);
+          resizeCleanupRef.current = null;
+        };
+        resizeCleanupRef.current = finish;
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", finish);
+      },
+    []
+  );
 
   return {
-    filesPanelWidth,
-    setFilesPanelWidth,
-    settingsPanelWidth,
-    setSettingsPanelWidth,
-    revisionsPanelWidth,
-    setRevisionsPanelWidth,
-    editorRatio,
-    setEditorRatio
+    filesPanelWidth: preferences.filesWidth,
+    resizeFilesPanel,
+    settingsPanelWidth: preferences.settingsWidth,
+    resizeSettingsPanel,
+    revisionsPanelWidth: preferences.revisionsWidth,
+    resizeRevisionsPanel,
+    editorRatio: preferences.editorRatio,
+    resizeEditorSplit,
+    collapsePanelToggles,
+    singlePanelMode,
+    showAccountControlsInViewMenu,
+    compactPanelView,
+    selectCompactPanel,
+    effectiveShowFilesPanel,
+    effectiveShowPreviewPanel,
+    effectiveShowSettingsPanel,
+    effectiveShowRevisionsPanel,
+    effectiveShowEditorPanel,
+    togglePanel,
+    beginHorizontalResize
   };
 }
-
