@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -34,14 +34,14 @@ jobs:
           components: rustfmt, clippy
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24.18.0"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
 
       - name: Cache verified browser runtime artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             prebuilt/typst-compiler/package
