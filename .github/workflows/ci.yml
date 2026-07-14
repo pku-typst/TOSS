@@ -26,7 +26,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          lfs: true
           submodules: true
 
       - name: Setup Rust
@@ -40,6 +39,14 @@ jobs:
           node-version: "24.18.0"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
+
+      - name: Cache verified browser runtime artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            prebuilt/typst-compiler/package
+            prebuilt/busytex/package
+          key: browser-runtime-${{ hashFiles('prebuilt/typst-compiler/build-manifest.json', 'prebuilt/typst-compiler/artifact.json', 'prebuilt/busytex/build-manifest.json') }}
 
       - name: Install Playwright Chromium
         run: |

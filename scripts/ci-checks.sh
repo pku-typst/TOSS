@@ -12,6 +12,7 @@ cd "$ROOT_DIR"
 
 node -e 'if (process.versions.node.split(".")[0] !== "24") { throw new Error(`Node 24 is required, got ${process.version}`); }'
 echo "[ci] install protocol tooling + validate docs and runtime provenance"
+node scripts/fetch-runtime-artifacts.mjs
 (cd protocol && npm ci)
 node scripts/check-docs.mjs
 node scripts/check-migration-baseline.mjs

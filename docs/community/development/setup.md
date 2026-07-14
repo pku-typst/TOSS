@@ -31,7 +31,7 @@ The supported toolchain is pinned:
 - Node.js 24.x and npm 11.x, enforced by `web/package.json`;
 - Rust 1.97.0, selected by `rust-toolchain.toml`;
 - PostgreSQL 16 for local containers;
-- Git and Git LFS;
+- Git;
 - `pkg-config` and the platform OpenSSL development package.
 
 A local Typst CLI installed through Pixi is useful for template comparison and
@@ -46,9 +46,8 @@ convention of `x` or `0.y`; `Cargo.lock` owns the exact resolution.
 ## Prepare the repository
 
 ```bash
-git lfs install
-git lfs pull
 git submodule update --init third-party/typst.ts
+node scripts/fetch-runtime-artifacts.mjs
 
 cd web
 npm ci
@@ -59,13 +58,15 @@ npm ci
 cd ..
 ```
 
-The submodule is required to inspect or rebuild the compiler. Ordinary builds
-consume a published compiler artifact and verify its source revision and
-hashes.
+The submodule is required to inspect or rebuild the compiler. The fetch step
+hydrates ignored package caches from pinned public release assets and verifies
+the compiler source revision, archive, and every extracted file. It downloads
+BusyTeX only when the selected distribution enables LaTeX.
 
 Do not hand-edit generated files under `web/dist/`,
-`web/public/typst-runtime/`, or `web/public/vendor/`. The compiler package is a
-versioned release input with its own reproducibility workflow.
+`web/public/typst-runtime/`, `web/public/vendor/`, or
+`prebuilt/*/package/`. The compiler package is a versioned release input with
+its own reproducibility workflow.
 
 ## Start local dependencies
 

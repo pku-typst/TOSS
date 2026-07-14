@@ -86,7 +86,7 @@ application replica. See the
 | `backend/` | Axum API, collaboration, access, storage, Git, and provider adapters |
 | `protocol/` | Checked-in OpenAPI contract and generated TypeScript workflow |
 | `distributions/community/` | Product configuration, Help content, and starter templates |
-| `prebuilt/` | Reproducible browser compiler and optional LaTeX runtime inputs |
+| `prebuilt/` | Reproducible browser-runtime manifests and fetched package caches |
 | `third-party/typst.ts/` | Public compiler and renderer fork pinned as a submodule |
 | `docs/community/` | Engineering documentation and architecture decisions |
 
@@ -96,11 +96,9 @@ distribution and keeps the core suitable for downstream distributions.
 
 ## Quick start
 
-Prerequisites are Docker with Compose, Git, and Git LFS.
+Prerequisites are Docker with Compose and Git.
 
 ```bash
-git lfs install
-git lfs pull
 cp .env.example .env
 docker compose up --build
 ```
@@ -129,11 +127,11 @@ forward migrations.
 ## Build from source
 
 The pinned tools are Node.js 24.x with npm 11.x, Rust 1.97.0, PostgreSQL 16,
-Git LFS, `pkg-config`, and OpenSSL development headers.
+Git, `pkg-config`, and OpenSSL development headers.
 
 ```bash
-git lfs pull
 git submodule update --init third-party/typst.ts
+node scripts/fetch-runtime-artifacts.mjs
 
 cd protocol
 npm ci

@@ -89,17 +89,19 @@ version. The web application consumes a versioned compiler package produced
 from that revision rather than rebuilding Rust/WASM during every application
 image build.
 
-Compiler packages are release artifacts with reproducible provenance: the
-source revision, builder image, tool versions, features, file sizes, and
-digests must be recorded and verified before a web build. Updating only the
-submodule gitlink does not update the compiler used by the application. A
-runtime upgrade must publish the matching package and update the runtime
-configuration together.
+The Community compiler is built from the public `typst.ts` fork at the exact
+commit pinned by the submodule. It is not the official native Typst CLI and is
+not substituted with an upstream npm package. The resulting deterministic
+archive is published as a versioned release asset from that fork so builds do
+not require Git LFS or a local Rust/WASM toolchain.
 
-The concrete artifact publication location is a delivery concern. An internal
-deployment may retain it in a protected artifact tree; an extracted Community
-repository can publish the same package from its public CI. Neither choice
-changes the browser or package-resolution contract described here.
+The checked-in manifests bind the source revision, builder images, tool
+versions, features, archive digest, and every extracted file's size and digest.
+The release is only a distribution channel: a web build rejects any archive or
+file that does not match those manifests. Updating only the submodule gitlink
+does not update the compiler used by the application. A runtime upgrade must
+build and publish the matching fork artifact, then update the submodule,
+runtime configuration, and manifests together.
 
 ## Related
 

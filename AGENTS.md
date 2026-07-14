@@ -21,16 +21,16 @@ and downstream policy remain separate concerns.
 | `backend/` | Rust/Axum modular monolith for REST, realtime collaboration, access, Git, storage, templates, and runtime asset delivery |
 | `protocol/` | Checked-in OpenAPI contract and isolated TypeScript generator toolchain |
 | `distributions/community/` | Neutral product configuration, Help content, starter templates, and public Typst catalog |
-| `prebuilt/` | Reproducible, manifest-verified browser runtime artifacts stored with Git LFS |
+| `prebuilt/` | Reproducible browser-runtime provenance and ignored, fetched package caches |
 | `third-party/typst.ts/` | Public Apache-2.0 source submodule pinned to an exact revision |
 | `docs/community/` | Public engineering Wiki and accepted architecture decisions |
 | `scripts/` | Public-safe build, validation, backup, bootstrap, and smoke-test orchestration |
 
 Generated directories such as `web/dist/`, `web/public/typst-runtime/`,
 `web/public/busytex/`, `backend/target/`, caches, and test results are not source
-modules. Regenerate them through their owning scripts. The versioned packages
-under `prebuilt/` are the exception: never hand-edit them; update them with the
-documented reproducible build and refresh their manifests.
+modules. Regenerate them through their owning scripts. Package directories
+under `prebuilt/` are ignored caches hydrated from pinned public releases;
+never hand-edit or commit them.
 
 ## Architecture boundaries
 
@@ -96,8 +96,10 @@ its own `AGENTS.md`, commit and test there first, then update the parent gitlink
 separately.
 
 The prebuilt compiler manifest must match the exact submodule revision, build
-recipe, file list, sizes, and hashes. BusyTeX artifacts must match their public
-source revision and manifest. Keep large binaries in Git LFS.
+recipe, release artifact, file list, sizes, and hashes. BusyTeX artifacts must
+match their public source revision, release tag, and manifest. Do not commit
+generated browser-runtime binaries; hydrate them with
+`scripts/fetch-runtime-artifacts.mjs`.
 
 ## Tests
 

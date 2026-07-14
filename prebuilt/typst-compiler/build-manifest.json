@@ -5,7 +5,7 @@
   "package_version": "0.8.0-rc3",
   "generator": {
     "path": "scripts/prebuilt-typst-compiler.mjs",
-    "sha256": "3e00663650f46cdf1f388b74fe4b13e3b8c9e35be5c0d62f224065096f69934d"
+    "sha256": "a231507c56764d88fa6af3d70f2db7feb255f0768ec9649423035c8dbbf64d68"
   },
   "builder": {
     "dockerfile": "scripts/typst-compiler-builder.Dockerfile",

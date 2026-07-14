@@ -26,6 +26,12 @@ code_paths:
 
 Choose checks according to the changed ownership boundary. Run the complete
 workflow before a release or after a cross-context change.
+Hydrate the manifest-verified browser runtime inputs before installing the web
+workspace or running its checks:
+
+```bash
+node scripts/fetch-runtime-artifacts.mjs
+```
 
 ## Documentation
 

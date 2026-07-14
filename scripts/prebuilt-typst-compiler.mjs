@@ -16,8 +16,6 @@ const manifestPath = path.join(outputRoot, "build-manifest.json");
 const builderDockerfile = path.join(repoRoot, "scripts", "typst-compiler-builder.Dockerfile");
 const runtimeConfigPath = path.join(repoRoot, "web", "typst-runtime.config.json");
 const compilerPackageName = "@myriaddreamin/typst-ts-web-compiler";
-const lfsPointerPrefix = "version https://git-lfs.github.com/spec/v1";
-
 const requiredPackageFiles = [
   "package.json",
   "pkg/README.md",
@@ -276,9 +274,6 @@ async function verifyCompiler({ verifySource = true } = {}) {
   for (const relativePath of actualFiles) {
     const absolute = path.join(packageRoot, ...relativePath.split("/"));
     const content = await fs.readFile(absolute);
-    if (content.subarray(0, lfsPointerPrefix.length).toString("utf8") === lfsPointerPrefix) {
-      fail(`${relativePath} is a Git LFS pointer; run git lfs pull`);
-    }
     const expected = manifest.files[relativePath];
     if (content.byteLength !== expected.size_bytes || sha256(content) !== expected.sha256) {
       fail(`${relativePath} does not match its recorded size and SHA-256`);

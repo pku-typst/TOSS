@@ -91,11 +91,10 @@ unnecessary transfers, and Emscripten stores the preload data package in
 IndexedDB for later runner initialization. Clearing site data or changing the
 runtime cache version causes a fresh load.
 
-The `.wasm` and `.data` source artifacts are Git LFS objects. A Community build
-must hydrate them before running `npm run build`; the asset-sync script rejects
-LFS pointer text, wrong sizes, and wrong SHA-256 values. A Typst-only build
-skips the copy before touching these files, so its image pipeline does not need
-to download the LFS objects.
+The package directory is an ignored cache rather than repository content.
+`scripts/fetch-runtime-artifacts.mjs` downloads the six files from the exact
+BusyTeX build release named in the manifest and verifies every size and
+SHA-256 before installation. A Typst-only build skips this download entirely.
 
 Do not update one asset independently. Upgrade the npm dependency, exact
 upstream build, manifest, tests, and TeX Live endpoint as one reviewed runtime
