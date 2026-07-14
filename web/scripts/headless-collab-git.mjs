@@ -122,7 +122,7 @@ async function login(page, email, password) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
   await page.getByRole("heading", { name: "Projects" }).waitFor({ timeout: 30000 });
 }
 

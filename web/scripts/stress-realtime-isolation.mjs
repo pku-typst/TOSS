@@ -1,3 +1,5 @@
+import * as Y from "yjs";
+
 const CORE_API = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
 const REALTIME_WS = process.env.REALTIME_WS_URL ?? "ws://127.0.0.1:18080";
 const runId = Date.now().toString();
@@ -47,13 +49,14 @@ async function register(email, displayName) {
   return payload;
 }
 
-function openSocket({ docId, projectId, userId, sessionToken }) {
+function openSocket({ documentId, collaborationRevision, projectId, userId, sessionToken }) {
   const query = new URLSearchParams({
     project_id: projectId,
+    collaboration_revision: String(collaborationRevision),
     user_id: userId,
     session_token: sessionToken
   });
-  const url = `${REALTIME_WS}/v1/realtime/ws/${encodeURIComponent(docId)}?${query.toString()}`;
+  const url = `${REALTIME_WS}/v1/realtime/ws/${encodeURIComponent(documentId)}?${query.toString()}`;
   const ws = new WebSocket(url);
   const received = [];
   ws.addEventListener("message", (event) => {
@@ -64,6 +67,19 @@ function openSocket({ docId, projectId, userId, sessionToken }) {
     }
   });
   return { ws, received };
+}
+
+function encodedUpdate(token) {
+  const doc = new Y.Doc();
+  doc.getText("main").insert(0, token);
+  const update = Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
+  doc.destroy();
+  return update;
+}
+
+function eventUpdate(event) {
+  const payload = event?.payload;
+  return typeof payload === "string" ? payload : payload?.payload;
 }
 
 async function waitForOpen(ws, label) {
@@ -80,16 +96,24 @@ async function main() {
   const authB = await register(ownerBEmail, "Isolation B");
   const projectA = await api("POST", "/v1/projects", authA.session_token, { name: `Isolation A ${runId}` });
   const projectB = await api("POST", "/v1/projects", authB.session_token, { name: `Isolation B ${runId}` });
+  const documentsA = await api("GET", `/v1/projects/${projectA.id}/documents`, authA.session_token);
+  const documentsB = await api("GET", `/v1/projects/${projectB.id}/documents`, authB.session_token);
+  const documentA = documentsA.documents.find((document) => document.path === "main.typ");
+  const documentB = documentsB.documents.find((document) => document.path === "main.typ");
+  if (!documentA || !documentB) {
+    throw new Error("new Typst project is missing main.typ");
+  }
 
-  const sharedDocId = "main.typ";
   const a = openSocket({
-    docId: sharedDocId,
+    documentId: documentA.id,
+    collaborationRevision: documentA.collaboration_revision,
     projectId: projectA.id,
     userId: authA.user_id,
     sessionToken: authA.session_token
   });
   const b = openSocket({
-    docId: sharedDocId,
+    documentId: documentB.id,
+    collaborationRevision: documentB.collaboration_revision,
     projectId: projectB.id,
     userId: authB.user_id,
     sessionToken: authB.session_token
@@ -101,12 +125,28 @@ async function main() {
 
   const tokenA = `A-${runId}`;
   const tokenB = `B-${runId}`;
-  a.ws.send(JSON.stringify({ kind: "probe.event", payload: { token: tokenA } }));
-  b.ws.send(JSON.stringify({ kind: "probe.event", payload: { token: tokenB } }));
+  const updateA = encodedUpdate(tokenA);
+  const updateB = encodedUpdate(tokenB);
+  a.ws.send(
+    JSON.stringify({
+      kind: "yjs.update",
+      origin: "isolation-a",
+      request_id: `isolation-a:${runId}`,
+      payload: updateA
+    })
+  );
+  b.ws.send(
+    JSON.stringify({
+      kind: "yjs.update",
+      origin: "isolation-b",
+      request_id: `isolation-b:${runId}`,
+      payload: updateB
+    })
+  );
   await wait(600);
 
-  const leakedToA = a.received.some((event) => event?.payload?.token === tokenB);
-  const leakedToB = b.received.some((event) => event?.payload?.token === tokenA);
+  const leakedToA = a.received.some((event) => eventUpdate(event) === updateB);
+  const leakedToB = b.received.some((event) => eventUpdate(event) === updateA);
 
   a.ws.close();
   b.ws.close();
@@ -121,7 +161,8 @@ async function main() {
         ok: true,
         projectA: projectA.id,
         projectB: projectB.id,
-        sharedDocId
+        documentA: documentA.id,
+        documentB: documentB.id
       },
       null,
       2

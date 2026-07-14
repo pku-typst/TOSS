@@ -68,7 +68,7 @@ async function login(page, email, password) {
   const emailInput = page.getByPlaceholder("Email");
   await emailInput.fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
   await projectsHeading.waitFor({ timeout: 30000 });
 }
 

@@ -97,32 +97,55 @@ function fromBase64(value) {
   return new Uint8Array(Buffer.from(value, "base64"));
 }
 
-function connectClient({ projectId, docPath, userId, userName, sessionToken }) {
+function connectClient({
+  projectId,
+  documentId,
+  collaborationRevision,
+  userId,
+  userName,
+  sessionToken
+}) {
   const ydoc = new Y.Doc();
   const ytext = ydoc.getText("main");
-  const docId = `${projectId}:${docPath}`;
   const query = new URLSearchParams({
     project_id: projectId,
+    collaboration_revision: String(collaborationRevision),
     user_id: userId,
     user_name: userName,
     session_token: sessionToken
   });
-  const wsUrl = `${REALTIME_WS}/v1/realtime/ws/${encodeURIComponent(docId)}?${query.toString()}`;
+  const wsUrl = `${REALTIME_WS}/v1/realtime/ws/${encodeURIComponent(documentId)}?${query.toString()}`;
   const ws = new WebSocket(wsUrl);
   const origin = `stress-${userId}-${Math.random().toString(16).slice(2)}`;
   const presence = new Set([userId]);
   let opened = false;
+  let requestSequence = 0;
+  const nextRequestId = () => `${origin}:${++requestSequence}`;
 
   ws.addEventListener("open", () => {
     opened = true;
     const snapshot = Y.encodeStateAsUpdate(ydoc);
-    ws.send(JSON.stringify({ kind: "yjs.sync", origin, payload: toBase64(snapshot) }));
+    ws.send(
+      JSON.stringify({
+        kind: "yjs.sync",
+        origin,
+        request_id: nextRequestId(),
+        payload: toBase64(snapshot)
+      })
+    );
   });
 
   ydoc.on("update", (update, updateOrigin) => {
     if (updateOrigin === "remote") return;
     if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ kind: "yjs.update", origin, payload: toBase64(update) }));
+    ws.send(
+      JSON.stringify({
+        kind: "yjs.update",
+        origin,
+        request_id: nextRequestId(),
+        payload: toBase64(update)
+      })
+    );
   });
 
   ws.addEventListener("message", (event) => {
@@ -134,7 +157,14 @@ function connectClient({ projectId, docPath, userId, userName, sessionToken }) {
       presence.add(sender);
       if (sender !== userId && ws.readyState === WebSocket.OPEN) {
         const snapshot = Y.encodeStateAsUpdate(ydoc);
-        ws.send(JSON.stringify({ kind: "yjs.sync", origin, payload: toBase64(snapshot) }));
+        ws.send(
+          JSON.stringify({
+            kind: "yjs.sync",
+            origin,
+            request_id: nextRequestId(),
+            payload: toBase64(snapshot)
+          })
+        );
       }
     }
     if (kind === "presence.leave" && typeof sender === "string") {
@@ -205,7 +235,7 @@ async function main() {
     user_id: collaborator.userId,
     role: "ReadWrite"
   });
-  await api(
+  const document = await api(
     "PUT",
     `/v1/projects/${projectId}/documents/by-path/${encodeURIComponent(DOC_PATH)}`,
     owner.sessionToken,
@@ -214,14 +244,16 @@ async function main() {
 
   const a = connectClient({
     projectId,
-    docPath: DOC_PATH,
+    documentId: document.id,
+    collaborationRevision: document.collaboration_revision,
     userId: owner.userId,
     userName: "Stress Owner",
     sessionToken: owner.sessionToken
   });
   let b = connectClient({
     projectId,
-    docPath: DOC_PATH,
+    documentId: document.id,
+    collaborationRevision: document.collaboration_revision,
     userId: collaborator.userId,
     userName: "Stress Collaborator",
     sessionToken: collaborator.sessionToken
@@ -248,7 +280,8 @@ async function main() {
       b.close();
       b = connectClient({
         projectId,
-        docPath: DOC_PATH,
+        documentId: document.id,
+        collaborationRevision: document.collaboration_revision,
         userId: collaborator.userId,
         userName: "Stress Collaborator",
         sessionToken: collaborator.sessionToken
