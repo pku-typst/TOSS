@@ -556,11 +556,6 @@ impl ExternalGitProviderRegistry {
         self.providers.len()
     }
 
-    #[cfg(test)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.providers.is_empty()
-    }
-
     pub(crate) fn iter(&self) -> impl Iterator<Item = &ExternalGitProvider> {
         self.providers.values()
     }

@@ -1,5 +1,6 @@
 //! Strict JSON representation of a distribution configuration file.
 
+use crate::distribution::FrontendFeature;
 use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 use crate::workspace::ProjectType;
@@ -12,7 +13,9 @@ pub(super) struct DistributionFile {
     pub(super) id: String,
     pub(super) product: ProductFile,
     pub(super) git: GitFile,
-    pub(super) capabilities: CapabilitiesFile,
+    pub(super) project_types: ProjectTypesFile,
+    pub(super) frontend_features: FrontendFeaturesFile,
+    pub(super) document_processing: DocumentProcessingFile,
     pub(super) typst: TypstFile,
     pub(super) template_gallery: TemplateGalleryFile,
     pub(super) experience: ExperienceFile,
@@ -66,6 +69,19 @@ pub(super) struct ExperienceHelpTopicFile {
     pub(super) summary: LocalizedTextFile,
     pub(super) sources: LocalizedHelpSourceFile,
     pub(super) visibility: ExperienceVisibility,
+    #[serde(default)]
+    pub(super) availability: HelpAvailabilityFile,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct HelpAvailabilityFile {
+    #[serde(default)]
+    pub(super) project_types: Vec<ProjectType>,
+    #[serde(default)]
+    pub(super) frontend_features: Vec<FrontendFeature>,
+    #[serde(default)]
+    pub(super) processing_operations: Vec<ProcessingOperation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,23 +153,36 @@ pub(super) struct GitFile {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CapabilitiesFile {
-    pub(super) project_types: Vec<ProjectType>,
+pub(super) struct ProjectTypesFile {
+    pub(super) typst: ProjectTypeFile,
     #[serde(default)]
-    pub(super) processing_operations: Vec<ProcessingOperation>,
+    pub(super) latex: Option<ProjectTypeFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProjectTypeFile {
+    pub(super) starter_template: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FrontendFeaturesFile {
+    #[serde(default)]
+    pub(super) included: Vec<FrontendFeature>,
+    #[serde(default)]
+    pub(super) default_enabled: Vec<FrontendFeature>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DocumentProcessingFile {
+    #[serde(default)]
+    pub(super) allowed_operations: Vec<ProcessingOperation>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct TypstFile {
     pub(super) builtin_dir: String,
-    pub(super) starter_templates: StarterTemplatesFile,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct StarterTemplatesFile {
-    pub(super) typst: String,
-    #[serde(default)]
-    pub(super) latex: Option<String>,
 }

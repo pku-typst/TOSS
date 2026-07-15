@@ -1639,7 +1639,7 @@ export interface components {
             brand_mark: string;
             client_id: string | null;
             distribution_id: string;
-            enabled_processing_operations: components["schemas"]["ProcessingOperation"][];
+            enabled_frontend_features: components["schemas"]["FrontendFeature"][];
             enabled_project_types: components["schemas"]["ProjectType"][];
             external_git_providers: components["schemas"]["ExternalGitProviderResponse"][];
             groups_claim: string;
@@ -1923,6 +1923,8 @@ export interface components {
             /** Format: int64 */
             workspace_version: number;
         };
+        /** @enum {string} */
+        FrontendFeature: "ai_assistant";
         GitRepoLink: {
             /** Format: uuid */
             project_id: string;
@@ -2082,7 +2084,7 @@ export interface components {
             state: components["schemas"]["ProcessingCapabilityState"];
         };
         /** @enum {string} */
-        ProcessingCapabilityState: "available" | "waiting" | "unavailable";
+        ProcessingCapabilityState: "available" | "waiting";
         ProcessingFailure: {
             class: string;
             code: string;

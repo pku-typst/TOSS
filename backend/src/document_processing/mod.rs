@@ -12,7 +12,7 @@ mod worker_idempotency;
 mod worker_persistence;
 pub(crate) mod worker_protocol;
 
-pub(crate) use config::ProcessingConfig;
+pub(crate) use config::{ProcessingConfig, ProcessingConfigFile};
 pub(crate) use context::DocumentProcessingContext;
 pub(crate) use finalization::spawn_processing_maintenance;
 pub(crate) use model::{

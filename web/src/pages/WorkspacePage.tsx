@@ -9,6 +9,11 @@ import { createPortal } from "react-dom";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { UiButton } from "@/components/ui";
 import {
+  AiAssistantPanel,
+  AI_ASSISTANT_PANEL_ID,
+  aiAssistantWorkspacePanel
+} from "@/features/ai";
+import {
   coreApiBaseUrl,
   type AuthUser,
   type AnonymousMode,
@@ -18,6 +23,7 @@ import {
   type AuthConfig
 } from "@/lib/api";
 import { prewarmTypstClientSide } from "@/lib/typst";
+import { deploymentEnablesFrontendFeature } from "@/lib/deploymentCapabilities";
 import { FileTreePanel } from "@/pages/workspace/components/FileTreePanel";
 import { EditorPanel } from "@/pages/workspace/components/EditorPanel";
 import { PreviewPanel } from "@/pages/workspace/components/PreviewPanel";
@@ -165,14 +171,16 @@ function ResolvedWorkspacePage({
   });
   const centerSplitRef = useRef<HTMLDivElement | null>(null);
   const [lineWrapEnabled, setLineWrapEnabled] = useState(true);
+  const aiAssistantEnabled = deploymentEnablesFrontendFeature(
+    authConfig,
+    "ai_assistant"
+  );
 
   const {
     filesPanelWidth,
     resizeFilesPanel,
-    settingsPanelWidth,
-    resizeSettingsPanel,
-    revisionsPanelWidth,
-    resizeRevisionsPanel,
+    auxiliaryPanelWidth,
+    resizeAuxiliaryPanel,
     editorRatio,
     resizeEditorSplit,
     collapsePanelToggles,
@@ -184,10 +192,22 @@ function ResolvedWorkspacePage({
     effectiveShowPreviewPanel,
     effectiveShowSettingsPanel,
     effectiveShowRevisionsPanel: effectiveShowRevisionPanel,
+    effectiveAuxiliaryPanel,
     effectiveShowEditorPanel,
     togglePanel,
     beginHorizontalResize
   } = useWorkspaceLayout();
+  const assistantPanelActive =
+    aiAssistantEnabled && effectiveAuxiliaryPanel === AI_ASSISTANT_PANEL_ID;
+  const [assistantPanelMounted, setAssistantPanelMounted] = useState(false);
+  useEffect(() => {
+    if (assistantPanelActive) setAssistantPanelMounted(true);
+  }, [assistantPanelActive]);
+  const assistantPanelControl = aiAssistantWorkspacePanel(
+    aiAssistantEnabled,
+    assistantPanelActive,
+    t
+  );
   const {
     previewZoom,
     setPreviewZoom,
@@ -268,9 +288,7 @@ function ResolvedWorkspacePage({
   const backgroundLatexBuild = useBackgroundLatexBuild({
     projectId,
     userId: authUser?.user_id ?? null,
-    enabled:
-      projectType === "latex" &&
-      !!authConfig?.enabled_processing_operations.includes("latex.compile.pdf/v1")
+    enabled: projectType === "latex"
   });
   const {
     error: projectActionError,
@@ -786,15 +804,13 @@ function ResolvedWorkspacePage({
             showPreviewPanel={effectiveShowPreviewPanel}
             showProjectSettingsPanel={effectiveShowSettingsPanel}
             showRevisionPanel={effectiveShowRevisionPanel}
+            optionalAuxiliaryPanels={assistantPanelControl ? [assistantPanelControl] : []}
             collapsePanelsIntoMenu={collapsePanelToggles}
             singlePanelMode={singlePanelMode}
             activePanel={compactPanelView}
             onRenameProject={submitProjectRename}
             canRenameProject={!!canManageProject}
-            onToggleFiles={() => togglePanel("files")}
-            onTogglePreview={() => togglePanel("preview")}
-            onToggleSettings={() => togglePanel("settings")}
-            onToggleRevisions={() => togglePanel("revisions")}
+            onTogglePanel={togglePanel}
             onSelectPanel={selectCompactPanel}
             showAccountControlsInViewMenu={showAccountControlsInViewMenu}
             accountDisplayName={authUser?.display_name ?? null}
@@ -976,19 +992,44 @@ function ResolvedWorkspacePage({
           )}
         </div>
 
+        {assistantPanelMounted && aiAssistantEnabled && (
+          <>
+            {!singlePanelMode && assistantPanelActive && (
+              <div
+                className="panel-resizer"
+                onMouseDown={beginHorizontalResize(resizeAuxiliaryPanel)}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("workspace.resizeAssistant")}
+              />
+            )}
+            <div
+              className="workspace-optional-panel-host"
+              hidden={!assistantPanelActive}
+            >
+              <AiAssistantPanel
+                key={`${effectiveUserId}:${projectId}:${workspaceSessionGeneration}`}
+                width={auxiliaryPanelWidth}
+                locale={locale}
+                t={t}
+              />
+            </div>
+          </>
+        )}
+
         {effectiveShowSettingsPanel && (
           <>
             {!singlePanelMode && (
               <div
                 className="panel-resizer"
-                onMouseDown={beginHorizontalResize(resizeSettingsPanel)}
+                onMouseDown={beginHorizontalResize(resizeAuxiliaryPanel)}
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={t("workspace.resizeSettings")}
               />
             )}
             {isAnonymousShare ? (
-              <aside className="panel panel-right settings-panel" style={{ width: settingsPanelWidth }}>
+              <aside className="panel panel-right settings-panel" style={{ width: auxiliaryPanelWidth }}>
                 <div className="panel-header">
                   <h2>{t("workspace.settings")}</h2>
                 </div>
@@ -1006,7 +1047,7 @@ function ResolvedWorkspacePage({
             ) : (
               <WorkspaceSettingsContainer
                 key={workspaceSessionGeneration}
-                width={settingsPanelWidth}
+                width={auxiliaryPanelWidth}
                 project={project}
                 organizations={organizations}
                 authConfig={authConfig ?? null}
@@ -1033,14 +1074,14 @@ function ResolvedWorkspacePage({
             {!singlePanelMode && (
               <div
                 className="panel-resizer"
-                onMouseDown={beginHorizontalResize(resizeRevisionsPanel)}
+                onMouseDown={beginHorizontalResize(resizeAuxiliaryPanel)}
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={t("workspace.resizeRevisions")}
               />
             )}
             <RevisionsPanel
-              width={revisionsPanelWidth}
+              width={auxiliaryPanelWidth}
               revisions={revisions}
               activeRevisionId={activeRevisionId}
               loading={revisionLoading.active}

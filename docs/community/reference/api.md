@@ -188,7 +188,8 @@ Community currently enables only `latex.compile.pdf/v1`. Build submission
 requires authentication, current project read access, a LaTeX project, a
 configured worker identity, and an `Idempotency-Key`; it returns `202` for a new
 durable job and the existing job for an exact replay. The capability response
-distinguishes `available`, configured-but-offline `waiting`, and `unavailable`.
+contains only deployment-configured operations and distinguishes `available`
+from configured-but-offline `waiting`. An absent operation is not enabled.
 
 Job lists are requester-owned and recheck current project access. Cancellation
 is allowed during preparation, queueing, and active execution, but not after

@@ -33,6 +33,7 @@ module. They do not duplicate implementation guides or track unfinished work.
 | [ADR-0006](./0006-defer-background-rendering.md) | Superseded: defer server rendering and keep preview exclusively in the browser |
 | [ADR-0007](./0007-community-database-baseline.md) | Start Community TOSS from one new database baseline |
 | [ADR-0008](./0008-durable-document-processing.md) | Add durable document processing without changing browser compilation |
+| [ADR-0009](./0009-typed-optional-features.md) | Keep project types, frontend features, and processing operations as separate optional dimensions |
 
 Add a decision only for a durable, cross-cutting tradeoff. Current behavior and
 operations still belong in architecture and guide pages.

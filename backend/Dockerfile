@@ -42,11 +42,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git git-lfs libssl3 \
     && rm -rf /var/lib/apt/lists/*
 COPY backend/migrations ./migrations
+COPY config ./config
 COPY --from=web-builder /workspace/web/dist ./web-dist
 COPY --from=selected-distribution /bundle/builtin ./builtin
 COPY --from=selected-distribution /bundle/distributions ./distributions
 ENV WEB_STATIC_DIR=/app/web-dist
 ENV TOSS_CONFIG=/app/distributions/${TOSS_DISTRIBUTION}/toss.json
+ENV TOSS_DEPLOYMENT_CONFIG=/app/config/deployment.toml
 ENV HOME=/tmp
 EXPOSE 8080
 CMD ["core-api"]

@@ -9,8 +9,7 @@ import type {
 export const WORKSPACE_LAYOUT_KEY = "workspace.layout.v2";
 export const DEFAULT_LAYOUT_PREFS: WorkspaceLayoutPrefs = {
   filesWidth: 300,
-  settingsWidth: 320,
-  revisionsWidth: 300,
+  auxiliaryWidth: 380,
   editorRatio: 0.56
 };
 export const MIN_SIDE_PANEL_WIDTH = 220;
@@ -110,15 +109,17 @@ export function readWorkspaceLayoutPrefs(): WorkspaceLayoutPrefs {
     const raw = window.localStorage.getItem(WORKSPACE_LAYOUT_KEY);
     if (!raw) return DEFAULT_LAYOUT_PREFS;
     const parsed = JSON.parse(raw) as Partial<WorkspaceLayoutPrefs>;
+    const legacy = parsed as Partial<WorkspaceLayoutPrefs> & {
+      settingsWidth?: number;
+      revisionsWidth?: number;
+    };
     return {
       filesWidth: clampNumber(parsed.filesWidth ?? DEFAULT_LAYOUT_PREFS.filesWidth, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH),
-      settingsWidth: clampNumber(
-        parsed.settingsWidth ?? DEFAULT_LAYOUT_PREFS.settingsWidth,
-        MIN_SIDE_PANEL_WIDTH,
-        MAX_SIDE_PANEL_WIDTH
-      ),
-      revisionsWidth: clampNumber(
-        parsed.revisionsWidth ?? DEFAULT_LAYOUT_PREFS.revisionsWidth,
+      auxiliaryWidth: clampNumber(
+        parsed.auxiliaryWidth ??
+          legacy.settingsWidth ??
+          legacy.revisionsWidth ??
+          DEFAULT_LAYOUT_PREFS.auxiliaryWidth,
         MIN_SIDE_PANEL_WIDTH,
         MAX_SIDE_PANEL_WIDTH
       ),

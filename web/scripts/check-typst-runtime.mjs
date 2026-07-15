@@ -18,12 +18,15 @@ async function loadDistribution() {
     configuredPath || path.join(repoRoot, "distributions", "community", "toss.json")
   );
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
-  if (config.schema !== 5 || typeof config.id !== "string") {
+  if (config.schema !== 6 || typeof config.id !== "string") {
     throw new Error(`Unsupported distribution config: ${configPath}`);
   }
   const configRoot = path.dirname(configPath);
   const builtinRoot = path.resolve(configRoot, config.typst?.builtin_dir || "");
-  const templatePath = path.resolve(configRoot, config.typst?.starter_templates?.typst || "");
+  const templatePath = path.resolve(
+    configRoot,
+    config.project_types?.typst?.starter_template || ""
+  );
   if (!Array.isArray(config.template_gallery?.builtins)) {
     throw new Error(`Distribution template gallery is missing: ${configPath}`);
   }

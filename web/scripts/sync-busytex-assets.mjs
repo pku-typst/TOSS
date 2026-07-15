@@ -33,9 +33,7 @@ async function sha256(filePath) {
 
 async function synchronize() {
   const distribution = await selectedDistribution();
-  const projectTypes = distribution?.capabilities?.project_types;
-  const latexEnabled =
-    Array.isArray(projectTypes) && projectTypes.includes("latex");
+  const latexEnabled = distribution?.project_types?.latex != null;
   if (!latexEnabled) {
     await fs.rm(publicRoot, { recursive: true, force: true });
     process.stdout.write("[busytex-assets] skipped for Typst-only distribution\n");

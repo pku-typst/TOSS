@@ -51,8 +51,8 @@ package catalog. A deployment may define another distribution to select
 branding, content, runtime catalog, project types, durable processing
 operations, and external-checkpoint naming without branching core product code.
 An enabled processing operation still requires an operator-provisioned,
-compatible worker; worker credentials and contracts remain outside the
-distribution in environment-backed secrets. See
+compatible worker identity in the deployment TOML; contracts remain in that
+non-secret topology and token contents remain in mounted secret files. See
 [Distribution configuration](../configuration/distributions.md).
 
 ## Compilation and durable processing

@@ -12,6 +12,7 @@
     "verify:typst-compiler": "cd .. && node scripts/prebuilt-typst-compiler.mjs verify",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:protocol": "npm --prefix ../protocol run check:types",
+    "check:ai-excluded-build": "node scripts/check-ai-excluded-build.mjs",
     "generate:protocol": "npm --prefix ../protocol run generate:types",
     "lint": "oxlint src",
     "test": "vitest run",
@@ -22,7 +23,7 @@
     "sync:busytex-assets": "node scripts/sync-busytex-assets.mjs",
     "check:typst-runtime": "npm run sync:typst-assets && node scripts/check-typst-runtime.mjs",
     "dev": "npm run sync:typst-assets && npm run sync:busytex-assets && vite --host 127.0.0.1 --port 3000",
-    "build": "npm run lint && npm run check:i18n && npm run check:protocol && npm run sync:typst-assets && npm run sync:busytex-assets && tsc -b && vite build && node scripts/precompress-dist.mjs",
+    "build": "npm run lint && npm run check:i18n && npm run check:protocol && npm run sync:typst-assets && npm run sync:busytex-assets && tsc -b && vite build && node scripts/build-ai-runtime.mjs && node scripts/precompress-dist.mjs && npm run check:ai-excluded-build",
     "preview": "npm run sync:typst-assets && npm run sync:busytex-assets && vite preview --host 127.0.0.1 --port 3000"
   },
   "dependencies": {

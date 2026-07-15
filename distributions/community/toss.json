@@ -1,5 +1,5 @@
 {
-  "schema": 5,
+  "schema": 6,
   "id": "community",
   "product": {
     "name": "Typst Collaboration",
@@ -19,16 +19,23 @@
     "fallback_owner_name": "Workspace Owner",
     "fallback_email_domain": "workspace.local"
   },
-  "capabilities": {
-    "project_types": ["typst", "latex"],
-    "processing_operations": ["latex.compile.pdf/v1"]
+  "project_types": {
+    "typst": {
+      "starter_template": "templates/main.typ"
+    },
+    "latex": {
+      "starter_template": "templates/main.tex"
+    }
+  },
+  "frontend_features": {
+    "included": ["ai_assistant"],
+    "default_enabled": []
+  },
+  "document_processing": {
+    "allowed_operations": ["latex.compile.pdf/v1"]
   },
   "typst": {
-    "builtin_dir": "typst",
-    "starter_templates": {
-      "typst": "templates/main.typ",
-      "latex": "templates/main.tex"
-    }
+    "builtin_dir": "typst"
   },
   "template_gallery": {
     "builtins": [
@@ -208,7 +215,10 @@
             "en": "help/en/background-tasks.md",
             "zh-CN": "help/zh-CN/background-tasks.md"
           },
-          "visibility": "authenticated"
+          "visibility": "authenticated",
+          "availability": {
+            "processing_operations": ["latex.compile.pdf/v1"]
+          }
         },
         {
           "id": "collaboration-backup",
@@ -260,7 +270,10 @@
             "en": "help/en/latex.md",
             "zh-CN": "help/zh-CN/latex.md"
           },
-          "visibility": "public"
+          "visibility": "public",
+          "availability": {
+            "project_types": ["latex"]
+          }
         }
       ]
     }

@@ -17,4 +17,8 @@ impl DocumentProcessingContext {
             config: Arc::new(config),
         }
     }
+
+    pub(crate) fn configured_operations(&self) -> Vec<super::ProcessingOperation> {
+        self.config.configured_operations()
+    }
 }

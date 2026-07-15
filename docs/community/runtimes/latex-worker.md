@@ -303,10 +303,10 @@ bytes, wall time, attempt count, and retention. The SDK additionally enforces a
 fixed 4,096-file and 256 MiB expanded-bundle ceiling. Attempt rows record the
 wall/output/diagnostic limits supplied to a claim.
 
-A full or offline worker leaves explicit builds waiting or unavailable under
-Document Processing policy. Browser BusyTeX preview and local export continue
-independently. The UI never silently turns a failed or unavailable durable build
-into a successful browser build.
+A full or offline worker leaves configured builds queued or waiting under
+Document Processing policy; an unconfigured operation is omitted. Browser
+BusyTeX preview and local export continue independently. The UI never silently
+turns a failed durable build into a successful browser build.
 
 ## Verification
 

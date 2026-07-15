@@ -38,10 +38,30 @@ describe("useWorkspaceLayout", () => {
 
     expect(result.current).toMatchObject({
       filesPanelWidth: 360,
-      settingsPanelWidth: 380,
-      revisionsPanelWidth: 400,
+      auxiliaryPanelWidth: 380,
       editorRatio: 0.42
     });
+  });
+
+  it("keeps core and optional auxiliary panels mutually exclusive", () => {
+    const { result } = renderHook(() => useWorkspaceLayout());
+
+    act(() => result.current.togglePanel("settings"));
+    expect(result.current).toMatchObject({
+      effectiveShowSettingsPanel: true,
+      effectiveShowRevisionsPanel: false,
+      effectiveAuxiliaryPanel: "settings"
+    });
+
+    act(() => result.current.togglePanel("feature:ai_assistant"));
+    expect(result.current).toMatchObject({
+      effectiveShowSettingsPanel: false,
+      effectiveShowRevisionsPanel: false,
+      effectiveAuxiliaryPanel: "feature:ai_assistant"
+    });
+
+    act(() => result.current.togglePanel("feature:ai_assistant"));
+    expect(result.current.effectiveAuxiliaryPanel).toBeNull();
   });
 
   it("updates responsive behavior only from viewport breakpoint snapshots", () => {

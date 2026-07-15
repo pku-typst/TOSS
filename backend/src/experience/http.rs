@@ -55,9 +55,15 @@ pub(crate) async fn help_content(
     headers: HeaderMap,
 ) -> Result<(HeaderMap, Json<HelpContent>), ApiError> {
     let authenticated = request_user_id(&state.db, &headers).await?.is_some();
+    let configured_processing_operations = state.processing.configured_operations();
     Ok((
         request_variant_headers(),
-        Json(load_help_content(&state.distribution, authenticated)),
+        Json(load_help_content(
+            &state.distribution,
+            &state.frontend_features,
+            &configured_processing_operations,
+            authenticated,
+        )),
     ))
 }
 

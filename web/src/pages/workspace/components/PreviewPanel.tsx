@@ -89,7 +89,7 @@ export function PreviewPanel({
   onDownloadPdf: () => void;
   backgroundBuild: {
     visible: boolean;
-    state: "available" | "waiting" | "unavailable" | "loading";
+    state: "available" | "waiting" | "loading" | "error";
     reason: string | null;
     submit: () => void;
     pending: boolean;
@@ -174,8 +174,8 @@ export function PreviewPanel({
     ? t("processing.submitting")
     : backgroundBuild.state === "waiting"
       ? t("processing.buildWaiting")
-      : backgroundBuild.state === "unavailable"
-        ? t("processing.buildUnavailable")
+      : backgroundBuild.state === "error"
+        ? t("processing.capabilitiesFailed")
         : backgroundBuild.state === "loading"
           ? t("processing.checkingAvailability")
           : t("processing.buildPdf");
@@ -276,7 +276,7 @@ export function PreviewPanel({
               disabled={
                 backgroundBuild.pending ||
                 backgroundBuild.state === "loading" ||
-                backgroundBuild.state === "unavailable"
+                backgroundBuild.state === "error"
               }
             >
               {backgroundBuild.pending ? (

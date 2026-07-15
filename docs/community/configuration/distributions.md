@@ -12,7 +12,7 @@ topics:
   - distributions
   - branding
   - templates
-  - capabilities
+  - optional-features
 related:
   - docs/community/configuration/README.md
   - docs/community/product/overview.md
@@ -27,8 +27,8 @@ code_paths:
 
 # Distribution configuration
 
-A versioned distribution file selects product identity, capabilities, and
-content without product-specific branches in core application code. The
+A versioned distribution file selects product identity, typed feature bounds,
+and content without product-specific branches in core application code. The
 Community distribution is the public baseline; downstream deployments may add
 their own distribution directories as overlays.
 
@@ -50,38 +50,52 @@ Paths inside the JSON resolve relative to that file. If it is absent, source
 development searches for the Community distribution and then uses embedded
 Community defaults.
 
-The current schema is version 5 and rejects unknown fields.
+The current schema is version 6 and rejects unknown fields.
 
 | Section | Responsibility |
 | --- | --- |
 | `product` | Name, localized description, managed-name policy, mark, colors, favicon/touch icon, and indexing policy |
 | `git` | External checkpoint branch prefix and safe fallback commit identity |
-| `capabilities` | Enabled project types and durable processing operations |
-| `typst` | Built-in catalog root and starter templates |
+| `project_types` | Included cross-layer project types and their starter templates |
+| `frontend_features` | Frontend feature build bounds and safe defaults |
+| `document_processing` | Product allowlist of durable processing operations |
+| `typst` | Built-in catalog root |
 | `template_gallery` | Built-in template metadata, sources, and thumbnails |
 | `experience` | Landing content, Help topics, and resource links |
 
 Startup fails on an unknown schema, malformed product values, unsafe paths,
-missing catalog, invalid template, or project type that contradicts the
-distribution capability set.
+missing catalog, invalid template, or processing operation that contradicts
+the distribution's project-type set.
 
-## Capabilities
+## Three typed dimensions
 
-`capabilities.project_types` must contain `typst` and may contain `latex`. A
-LaTeX-enabled distribution configures a LaTeX starter; a Typst-only
-distribution omits it. Backend project creation/copy and frontend controls both
-enforce the selected set.
+`project_types.typst` is required and `project_types.latex` is optional. Each
+entry owns its starter template. Backend project creation/copy and frontend
+controls enforce the selected set as one cross-layer product contract.
 
-`capabilities.processing_operations` is a closed allowlist of Core-known,
+`frontend_features.included` bounds browser feature code a distribution may
+ship. `default_enabled` must be a subset. The deployment TOML may enable only
+included features, and the web build manifest provides a second artifact-level
+fence. Community includes `ai_assistant` as an optional frontend feature but
+does not enable it by default. The Community web artifact therefore contains
+its lazy host chunk and matching isolated Runtime, while deployment
+configuration still decides whether either route is exposed. Browser AI
+remains separate from Document Processing.
+
+`document_processing.allowed_operations` is a closed allowlist of Core-known,
 versioned operations. Community enables `latex.compile.pdf/v1`. This is product
-policy, not worker configuration: admission also requires a deployment worker
+policy, not worker configuration: the deployment TOML must configure a worker
 identity with an exact processor-contract allowlist, and live availability
-requires a compatible healthy session. Do not put worker tokens or private
-processor configuration in the distribution file.
+requires a compatible healthy session. Do not put worker identities, tokens,
+or private processor configuration in the distribution file.
 
-The frontend reads the same distribution during build. A Typst-only build may
-alias the LaTeX editor and runtime to disabled modules and exclude BusyTeX
-assets; runtime configuration cannot add them back.
+The frontend build reads only `project_types` and `frontend_features`; it does
+not parse `document_processing`. A Typst-only build aliases the LaTeX editor
+and runtime to disabled modules and excludes BusyTeX assets. Every build emits
+`toss-build-manifest.json`, which Core checks against runtime configuration.
+Schema 2 also binds an included AI host build to the exact
+`/_ai-runtime/bootstrap.html` artifact and build ID. An AI-excluded build emits
+neither the Assistant chunk nor the Runtime artifact.
 
 ## Product identity
 
@@ -124,12 +138,11 @@ use private no-store caching with cookie/authorization variance.
 Localized Help Center files are runtime product content. They remain bilingual
 even though the engineering wiki is English-only.
 
-Help must describe the capability presented by the same distribution rather
-than promising deployment capacity. Community's authenticated background-task
-topic explains the task center and native LaTeX build, while capability status
-still determines whether submission is available, queueable, or disabled at
-runtime. A downstream distribution that removes or renames an operation must
-also remove or replace the corresponding Help topic and contextual copy.
+Help topics may declare typed `availability.project_types`,
+`availability.frontend_features`, and `availability.processing_operations`
+requirements. Distribution loading rejects impossible requirements. Runtime
+Help filtering uses enabled frontend features and configured processing
+operations, but not transient worker heartbeat state.
 
 ## Build selection
 
@@ -147,6 +160,7 @@ stable distribution ID to the same build argument.
 ## Related
 
 - [Configuration index](./README.md)
+- [Deployment configuration](./deployment.md)
 - [Product model](../product/overview.md)
 - [Typst runtime](../runtimes/typst.md)
 - [LaTeX runtime](../runtimes/latex.md)

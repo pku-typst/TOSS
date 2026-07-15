@@ -101,13 +101,16 @@ Core application replica. See the
 | `backend/` | Axum API, collaboration, access, storage, Git, processing, and provider adapters |
 | `workers/` | Public processing SDK and optional native processor images |
 | `protocol/` | Checked-in browser/server and worker OpenAPI contracts plus browser TypeScript generation |
+| `config/` | Safe default deployment configuration for runtime-selectable features and integrations |
 | `distributions/community/` | Product configuration, Help content, and starter templates |
 | `prebuilt/` | Reproducible browser-runtime manifests and fetched package caches |
 | `third-party/typst.ts/` | Public compiler and renderer fork pinned as a submodule |
 | `docs/community/` | Engineering documentation and architecture decisions |
 
-Product identity and optional capabilities are selected through a validated
-distribution file. This repository ships the self-contained Community
+The validated distribution selects product identity, build bounds, supported
+project types, and allowed processing operations. A separate deployment TOML
+enables the subset available in one installation and configures integrations
+and worker identities. This repository ships the self-contained Community
 distribution and keeps the core suitable for downstream distributions.
 
 ## Quick start

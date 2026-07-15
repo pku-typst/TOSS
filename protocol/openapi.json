@@ -4928,7 +4928,7 @@
           "groups_claim",
           "distribution_id",
           "enabled_project_types",
-          "enabled_processing_operations",
+          "enabled_frontend_features",
           "brand_mark",
           "accent_color",
           "accent_text_color",
@@ -4995,10 +4995,10 @@
               "$ref": "#/components/schemas/ProjectType"
             }
           },
-          "enabled_processing_operations": {
+          "enabled_frontend_features": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ProcessingOperation"
+              "$ref": "#/components/schemas/FrontendFeature"
             }
           },
           "brand_mark": {
@@ -6230,6 +6230,12 @@
           }
         }
       },
+      "FrontendFeature": {
+        "type": "string",
+        "enum": [
+          "ai_assistant"
+        ]
+      },
       "GitRepoLink": {
         "type": "object",
         "required": [
@@ -6807,8 +6813,7 @@
         "type": "string",
         "enum": [
           "available",
-          "waiting",
-          "unavailable"
+          "waiting"
         ]
       },
       "ProcessingFailure": {

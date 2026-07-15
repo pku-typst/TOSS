@@ -74,12 +74,12 @@ their verified manifests. A self-advertised contract hash is not authority to
 claim work, and users do not choose a processor contract as a priority setting.
 
 The current implementation uses bearer tokens. Core loads deployment-owned
-identity, token, operation, and exact processor-contract allowlists from
-`PROCESSING_WORKER_IDENTITIES_JSON`, hashes candidates, and compares
-fingerprints in constant time. The SDK accepts its token from
-`PROCESSING_WORKER_TOKEN_FILE` or `PROCESSING_WORKER_TOKEN`. Mutual TLS or
-workload identity may replace bearer authentication later without changing
-claim semantics.
+identity, `token_file`, operation, and exact processor-contract allowlists from
+the `document_processing` section of `TOSS_DEPLOYMENT_CONFIG`, hashes
+candidates, and compares fingerprints in constant time. The SDK accepts its
+token from `PROCESSING_WORKER_TOKEN_FILE` or the standalone
+`PROCESSING_WORKER_TOKEN` fallback. Mutual TLS or workload identity may replace
+bearer authentication later without changing claim semantics.
 
 Browser sessions, personal access tokens, external-provider grants, and worker
 credentials are not interchangeable. Internal routes reject cookies as a

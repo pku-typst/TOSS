@@ -7,6 +7,7 @@ pub(crate) mod template_catalog;
 
 use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
+use crate::text_enum::text_enum;
 use crate::workspace::ProjectType;
 use experience_content::{ExperienceConfig, ExperienceResource, LandingConfig, LandingHighlight};
 use localized_text::validate_localized_text;
@@ -17,7 +18,7 @@ use template_catalog::{BuiltinTemplate, BuiltinTemplateFile};
 use thiserror::Error;
 use uuid::Uuid;
 
-const CONFIG_SCHEMA_VERSION: u32 = 5;
+const CONFIG_SCHEMA_VERSION: u32 = 6;
 const MAX_TEMPLATE_FILES: usize = 4096;
 const MAX_TEMPLATE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TEMPLATE_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
@@ -40,7 +41,9 @@ pub struct DistributionConfig {
     pub id: String,
     pub product: ProductConfig,
     pub git: GitConfig,
-    pub capabilities: CapabilitiesConfig,
+    pub project_types: Vec<ProjectType>,
+    pub frontend_features: FrontendFeaturesConfig,
+    pub document_processing: DocumentProcessingDistributionConfig,
     pub experience: ExperienceConfig,
     pub typst_builtin_dir: Option<PathBuf>,
     pub builtin_templates: Vec<BuiltinTemplate>,
@@ -114,10 +117,23 @@ impl Default for CheckpointBranchPrefix {
 #[error("checkpoint branch prefix is invalid")]
 pub(crate) struct InvalidCheckpointBranchPrefix;
 
+text_enum! {
+    #[derive(Hash)]
+    #[schema(rename_all = "snake_case")]
+    pub enum FrontendFeature {
+        AiAssistant => "ai_assistant",
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct CapabilitiesConfig {
-    pub project_types: Vec<ProjectType>,
-    pub processing_operations: Vec<ProcessingOperation>,
+pub struct FrontendFeaturesConfig {
+    pub included: Vec<FrontendFeature>,
+    pub default_enabled: Vec<FrontendFeature>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DocumentProcessingDistributionConfig {
+    pub allowed_operations: Vec<ProcessingOperation>,
 }
 
 impl Default for DistributionConfig {
@@ -146,9 +162,13 @@ impl Default for DistributionConfig {
                 fallback_owner_name: "Workspace Owner".to_string(),
                 fallback_email_domain: "workspace.local".to_string(),
             },
-            capabilities: CapabilitiesConfig {
-                project_types: vec![ProjectType::Typst, ProjectType::Latex],
-                processing_operations: vec![ProcessingOperation::LatexCompilePdfV1],
+            project_types: vec![ProjectType::Typst, ProjectType::Latex],
+            frontend_features: FrontendFeaturesConfig {
+                included: Vec::new(),
+                default_enabled: Vec::new(),
+            },
+            document_processing: DocumentProcessingDistributionConfig {
+                allowed_operations: vec![ProcessingOperation::LatexCompilePdfV1],
             },
             experience: ExperienceConfig {
                 landing: LandingConfig {
@@ -222,11 +242,17 @@ impl Default for DistributionConfig {
 
 impl DistributionConfig {
     pub fn supports_project_type(&self, project_type: ProjectType) -> bool {
-        self.capabilities.project_types.contains(&project_type)
+        self.project_types.contains(&project_type)
+    }
+
+    pub fn includes_frontend_feature(&self, feature: FrontendFeature) -> bool {
+        self.frontend_features.included.contains(&feature)
     }
 
     pub fn supports_processing_operation(&self, operation: ProcessingOperation) -> bool {
-        self.capabilities.processing_operations.contains(&operation)
+        self.document_processing
+            .allowed_operations
+            .contains(&operation)
     }
 
     pub fn starter_content(&self, project_type: ProjectType) -> Option<&str> {
@@ -311,11 +337,11 @@ mod tests {
             "workspace/00000000-0000-0000-0000-000000000000"
         );
         assert_eq!(
-            config.capabilities.project_types,
+            config.project_types,
             [ProjectType::Typst, ProjectType::Latex]
         );
         assert_eq!(
-            config.capabilities.processing_operations,
+            config.document_processing.allowed_operations,
             [ProcessingOperation::LatexCompilePdfV1]
         );
         assert!(config.supports_project_type(ProjectType::Latex));

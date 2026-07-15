@@ -5,8 +5,9 @@ use super::file_format::DistributionFile;
 use super::template_catalog::load_builtin_templates;
 use super::{
     is_hex_color, read_template, resolve_distribution_file, resolve_path, validate_localized_text,
-    CapabilitiesConfig, CheckpointBranchPrefix, DistributionConfig, GitConfig, ProductAsset,
-    ProductConfig, CONFIG_SCHEMA_VERSION, MAX_PRODUCT_ASSET_BYTES,
+    CheckpointBranchPrefix, DistributionConfig, DocumentProcessingDistributionConfig,
+    FrontendFeature, FrontendFeaturesConfig, GitConfig, ProductAsset, ProductConfig,
+    CONFIG_SCHEMA_VERSION, MAX_PRODUCT_ASSET_BYTES,
 };
 use crate::document_processing::ProcessingOperation;
 use crate::workspace::ProjectType;
@@ -106,10 +107,17 @@ impl DistributionConfig {
         }
         let fallback_email_domain = file.git.fallback_email_domain.trim().to_ascii_lowercase();
         validate_email_domain(&fallback_email_domain)?;
-        let project_types = validate_project_types(file.capabilities.project_types)?;
-        let latex_enabled = project_types.contains(&ProjectType::Latex);
+        let project_types = if file.project_types.latex.is_some() {
+            vec![ProjectType::Typst, ProjectType::Latex]
+        } else {
+            vec![ProjectType::Typst]
+        };
+        let frontend_features = validate_frontend_features(
+            file.frontend_features.included,
+            file.frontend_features.default_enabled,
+        )?;
         let processing_operations = validate_processing_operations(
-            file.capabilities.processing_operations,
+            file.document_processing.allowed_operations,
             &project_types,
         )?;
 
@@ -123,28 +131,20 @@ impl DistributionConfig {
         }
         let typst_template_path = resolve_path(
             base_dir,
-            &file.typst.starter_templates.typst,
-            "typst.starter_templates.typst",
+            &file.project_types.typst.starter_template,
+            "project_types.typst.starter_template",
         )?;
         let typst_template = read_template(&typst_template_path, "Typst")?;
-        let latex_template = match (latex_enabled, file.typst.starter_templates.latex.as_deref()) {
-            (true, Some(configured_path)) => {
-                let template_path =
-                    resolve_path(base_dir, configured_path, "typst.starter_templates.latex")?;
+        let latex_template = match file.project_types.latex {
+            Some(configured) => {
+                let template_path = resolve_path(
+                    base_dir,
+                    &configured.starter_template,
+                    "project_types.latex.starter_template",
+                )?;
                 Some(read_template(&template_path, "LaTeX")?)
             }
-            (true, None) => {
-                return Err(
-                    "typst.starter_templates.latex is required when LaTeX is enabled".to_string(),
-                );
-            }
-            (false, Some(_)) => {
-                return Err(
-                    "typst.starter_templates.latex must be omitted when LaTeX is disabled"
-                        .to_string(),
-                );
-            }
-            (false, None) => None,
+            None => None,
         };
         let builtin_templates = load_builtin_templates(
             base_dir,
@@ -152,7 +152,13 @@ impl DistributionConfig {
             &project_types,
             &accent_color,
         )?;
-        let experience = load_experience(base_dir, file.experience)?;
+        let experience = load_experience(
+            base_dir,
+            file.experience,
+            &project_types,
+            &frontend_features.included,
+            &processing_operations,
+        )?;
 
         Ok(Self {
             id: file.id,
@@ -172,9 +178,10 @@ impl DistributionConfig {
                 fallback_owner_name,
                 fallback_email_domain,
             },
-            capabilities: CapabilitiesConfig {
-                project_types,
-                processing_operations,
+            project_types,
+            frontend_features,
+            document_processing: DocumentProcessingDistributionConfig {
+                allowed_operations: processing_operations,
             },
             experience,
             typst_builtin_dir: Some(builtin_dir),
@@ -214,26 +221,35 @@ fn load_product_asset(base_dir: &Path, raw: &str, field: &str) -> Result<Product
     })
 }
 
-fn validate_project_types(values: Vec<ProjectType>) -> Result<Vec<ProjectType>, String> {
-    let mut typst_enabled = false;
-    let mut latex_enabled = false;
-    for value in values {
-        match value {
-            ProjectType::Typst if !typst_enabled => typst_enabled = true,
-            ProjectType::Latex if !latex_enabled => latex_enabled = true,
-            ProjectType::Typst | ProjectType::Latex => {
-                return Err("capabilities.project_types must not contain duplicates".to_string());
-            }
+fn validate_frontend_features(
+    included: Vec<FrontendFeature>,
+    default_enabled: Vec<FrontendFeature>,
+) -> Result<FrontendFeaturesConfig, String> {
+    let mut normalized_included = Vec::with_capacity(included.len());
+    for feature in included {
+        if normalized_included.contains(&feature) {
+            return Err("frontend_features.included must not contain duplicates".to_string());
         }
+        normalized_included.push(feature);
     }
-    if !typst_enabled {
-        return Err("capabilities.project_types must include 'typst'".to_string());
+    let mut normalized_defaults = Vec::with_capacity(default_enabled.len());
+    for feature in default_enabled {
+        if normalized_defaults.contains(&feature) {
+            return Err(
+                "frontend_features.default_enabled must not contain duplicates".to_string(),
+            );
+        }
+        if !normalized_included.contains(&feature) {
+            return Err(format!(
+                "frontend feature {feature} cannot be enabled by default unless it is included"
+            ));
+        }
+        normalized_defaults.push(feature);
     }
-    let mut normalized = vec![ProjectType::Typst];
-    if latex_enabled {
-        normalized.push(ProjectType::Latex);
-    }
-    Ok(normalized)
+    Ok(FrontendFeaturesConfig {
+        included: normalized_included,
+        default_enabled: normalized_defaults,
+    })
 }
 
 fn validate_processing_operations(
@@ -244,7 +260,7 @@ fn validate_processing_operations(
     for value in values {
         if normalized.contains(&value) {
             return Err(
-                "capabilities.processing_operations must not contain duplicates".to_string(),
+                "document_processing.allowed_operations must not contain duplicates".to_string(),
             );
         }
         if value
@@ -252,7 +268,7 @@ fn validate_processing_operations(
             .is_some_and(|project_type| !project_types.contains(&project_type))
         {
             return Err(format!(
-                "capabilities.processing_operations cannot enable {value} without its project type"
+                "document_processing.allowed_operations cannot include {value} without its project type"
             ));
         }
         normalized.push(value);

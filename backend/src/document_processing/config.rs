@@ -6,7 +6,7 @@ use chrono::Duration;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::env;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use subtle::ConstantTimeEq;
 
@@ -59,7 +59,7 @@ pub(crate) struct AuthenticatedWorker {
 #[serde(deny_unknown_fields)]
 struct WorkerIdentityInput {
     id: String,
-    token: String,
+    token_file: PathBuf,
     operations: Vec<WorkerOperationInput>,
 }
 
@@ -70,62 +70,119 @@ struct WorkerOperationInput {
     processor_contracts: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProcessingConfigFile {
+    #[serde(default)]
+    worker_identities: Vec<WorkerIdentityInput>,
+    #[serde(default = "default_max_queued_jobs")]
+    max_queued_jobs: i64,
+    #[serde(default = "default_max_active_jobs_per_user")]
+    max_active_jobs_per_user: i64,
+    #[serde(default = "default_max_active_jobs_per_project")]
+    max_active_jobs_per_project: i64,
+    #[serde(default = "default_max_input_bytes")]
+    max_input_bytes: i64,
+    #[serde(default = "default_max_output_bytes")]
+    max_output_bytes: i64,
+    #[serde(default = "default_max_diagnostic_bytes")]
+    max_diagnostic_bytes: i64,
+    #[serde(default = "default_job_wall_seconds")]
+    job_wall_seconds: i64,
+    #[serde(default = "default_queue_wait_seconds")]
+    queue_wait_seconds: i64,
+    #[serde(default = "default_retention_seconds")]
+    retention_seconds: i64,
+    #[serde(default = "default_claim_lease_seconds")]
+    claim_lease_seconds: i64,
+    #[serde(default = "default_session_lease_seconds")]
+    session_lease_seconds: i64,
+    #[serde(default = "default_transfer_seconds")]
+    transfer_seconds: i64,
+    #[serde(default = "default_finalization_lease_seconds")]
+    finalization_lease_seconds: i64,
+}
+
+impl Default for ProcessingConfigFile {
+    fn default() -> Self {
+        Self {
+            worker_identities: Vec::new(),
+            max_queued_jobs: DEFAULT_MAX_QUEUED_JOBS,
+            max_active_jobs_per_user: DEFAULT_MAX_ACTIVE_JOBS_PER_USER,
+            max_active_jobs_per_project: DEFAULT_MAX_ACTIVE_JOBS_PER_PROJECT,
+            max_input_bytes: DEFAULT_MAX_INPUT_BYTES,
+            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+            max_diagnostic_bytes: DEFAULT_MAX_DIAGNOSTIC_BYTES,
+            job_wall_seconds: DEFAULT_JOB_WALL_SECONDS,
+            queue_wait_seconds: DEFAULT_QUEUE_WAIT_SECONDS,
+            retention_seconds: DEFAULT_RETENTION_SECONDS,
+            claim_lease_seconds: DEFAULT_CLAIM_LEASE_SECONDS,
+            session_lease_seconds: DEFAULT_SESSION_LEASE_SECONDS,
+            transfer_seconds: DEFAULT_TRANSFER_SECONDS,
+            finalization_lease_seconds: DEFAULT_FINALIZATION_LEASE_SECONDS,
+        }
+    }
+}
+
 impl ProcessingConfig {
-    pub(crate) fn from_env() -> Result<Self, String> {
-        let identities = match env::var("PROCESSING_WORKER_IDENTITIES_JSON") {
-            Ok(raw) if !raw.trim().is_empty() => parse_identities(&raw)?,
-            Ok(_) | Err(env::VarError::NotPresent) => Vec::new(),
-            Err(env::VarError::NotUnicode(_)) => {
-                return Err("PROCESSING_WORKER_IDENTITIES_JSON must be valid Unicode".to_string())
-            }
-        };
+    pub(crate) fn from_config(
+        config: ProcessingConfigFile,
+        config_root: &Path,
+    ) -> Result<Self, String> {
+        let identities = parse_identities(config.worker_identities, config_root)?;
         Ok(Self {
             identities,
-            max_queued_jobs: positive_i64("PROCESSING_MAX_QUEUED_JOBS", DEFAULT_MAX_QUEUED_JOBS)?,
-            max_active_jobs_per_user: positive_i64(
-                "PROCESSING_MAX_ACTIVE_JOBS_PER_USER",
-                DEFAULT_MAX_ACTIVE_JOBS_PER_USER,
+            max_queued_jobs: positive(
+                "document_processing.max_queued_jobs",
+                config.max_queued_jobs,
             )?,
-            max_active_jobs_per_project: positive_i64(
-                "PROCESSING_MAX_ACTIVE_JOBS_PER_PROJECT",
-                DEFAULT_MAX_ACTIVE_JOBS_PER_PROJECT,
+            max_active_jobs_per_user: positive(
+                "document_processing.max_active_jobs_per_user",
+                config.max_active_jobs_per_user,
             )?,
-            max_input_bytes: positive_i64("PROCESSING_MAX_INPUT_BYTES", DEFAULT_MAX_INPUT_BYTES)?,
-            max_output_bytes: positive_i64(
-                "PROCESSING_MAX_OUTPUT_BYTES",
-                DEFAULT_MAX_OUTPUT_BYTES,
+            max_active_jobs_per_project: positive(
+                "document_processing.max_active_jobs_per_project",
+                config.max_active_jobs_per_project,
             )?,
-            max_diagnostic_bytes: positive_i64(
-                "PROCESSING_MAX_DIAGNOSTIC_BYTES",
-                DEFAULT_MAX_DIAGNOSTIC_BYTES,
+            max_input_bytes: positive(
+                "document_processing.max_input_bytes",
+                config.max_input_bytes,
             )?,
-            job_wall_seconds: positive_i64(
-                "PROCESSING_JOB_WALL_SECONDS",
-                DEFAULT_JOB_WALL_SECONDS,
+            max_output_bytes: positive(
+                "document_processing.max_output_bytes",
+                config.max_output_bytes,
             )?,
-            queue_wait: Duration::seconds(positive_i64(
-                "PROCESSING_QUEUE_WAIT_SECONDS",
-                DEFAULT_QUEUE_WAIT_SECONDS,
+            max_diagnostic_bytes: positive(
+                "document_processing.max_diagnostic_bytes",
+                config.max_diagnostic_bytes,
+            )?,
+            job_wall_seconds: positive(
+                "document_processing.job_wall_seconds",
+                config.job_wall_seconds,
+            )?,
+            queue_wait: Duration::seconds(positive(
+                "document_processing.queue_wait_seconds",
+                config.queue_wait_seconds,
             )?),
-            retention: Duration::seconds(positive_i64(
-                "PROCESSING_RETENTION_SECONDS",
-                DEFAULT_RETENTION_SECONDS,
+            retention: Duration::seconds(positive(
+                "document_processing.retention_seconds",
+                config.retention_seconds,
             )?),
-            claim_lease: Duration::seconds(positive_i64(
-                "PROCESSING_CLAIM_LEASE_SECONDS",
-                DEFAULT_CLAIM_LEASE_SECONDS,
+            claim_lease: Duration::seconds(positive(
+                "document_processing.claim_lease_seconds",
+                config.claim_lease_seconds,
             )?),
-            session_lease: Duration::seconds(positive_i64(
-                "PROCESSING_SESSION_LEASE_SECONDS",
-                DEFAULT_SESSION_LEASE_SECONDS,
+            session_lease: Duration::seconds(positive(
+                "document_processing.session_lease_seconds",
+                config.session_lease_seconds,
             )?),
-            transfer_ttl: Duration::seconds(positive_i64(
-                "PROCESSING_TRANSFER_SECONDS",
-                DEFAULT_TRANSFER_SECONDS,
+            transfer_ttl: Duration::seconds(positive(
+                "document_processing.transfer_seconds",
+                config.transfer_seconds,
             )?),
-            finalization_lease: Duration::seconds(positive_i64(
-                "PROCESSING_FINALIZATION_LEASE_SECONDS",
-                DEFAULT_FINALIZATION_LEASE_SECONDS,
+            finalization_lease: Duration::seconds(positive(
+                "document_processing.finalization_lease_seconds",
+                config.finalization_lease_seconds,
             )?),
         })
     }
@@ -155,6 +212,17 @@ impl ProcessingConfig {
             .iter()
             .any(|identity| identity.operations.contains_key(&operation))
     }
+
+    pub(crate) fn configured_operations(&self) -> Vec<ProcessingOperation> {
+        let mut operations = self
+            .identities
+            .iter()
+            .flat_map(|identity| identity.operations.keys().copied())
+            .collect::<Vec<_>>();
+        operations.sort_by(|left, right| left.as_ref().cmp(right.as_ref()));
+        operations.dedup();
+        operations
+    }
 }
 
 impl AuthenticatedWorker {
@@ -169,9 +237,10 @@ impl AuthenticatedWorker {
     }
 }
 
-fn parse_identities(raw: &str) -> Result<Vec<WorkerIdentity>, String> {
-    let inputs: Vec<WorkerIdentityInput> = serde_json::from_str(raw)
-        .map_err(|error| format!("PROCESSING_WORKER_IDENTITIES_JSON is invalid: {error}"))?;
+fn parse_identities(
+    inputs: Vec<WorkerIdentityInput>,
+    config_root: &Path,
+) -> Result<Vec<WorkerIdentity>, String> {
     let mut identities = Vec::with_capacity(inputs.len());
     let mut ids = HashSet::new();
     let mut fingerprints = HashSet::new();
@@ -188,10 +257,30 @@ fn parse_identities(raw: &str) -> Result<Vec<WorkerIdentity>, String> {
         if !ids.insert(input.id.clone()) {
             return Err(format!("duplicate worker identity {}", input.id));
         }
-        if input.token.len() < 32 {
-            return Err(format!("worker identity {} token is too short", input.id));
+        let token_path = if input.token_file.is_absolute() {
+            input.token_file.clone()
+        } else {
+            config_root.join(&input.token_file)
+        };
+        let token = std::fs::read_to_string(&token_path).map_err(|error| {
+            format!(
+                "worker identity {} token file '{}' could not be read: {error}",
+                input.id,
+                token_path.display()
+            )
+        })?;
+        let token = token.trim();
+        if token.len() < 32
+            || token.len() > 512
+            || token.chars().any(char::is_whitespace)
+            || token.chars().any(char::is_control)
+        {
+            return Err(format!(
+                "worker identity {} token must contain 32-512 non-whitespace characters",
+                input.id
+            ));
         }
-        let token_fingerprint: [u8; 32] = Sha256::digest(input.token.as_bytes()).into();
+        let token_fingerprint: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         if !fingerprints.insert(token_fingerprint) {
             return Err("worker identity tokens must be unique".to_string());
         }
@@ -249,28 +338,69 @@ fn valid_processor_contract(value: &str) -> bool {
     })
 }
 
-fn positive_i64(name: &str, default: i64) -> Result<i64, String> {
-    match env::var(name) {
-        Ok(value) => value
-            .parse::<i64>()
-            .ok()
-            .filter(|value| *value > 0)
-            .ok_or_else(|| format!("{name} must be a positive integer")),
-        Err(env::VarError::NotPresent) => Ok(default),
-        Err(env::VarError::NotUnicode(_)) => Err(format!("{name} must be valid Unicode")),
+fn positive(name: &str, value: i64) -> Result<i64, String> {
+    if value > 0 {
+        Ok(value)
+    } else {
+        Err(format!("{name} must be a positive integer"))
     }
 }
 
+macro_rules! default_value {
+    ($function:ident, $value:ident) => {
+        fn $function() -> i64 {
+            $value
+        }
+    };
+}
+
+default_value!(default_max_queued_jobs, DEFAULT_MAX_QUEUED_JOBS);
+default_value!(
+    default_max_active_jobs_per_user,
+    DEFAULT_MAX_ACTIVE_JOBS_PER_USER
+);
+default_value!(
+    default_max_active_jobs_per_project,
+    DEFAULT_MAX_ACTIVE_JOBS_PER_PROJECT
+);
+default_value!(default_max_input_bytes, DEFAULT_MAX_INPUT_BYTES);
+default_value!(default_max_output_bytes, DEFAULT_MAX_OUTPUT_BYTES);
+default_value!(default_max_diagnostic_bytes, DEFAULT_MAX_DIAGNOSTIC_BYTES);
+default_value!(default_job_wall_seconds, DEFAULT_JOB_WALL_SECONDS);
+default_value!(default_queue_wait_seconds, DEFAULT_QUEUE_WAIT_SECONDS);
+default_value!(default_retention_seconds, DEFAULT_RETENTION_SECONDS);
+default_value!(default_claim_lease_seconds, DEFAULT_CLAIM_LEASE_SECONDS);
+default_value!(default_session_lease_seconds, DEFAULT_SESSION_LEASE_SECONDS);
+default_value!(default_transfer_seconds, DEFAULT_TRANSFER_SECONDS);
+default_value!(
+    default_finalization_lease_seconds,
+    DEFAULT_FINALIZATION_LEASE_SECONDS
+);
+
 #[cfg(test)]
 mod tests {
-    use super::parse_identities;
+    use super::{parse_identities, ProcessingConfigFile};
 
     #[test]
-    fn worker_identity_requires_exact_contracts() {
-        let error = parse_identities(
-            r#"[{"id":"latex","token":"01234567890123456789012345678901","operations":[{"id":"latex.compile.pdf/v1","processor_contracts":[]}]}]"#,
-        )
-        .err();
+    fn worker_identity_requires_exact_contracts() -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        std::fs::write(
+            directory.path().join("worker.token"),
+            "01234567890123456789012345678901",
+        )?;
+        let config: ProcessingConfigFile = toml::from_str(
+            r#"
+[[worker_identities]]
+id = "latex"
+token_file = "worker.token"
+
+[[worker_identities.operations]]
+id = "latex.compile.pdf/v1"
+processor_contracts = []
+"#,
+        )?;
+        let error = parse_identities(config.worker_identities, directory.path()).err();
         assert!(error.is_some_and(|message| message.contains("exact processor contract")));
+        Ok(())
     }
 }

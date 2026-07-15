@@ -11,6 +11,7 @@ export type ProjectAccessType = ApiSchema<"ProjectAccessType">;
 export type OrganizationMembershipRole = ApiSchema<"OrganizationRole">;
 export type ProjectPermission = ApiSchema<"ProjectPermission">;
 export type ProjectType = ApiSchema<"ProjectType">;
+export type FrontendFeature = ApiSchema<"FrontendFeature">;
 export type ProjectFileKind = ApiSchema<"ProjectFileKind">;
 export type LatexEngine = ApiSchema<"LatexEngine">;
 export type AnonymousMode = ApiSchema<"AnonymousMode">;

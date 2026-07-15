@@ -304,29 +304,13 @@ pub(crate) async fn processing_capabilities(
 ) -> Result<Json<ProcessingCapabilities>, ApiError> {
     required_request_user_id(&state.db, &headers).await?;
     let mut capabilities = Vec::new();
-    for operation in [
-        ProcessingOperation::LatexCompilePdfV1,
-        ProcessingOperation::TypstExportPptxV1,
-        ProcessingOperation::PptxImportTypstV1,
-    ] {
-        let allowed = state.distribution.supports_processing_operation(operation);
-        let configured = state.processing.config.operation_configured(operation);
+    for operation in state.processing.configured_operations() {
         let stats = capability_stats(&state.db, operation)
             .await
             .map_err(|error| {
                 processing_unavailable("processing capability could not be read", error)
             })?;
-        let (capability_state, reason) = if !allowed {
-            (
-                ProcessingCapabilityState::Unavailable,
-                Some("disabled_by_distribution".to_string()),
-            )
-        } else if !configured {
-            (
-                ProcessingCapabilityState::Unavailable,
-                Some("worker_not_configured".to_string()),
-            )
-        } else if stats.healthy_sessions == 0 {
+        let (capability_state, reason) = if stats.healthy_sessions == 0 {
             (
                 ProcessingCapabilityState::Waiting,
                 Some("worker_temporarily_offline".to_string()),
