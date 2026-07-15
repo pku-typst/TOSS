@@ -25,6 +25,16 @@ export type ExternalGitInboundPhase = ApiSchema<"ExternalGitInboundPhase">;
 export type ExternalGitCheckpointPhase = ApiSchema<"ExternalGitCheckpointPhase">;
 export type ExternalGitLinkStatus = ApiSchema<"ExternalGitLinkStatus">;
 export type ExternalGitProjectState = ApiSchema<"ExternalGitProjectState">;
+export type ProcessingOperation = ApiSchema<"ProcessingOperation">;
+export type ProcessingJobState = ApiSchema<"ProcessingJobState">;
+export type ProcessingPhase = ApiSchema<"ProcessingPhase">;
+export type ProcessingCapabilityState = ApiSchema<"ProcessingCapabilityState">;
+export type ProcessingArtifact = ApiSchema<"ProcessingArtifact">;
+export type ProcessingFailure = ApiSchema<"ProcessingFailure">;
+export type ProcessingJob = ApiSchema<"ProcessingJob">;
+export type ProcessingJobList = ApiSchema<"ProcessingJobList">;
+export type ProcessingCapability = ApiSchema<"ProcessingCapability">;
+export type ProcessingCapabilities = ApiSchema<"ProcessingCapabilities">;
 
 export type OrganizationMembership = ApiSchema<"OrganizationMembership">;
 export type Organization = ApiSchema<"Organization">;

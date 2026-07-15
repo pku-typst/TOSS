@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Download, LoaderCircle, Maximize2, MoveHorizontal, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  CloudCog,
+  Download,
+  LoaderCircle,
+  Maximize2,
+  MoveHorizontal,
+  ZoomIn,
+  ZoomOut
+} from "lucide-react";
 import { UiButton, UiIconButton, UiInput } from "@/components/ui";
 import type { CompileDiagnostic } from "@/lib/typst";
 import type { Translator } from "@/lib/i18n";
@@ -37,6 +45,7 @@ export function PreviewPanel({
   onIncreaseZoom,
   onJumpToPage,
   onDownloadPdf,
+  backgroundBuild,
   onJumpToDiagnostic,
   t
 }: {
@@ -78,6 +87,14 @@ export function PreviewPanel({
   onIncreaseZoom: () => void;
   onJumpToPage: (pageNumber: number) => void;
   onDownloadPdf: () => void;
+  backgroundBuild: {
+    visible: boolean;
+    state: "available" | "waiting" | "unavailable" | "loading";
+    reason: string | null;
+    submit: () => void;
+    pending: boolean;
+    error: string | null;
+  };
   onJumpToDiagnostic: (diagnostic: CompileDiagnostic) => void;
   t: Translator;
 }) {
@@ -153,6 +170,15 @@ export function PreviewPanel({
           total: previewPageTotal
         })
       : null;
+  const backgroundBuildLabel = backgroundBuild.pending
+    ? t("processing.submitting")
+    : backgroundBuild.state === "waiting"
+      ? t("processing.buildWaiting")
+      : backgroundBuild.state === "unavailable"
+        ? t("processing.buildUnavailable")
+        : backgroundBuild.state === "loading"
+          ? t("processing.checkingAvailability")
+          : t("processing.buildPdf");
 
   function submitPageJump() {
     const parsed = Number.parseInt(pageJumpInput, 10);
@@ -242,11 +268,35 @@ export function PreviewPanel({
           >
             <Download size={16} />
           </UiIconButton>
+          {backgroundBuild.visible && (
+            <UiIconButton
+              tooltip={backgroundBuildLabel}
+              label={backgroundBuildLabel}
+              onClick={backgroundBuild.submit}
+              disabled={
+                backgroundBuild.pending ||
+                backgroundBuild.state === "loading" ||
+                backgroundBuild.state === "unavailable"
+              }
+            >
+              {backgroundBuild.pending ? (
+                <LoaderCircle className="spin" size={16} aria-hidden />
+              ) : (
+                <CloudCog size={16} aria-hidden />
+              )}
+            </UiIconButton>
+          )}
         </nve-toolbar>
       </div>
       <div className="panel-content flush preview-panel-content">
         <div className="preview-stage">
           <div className="preview-runtime-overlay" aria-live="polite">
+            {backgroundBuild.error && (
+              <nve-alert className="preview-runtime-status" status="danger">
+                <strong>{t("processing.submitFailed")}</strong>
+                <span>{backgroundBuild.error}</span>
+              </nve-alert>
+            )}
             {hasPreviewPage && workspaceSyncPending && (
               <nve-alert className="preview-runtime-status" status="pending">
                 <strong>{t("preview.loadingProject")}</strong>

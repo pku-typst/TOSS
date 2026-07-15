@@ -16,6 +16,8 @@ topics:
 related:
   - protocol/README.md
   - docs/community/architecture/collaboration.md
+  - docs/community/architecture/document-processing.md
+  - docs/community/reference/worker-protocol.md
   - docs/community/architecture/error-model.md
 code_paths:
   - protocol/openapi.json
@@ -172,6 +174,28 @@ permissions remain enforced by that path.
 Uploads are bounded by `MAX_REQUEST_BODY_BYTES`. Asset authorization always
 uses the containing project, including raw-content responses. PDF upload bodies
 are base64 encoded and the resulting bytes are currently stored in PostgreSQL.
+
+## Durable document processing
+
+- `GET /v1/processing/capabilities`
+- `POST /v1/projects/{project_id}/builds`
+- `GET /v1/processing/jobs`
+- `GET /v1/processing/jobs/{job_id}`
+- `POST /v1/processing/jobs/{job_id}/cancel`
+- `GET /v1/processing/jobs/{job_id}/artifacts/{artifact_id}`
+
+Community currently enables only `latex.compile.pdf/v1`. Build submission
+requires authentication, current project read access, a LaTeX project, a
+configured worker identity, and an `Idempotency-Key`; it returns `202` for a new
+durable job and the existing job for an exact replay. The capability response
+distinguishes `available`, configured-but-offline `waiting`, and `unavailable`.
+
+Job lists are requester-owned and recheck current project access. Cancellation
+is allowed during preparation, queueing, and active execution, but not after
+Core accepts delivery into finalization. Artifact downloads reauthorize the
+requester and containing project on every request. Internal worker routes and
+their separate generated contract are documented in
+[Worker protocol](./worker-protocol.md); browser clients must not call them.
 
 ## Revisions
 

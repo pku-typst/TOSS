@@ -91,6 +91,11 @@ pub(crate) struct ProjectContentAsset {
 
 pub(crate) struct ProjectContentSnapshot {
     pub workspace_version: i64,
+    pub content_epoch: i64,
+    pub project_type: ProjectType,
+    pub entry_file_path: String,
+    pub latex_engine: Option<LatexEngine>,
+    pub source_epoch: i64,
     pub documents: HashMap<String, String>,
     pub assets: HashMap<String, ProjectContentAsset>,
     pub directories: Vec<String>,
@@ -135,4 +140,11 @@ pub(crate) async fn load_project_content_snapshot(
         super::persistence::lock_project_content_snapshot(&mut transaction, project_id).await?;
     transaction.commit().await?;
     Ok(snapshot)
+}
+
+pub(crate) async fn lock_processing_project_snapshot(
+    connection: &mut sqlx::PgConnection,
+    project_id: Uuid,
+) -> Result<Option<ProjectContentSnapshot>, sqlx::Error> {
+    super::persistence::lock_project_content_snapshot(connection, project_id).await
 }

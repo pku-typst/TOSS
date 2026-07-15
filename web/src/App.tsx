@@ -49,6 +49,7 @@ import {
 } from "@/lib/i18n";
 import { clearProjectSnapshotCaches } from "@/lib/projectCache";
 import { StatusPage } from "@/pages/StatusPage";
+import { ProcessingTaskCenter } from "@/pages/processing/ProcessingTaskCenter";
 
 export type AppRouteHandle = {
   page?: "home" | "signin" | "projects" | "gallery" | "help" | "profile" | "admin" | "project" | "share" | "not-found";
@@ -656,6 +657,14 @@ export function App() {
               </>
             )}
             <div slot="suffix" className="meta workspace-meta">
+              {authUser && (
+                <ProcessingTaskCenter
+                  userId={authUser.user_id}
+                  projects={projects}
+                  locale={locale}
+                  t={t}
+                />
+              )}
               <UiIconButton
                 tooltip={t("nav.help")}
                 label={t("nav.help")}

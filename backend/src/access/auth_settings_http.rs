@@ -9,6 +9,7 @@ use super::oidc_protocol::{validate_provider_discovery, OidcProtocolError};
 use super::{ensure_site_admin, AnonymousMode, AuthSettings};
 use crate::app_state::AppState;
 use crate::audit::record_event;
+use crate::document_processing::ProcessingOperation;
 use crate::external_repositories::{
     ExternalGitProviderCapabilities, ProviderBrand, ProviderInstanceId, ProviderKind,
 };
@@ -60,6 +61,7 @@ pub(crate) struct AuthConfigResponse {
     pub groups_claim: String,
     pub distribution_id: String,
     pub enabled_project_types: Vec<ProjectType>,
+    pub enabled_processing_operations: Vec<ProcessingOperation>,
     pub brand_mark: String,
     pub accent_color: String,
     pub accent_text_color: String,
@@ -146,6 +148,11 @@ pub(crate) async fn auth_config(State(state): State<AppState>) -> Json<AuthConfi
         groups_claim: settings.oidc_groups_claim,
         distribution_id: state.distribution.id.clone(),
         enabled_project_types: state.distribution.capabilities.project_types.clone(),
+        enabled_processing_operations: state
+            .distribution
+            .capabilities
+            .processing_operations
+            .clone(),
         brand_mark: state.distribution.product.brand_mark.clone(),
         accent_color: state.distribution.product.accent_color.clone(),
         accent_text_color: state.distribution.product.accent_text_color.clone(),

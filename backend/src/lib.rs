@@ -4,6 +4,7 @@ mod audit;
 mod collaboration;
 mod database_error;
 mod distribution;
+mod document_processing;
 mod experience;
 mod external_repositories;
 mod http_response;

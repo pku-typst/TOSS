@@ -13,6 +13,13 @@ use crate::access::{
 };
 use crate::app_state::AppState;
 use crate::collaboration::{project_ws_handler, realtime_auth, ws_handler};
+use crate::document_processing::{
+    acquire_worker_claims, cancel_processing_job, complete_worker_claim, create_latex_pdf_build,
+    create_worker_artifact_ticket, create_worker_session, download_processing_artifact,
+    download_worker_transfer, drain_worker_session, fail_worker_claim, get_processing_job,
+    heartbeat_worker_claim, heartbeat_worker_session, list_processing_jobs,
+    processing_capabilities, release_worker_claim, upload_worker_transfer,
+};
 use crate::experience::{
     experience_config, help_content, product_favicon, product_touch_icon, spa_index,
 };
@@ -55,6 +62,46 @@ pub(super) fn build_router() -> Router<AppState> {
         .route("/", get(spa_index))
         .route("/index.html", get(spa_index))
         .route("/health", get(health))
+        .route(
+            "/internal/v1/processing/worker-sessions",
+            post(create_worker_session),
+        )
+        .route(
+            "/internal/v1/processing/worker-sessions/{session_id}/heartbeat",
+            post(heartbeat_worker_session),
+        )
+        .route(
+            "/internal/v1/processing/worker-sessions/{session_id}",
+            delete(drain_worker_session),
+        )
+        .route(
+            "/internal/v1/processing/claims:acquire",
+            post(acquire_worker_claims),
+        )
+        .route(
+            "/internal/v1/processing/claims/{claim_id}/heartbeat",
+            post(heartbeat_worker_claim),
+        )
+        .route(
+            "/internal/v1/processing/claims/{claim_id}/artifacts",
+            post(create_worker_artifact_ticket),
+        )
+        .route(
+            "/internal/v1/processing/claims/{claim_id}/complete",
+            post(complete_worker_claim),
+        )
+        .route(
+            "/internal/v1/processing/claims/{claim_id}/fail",
+            post(fail_worker_claim),
+        )
+        .route(
+            "/internal/v1/processing/claims/{claim_id}/release",
+            post(release_worker_claim),
+        )
+        .route(
+            "/internal/v1/processing/transfers/{transfer_id}",
+            get(download_worker_transfer).put(upload_worker_transfer),
+        )
         .route("/favicon.ico", get(product_favicon))
         .route("/v1/experience", get(experience_config))
         .route("/v1/help", get(help_content))
@@ -132,6 +179,21 @@ pub(super) fn build_router() -> Router<AppState> {
         )
         .route("/v1/projects", get(list_projects).post(create_project))
         .route("/v1/projects/{project_id}", patch(update_project_name))
+        .route(
+            "/v1/projects/{project_id}/builds",
+            post(create_latex_pdf_build),
+        )
+        .route("/v1/processing/capabilities", get(processing_capabilities))
+        .route("/v1/processing/jobs", get(list_processing_jobs))
+        .route("/v1/processing/jobs/{job_id}", get(get_processing_job))
+        .route(
+            "/v1/processing/jobs/{job_id}/cancel",
+            post(cancel_processing_job),
+        )
+        .route(
+            "/v1/processing/jobs/{job_id}/artifacts/{artifact_id}",
+            get(download_processing_artifact),
+        )
         .route(
             "/v1/projects/{project_id}/external-git/status",
             get(external_git_project_status),

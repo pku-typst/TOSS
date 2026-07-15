@@ -15,6 +15,7 @@ topics:
 related:
   - docs/community/product/overview.md
   - docs/community/architecture/overview.md
+  - docs/community/architecture/document-processing.md
   - docs/community/development/setup.md
 code_paths:
   - docs/community
@@ -43,6 +44,7 @@ versions of this Wiki.
 | Deploy or operate it | [Deployment](./operations/deployment.md) → [Configuration](./configuration/README.md) |
 | Change an API | [API guide](./reference/api.md) → [Protocol workflow](../../protocol/README.md) |
 | Change a compiler runtime | [Typst runtime](./runtimes/typst.md) or [LaTeX runtime](./runtimes/latex.md) |
+| Operate or extend durable processing | [Document processing](./architecture/document-processing.md) → [Worker protocol](./reference/worker-protocol.md) → [LaTeX worker](./runtimes/latex-worker.md) |
 | Understand a design choice | [Decision records](./decisions/README.md) |
 
 ## Topic map
@@ -52,6 +54,7 @@ versions of this Wiki.
 - [Product model](./product/overview.md) and [Glossary](./glossary.md)
 - [Architecture overview](./architecture/overview.md)
 - [Frontend](./architecture/frontend.md) and [Backend](./architecture/backend.md)
+- [Durable document processing](./architecture/document-processing.md)
 - [Collaboration](./architecture/collaboration.md) and [Versioning](./architecture/versioning.md)
 - [External repositories](./architecture/external-repositories.md)
 - [Identity and access](./architecture/identity-and-access.md)
@@ -62,7 +65,7 @@ versions of this Wiki.
 - [Configuration index](./configuration/README.md)
 - [Distribution configuration](./configuration/distributions.md)
 - [External Git configuration](./configuration/external-git.md)
-- [Typst runtime](./runtimes/typst.md) and [LaTeX runtime](./runtimes/latex.md)
+- [Typst runtime](./runtimes/typst.md), [browser LaTeX runtime](./runtimes/latex.md), and [native LaTeX worker](./runtimes/latex-worker.md)
 
 ### Development, operations, and reference
 
@@ -70,6 +73,7 @@ versions of this Wiki.
 - [Testing and validation](./development/testing.md)
 - [Deployment and operations](./operations/deployment.md)
 - [API surface](./reference/api.md)
+- [Worker protocol](./reference/worker-protocol.md)
 - [Browser/server protocol](../../protocol/README.md)
 - [Product and editor design language](../../web/DESIGN.md)
 
@@ -101,4 +105,5 @@ frontmatter can still traverse the Wiki.
 
 - [Product model](./product/overview.md)
 - [Architecture overview](./architecture/overview.md)
+- [Durable document processing](./architecture/document-processing.md)
 - [Development setup](./development/setup.md)

@@ -16,21 +16,24 @@ topics:
 related:
   - docs/community/configuration/README.md
   - docs/community/architecture/overview.md
+  - docs/community/architecture/document-processing.md
   - docs/community/runtimes/typst.md
+  - docs/community/runtimes/latex-worker.md
 code_paths:
   - backend/Dockerfile
   - docker-compose.yml
   - .env.example
   - backend/migrations
+  - workers/latex/toss-latex-worker.apparmor
 ---
 
 # Deployment and operations
 
 ## Deployment unit
 
-Production uses one application image containing:
+Production currently uses one application image containing:
 
-- the Rust/Axum API and background workers;
+- the Rust/Axum API and in-process background operations;
 - database migrations;
 - the precompressed React SPA;
 - versioned distribution files;
@@ -39,6 +42,82 @@ Production uses one application image containing:
 PostgreSQL is required. S3-compatible storage is optional and recommended for
 production project assets. An external Git provider is a durability target,
 not a prerequisite for normal editing.
+
+## Optional worker topology
+
+ADR-0008 adds independently scalable processor images beside the existing
+application image. Core remains the policy and durable-queue owner. Processors
+pull leased work through a versioned protocol and use short-lived transfer
+tickets rather than database or object-store credentials.
+
+Community ships a pinned native TeX Live worker for
+`latex.compile.pdf/v1`. A deployment may omit the worker and its Core identity
+entirely; the operation is then unavailable without affecting browser editing,
+preview, or local export. If Core is configured to expect the identity but no
+compatible session is healthy, the operation reports `waiting` and accepts only
+the bounded queue configured by the operator. Slots must be at least one; omit
+the worker instead of using zero as an off switch.
+
+Processing inputs, staged outputs, and durable processing artifacts currently
+live in PostgreSQL. S3 settings apply to Workspace project assets, including
+assets read while Core constructs a project bundle, but do not move processing
+blobs. Include processing retention in database capacity planning. Workers see
+only transfer tickets.
+
+An absent optional processor does not fail the application's `/health` or stop
+browser editing. Capability state exposes compatible capacity; worker process
+liveness and logs are deployment probes. Queue/session metrics and dedicated
+worker health endpoints are future observability work.
+
+Where the platform permits it, `/internal/v1/processing/*` is reachable through
+a worker-only service or ingress rather than the public browser route. Network
+separation is defense in depth: Core still authenticates every worker request,
+and a shared development endpoint does not weaken the credential checks.
+
+### Enable the local processing profile
+
+Build the exact worker image first and print its production contract:
+
+```bash
+export PROCESSING_WORKER_TOKEN="$(openssl rand -hex 32)"
+sudo apparmor_parser -r workers/latex/toss-latex-worker.apparmor
+docker compose --profile processing build latex-worker
+docker run --rm toss-latex-worker:local contract
+```
+
+The profile load is required on AppArmor hosts, including Ubuntu 24.04, where
+unprivileged user namespaces are restricted by default. It attaches only the
+worker container and its dedicated `/usr/local/bin/toss-bwrap` helper; it does
+not replace a distribution-owned `/usr/bin/bwrap` profile. Review and install
+the equivalent policy through node provisioning in production. On a host that
+does not use AppArmor and already permits rootless user namespaces, set
+`PROCESSING_APPARMOR_PROFILE=unconfined` instead.
+
+Put that same token in `PROCESSING_WORKER_TOKEN` for the worker and in one Core
+identity entry. Replace `<token>` and `<contract>` with the literal values; an
+environment/secret templating layer should render both from one secret in
+production:
+
+```dotenv
+PROCESSING_WORKER_TOKEN=<token>
+PROCESSING_WORKER_IDENTITIES_JSON=[{"id":"community-latex","token":"<token>","operations":[{"id":"latex.compile.pdf/v1","processor_contracts":["<contract>"]}]}]
+PROCESSING_LATEX_SLOTS=1
+```
+
+Then start the optional profile with the normal Community stack:
+
+```bash
+docker compose --profile processing up --build
+```
+
+The local profile gives `/work` a bounded tmpfs and runs bubblewrap as a
+non-root user. Its repository AppArmor policy permits namespace setup and then
+stacks a child profile that strips capabilities. `seccomp=unconfined` remains a
+local validation concession, not a production policy. A production deployment
+must use reviewed AppArmor/SELinux and syscall policies, drop capabilities,
+prevent privilege escalation, disable network in the per-job namespace, bound
+ephemeral storage, and make its termination grace period at least as long as
+the admitted job drain policy.
 
 ## Image variants
 
@@ -51,7 +130,7 @@ docker build -f backend/Dockerfile \
 ```
 
 `community` includes Typst and optional LaTeX. A downstream distribution may
-produce a smaller Typst-only frontend without the LaTeX worker, CodeMirror
+produce a smaller Typst-only frontend without the browser LaTeX worker, CodeMirror
 LaTeX language bundle, or BusyTeX WASM/data files.
 
 The final image sets `TOSS_CONFIG` to the matching in-image distribution. An
@@ -59,11 +138,16 @@ operator may override it only with a capability-compatible config. Use immutable
 commit-derived image tags in deployment manifests; do not infer a tag from a
 different repository's commit.
 
+`workers/latex/Dockerfile` builds the optional worker separately. Its TeX Live
+base is pinned by digest, and `toss-latex-worker contract` prints the exact
+allowlist value that must accompany that image. Do not reuse a contract printed
+by a different source tree or tag.
+
 ## Persistent state
 
 | State | Default location | Production expectation |
 | --- | --- | --- |
-| Users, sessions, RBAC, projects, documents, Yjs updates/snapshots, PDF artifacts, external Git jobs | PostgreSQL | Managed PostgreSQL with backups |
+| Users, sessions, RBAC, projects, documents, Yjs updates/snapshots, Workspace PDF artifacts, processing jobs/blobs/artifacts, external Git jobs | PostgreSQL | Managed PostgreSQL with backups and processing-retention sizing |
 | Project assets | Inline PostgreSQL bytes or S3-compatible storage | S3/MinIO for large or numerous assets |
 | Git repositories/revision history and thumbnails | `DATA_DIR` / `GIT_STORAGE_PATH` | Persistent volume with backup |
 | Typst Universe cache | `TYPST_PACKAGE_CACHE_DIR` | Bounded local cache; reproducible from upstream/catalog |
@@ -73,9 +157,9 @@ External Git checkpoints are not the primary live-editing store. A provider
 outage should affect repository operations and requested checkpoints, while
 existing authenticated users continue editing against workspace storage.
 
-PDF artifacts are currently stored directly in PostgreSQL. Include them in
-database capacity and retention planning; configuring S3 does not move existing
-or new PDF artifacts out of the database.
+Workspace PDF artifacts and Document Processing blobs/artifacts are currently
+stored directly in PostgreSQL. Include both in database capacity and retention
+planning; configuring S3 does not move them out of the database.
 
 ## Replica and filesystem constraint
 
@@ -139,6 +223,16 @@ Each matching account is promoted after successful authentication. Remove the
 bootstrap value after verifying administrator access if ongoing promotion is
 not desired.
 
+Document Processing is optional. Core's
+`PROCESSING_WORKER_IDENTITIES_JSON` is deployment policy, not distribution
+configuration: each entry contains a lowercase identity, a unique secret token,
+and exact operation/processor-contract allowlists. The worker receives the same
+token through `PROCESSING_WORKER_TOKEN_FILE` (preferred when the platform can
+mount a secret file) or `PROCESSING_WORKER_TOKEN`. Never place these values in
+distribution JSON, an image layer, logs, or source control. Rotate by admitting
+a second identity/token, rolling capacity to it, draining the old worker, and
+then removing the old identity.
+
 Distribution JSON is not a secret store. Keep passwords, OAuth secrets, token
 encryption keys, S3 credentials, and session keys in Kubernetes Secrets or an
 equivalent secret manager.
@@ -165,6 +259,15 @@ mirror; see
 [Community LaTeX runtime](../runtimes/latex.md). These settings have no effect
 in a Typst-only distribution.
 
+Durable processing limits use `PROCESSING_MAX_QUEUED_JOBS`,
+`PROCESSING_MAX_ACTIVE_JOBS_PER_USER`,
+`PROCESSING_MAX_ACTIVE_JOBS_PER_PROJECT`, `PROCESSING_MAX_INPUT_BYTES`,
+`PROCESSING_MAX_OUTPUT_BYTES`, `PROCESSING_MAX_DIAGNOSTIC_BYTES`,
+`PROCESSING_JOB_WALL_SECONDS`, `PROCESSING_QUEUE_WAIT_SECONDS`,
+`PROCESSING_RETENTION_SECONDS`, and the lease/transfer durations in
+`.env.example`. Review PostgreSQL growth, worker CPU/memory, `/work` ephemeral
+storage, ingress timeouts, and termination grace together before raising them.
+
 External Git checkpoints and branch imports are asynchronous: each request
 records a durable queue item instead of keeping an HTTP request open for a
 clone/pull/push. `EXTERNAL_GIT_COMMAND_TIMEOUT_SECONDS`
@@ -188,6 +291,11 @@ part of request-limit review, while temporary-disk capacity bounds responses.
   instead of silently falling back.
 - Roll out an immutable image, wait for health, and verify `/v1/auth/config`
   reports the expected `distribution_id` and `enabled_project_types`.
+- For processing, deploy Core with the new exact contract allowlist before the
+  worker, verify the authenticated capability changes from `waiting` to
+  `available`, run one real build and artifact download, then drain old worker
+  sessions. Roll back worker capacity before removing its still-admitted
+  contract from Core.
 - For a Typst-only image, also verify the project creation UI has no type
   selector and the image contains no `/app/web-dist/busytex` directory.
 
@@ -225,5 +333,7 @@ in that repository and cluster rather than in the Community application Wiki.
 
 - [Configuration index](../configuration/README.md)
 - [Architecture overview](../architecture/overview.md)
+- [Durable document processing](../architecture/document-processing.md)
 - [Typst runtime](../runtimes/typst.md)
+- [Native LaTeX worker](../runtimes/latex-worker.md)
 - [Decision: Community database baseline](../decisions/0007-community-database-baseline.md)

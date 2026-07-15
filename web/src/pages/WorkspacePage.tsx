@@ -44,6 +44,7 @@ import { useWorkspaceLayout } from "@/pages/workspace/hooks/useWorkspaceLayout";
 import { useWorkspaceGuestSession } from "@/pages/workspace/hooks/useWorkspaceGuestSession";
 import { useWorkspacePreviewThumbnail } from "@/pages/workspace/hooks/useWorkspacePreviewThumbnail";
 import { useWorkspaceSourceNavigation } from "@/pages/workspace/hooks/useWorkspaceSourceNavigation";
+import { useBackgroundLatexBuild } from "@/pages/processing/useBackgroundLatexBuild";
 import {
   deriveWorkspacePermissions
 } from "@/pages/workspace/access";
@@ -264,6 +265,13 @@ function ResolvedWorkspacePage({
     documentIdentities,
     offlineMessage: workspaceOfflineMessage
   } = workspaceProjection;
+  const backgroundLatexBuild = useBackgroundLatexBuild({
+    projectId,
+    userId: authUser?.user_id ?? null,
+    enabled:
+      projectType === "latex" &&
+      !!authConfig?.enabled_processing_operations.includes("latex.compile.pdf/v1")
+  });
   const {
     error: projectActionError,
     copyDialog,
@@ -961,6 +969,7 @@ function ResolvedWorkspacePage({
               onIncreaseZoom={increasePreviewZoom}
               onJumpToPage={jumpToPreviewPage}
               onDownloadPdf={downloadCompiledPdf}
+              backgroundBuild={backgroundLatexBuild}
               onJumpToDiagnostic={jumpToDiagnostic}
               t={t}
             />

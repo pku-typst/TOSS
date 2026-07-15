@@ -1655,6 +1655,249 @@
         }
       }
     },
+    "/v1/projects/{project_id}/builds": {
+      "parameters": [
+        {
+          "name": "project_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "create_latex_pdf_build",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJob"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processing/capabilities": {
+      "get": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "processing_capabilities",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingCapabilities"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processing/jobs": {
+      "get": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "list_processing_jobs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJobList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processing/jobs/{job_id}": {
+      "parameters": [
+        {
+          "name": "job_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "get_processing_job",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJob"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processing/jobs/{job_id}/cancel": {
+      "parameters": [
+        {
+          "name": "job_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "cancel_processing_job",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJob"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/processing/jobs/{job_id}/artifacts/{artifact_id}": {
+      "parameters": [
+        {
+          "name": "job_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "artifact_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "download_processing_artifact",
+        "responses": {
+          "200": {
+            "description": "Binary response",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/external-git/status": {
       "parameters": [
         {
@@ -4618,6 +4861,17 @@
           "revision_summary_invalid",
           "unprocessable_entity",
           "precondition_required",
+          "processing_artifact_not_found",
+          "processing_idempotency_conflict",
+          "processing_idempotency_invalid",
+          "processing_idempotency_required",
+          "processing_input_invalid",
+          "processing_input_too_large",
+          "processing_job_not_found",
+          "processing_operation_invalid",
+          "processing_queue_full",
+          "processing_service_unavailable",
+          "processing_unavailable",
           "too_many_requests",
           "bad_gateway",
           "service_unavailable",
@@ -4674,6 +4928,7 @@
           "groups_claim",
           "distribution_id",
           "enabled_project_types",
+          "enabled_processing_operations",
           "brand_mark",
           "accent_color",
           "accent_text_color",
@@ -4738,6 +4993,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ProjectType"
+            }
+          },
+          "enabled_processing_operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessingOperation"
             }
           },
           "brand_mark": {
@@ -6449,6 +6710,257 @@
           }
         }
       },
+      "ProcessingArtifact": {
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "media_type",
+          "filename",
+          "size_bytes",
+          "sha256",
+          "download_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string"
+          }
+        }
+      },
+      "ProcessingCapabilities": {
+        "type": "object",
+        "required": [
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessingCapability"
+            }
+          }
+        }
+      },
+      "ProcessingCapability": {
+        "type": "object",
+        "required": [
+          "operation",
+          "state",
+          "healthy_sessions",
+          "active_slots",
+          "active_jobs",
+          "queued_jobs",
+          "reason"
+        ],
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProcessingCapabilityState"
+          },
+          "healthy_sessions": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active_slots": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "active_jobs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queued_jobs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProcessingCapabilityState": {
+        "type": "string",
+        "enum": [
+          "available",
+          "waiting",
+          "unavailable"
+        ]
+      },
+      "ProcessingFailure": {
+        "type": "object",
+        "required": [
+          "class",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ProcessingJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "operation",
+          "project_id",
+          "state",
+          "phase",
+          "cancellation_requested",
+          "attempt_count",
+          "processor_contract",
+          "failure",
+          "artifacts",
+          "created_at",
+          "updated_at",
+          "completed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProcessingJobState"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/ProcessingPhase"
+          },
+          "cancellation_requested": {
+            "type": "boolean"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "processor_contract": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProcessingFailure"
+              }
+            ]
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessingArtifact"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ProcessingJobList": {
+        "type": "object",
+        "required": [
+          "jobs"
+        ],
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessingJob"
+            }
+          }
+        }
+      },
+      "ProcessingJobState": {
+        "type": "string",
+        "enum": [
+          "preparing",
+          "queued",
+          "running",
+          "finalizing",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "expired"
+        ]
+      },
+      "ProcessingOperation": {
+        "type": "string",
+        "enum": [
+          "latex.compile.pdf/v1",
+          "typst.export.pptx/v1",
+          "pptx.import.typst/v1"
+        ]
+      },
+      "ProcessingPhase": {
+        "type": "string",
+        "enum": [
+          "capturing_input",
+          "waiting_for_worker",
+          "processing",
+          "uploading_result",
+          "validating_result",
+          "publishing_result",
+          "complete"
+        ]
+      },
       "Project": {
         "type": "object",
         "required": [
@@ -8138,6 +8650,9 @@
     },
     {
       "name": "runtime"
+    },
+    {
+      "name": "document-processing"
     }
   ]
 }

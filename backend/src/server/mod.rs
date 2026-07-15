@@ -2,6 +2,9 @@ use crate::access::OidcProviderDefaults;
 use crate::app_state::AppState;
 use crate::collaboration::CollaborationContext;
 use crate::distribution::DistributionConfig;
+use crate::document_processing::{
+    spawn_processing_maintenance, DocumentProcessingContext, ProcessingConfig,
+};
 use crate::external_repositories::{
     external_git_provider_registry_from_env, spawn_external_git_checkpoint_worker,
     spawn_external_git_inbound_worker,
@@ -230,6 +233,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|v| *v >= 1024 * 1024)
         .unwrap_or(64 * 1024 * 1024);
     let collaboration = CollaborationContext::new(db.clone());
+    let processing_config = ProcessingConfig::from_env()
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    let processing = DocumentProcessingContext::new(db.clone(), processing_config);
     let state = AppState {
         db,
         oidc_defaults,
@@ -241,6 +247,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         spa_index_html,
         collaboration,
         versioning: crate::versioning::VersioningContext::default(),
+        processing,
     };
     crate::versioning::spawn_git_flush_worker(
         state.db.clone(),
@@ -249,6 +256,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         state.versioning.clone(),
     );
     spawn_object_cleanup_worker(state.db.clone(), state.storage.clone());
+    spawn_processing_maintenance(state.processing.clone());
     crate::collaboration::spawn_collaboration_projection_worker(state.collaboration.clone());
     spawn_external_git_checkpoint_worker(state.clone());
     spawn_external_git_inbound_worker(state.clone());

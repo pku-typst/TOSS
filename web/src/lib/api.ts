@@ -98,3 +98,11 @@ export {
   uploadProjectThumbnail,
   upsertProjectOrganizationAccess
 } from "@/lib/api/sharing";
+
+export {
+  cancelProcessingJob,
+  createLatexPdfBuild,
+  downloadProcessingArtifact,
+  getProcessingCapabilities,
+  listProcessingJobs
+} from "@/lib/api/processing";

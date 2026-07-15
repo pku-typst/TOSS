@@ -16,13 +16,15 @@ topics:
 related:
   - docs/community/architecture/overview.md
   - docs/community/architecture/collaboration.md
+  - docs/community/architecture/document-processing.md
   - docs/community/runtimes/typst.md
-  - docs/community/decisions/0006-defer-background-rendering.md
+  - docs/community/decisions/0008-durable-document-processing.md
   - web/DESIGN.md
 code_paths:
   - web/src/App.tsx
   - web/src/router.tsx
   - web/src/pages/workspace
+  - web/src/pages/processing
   - web/src/lib
 ---
 
@@ -111,6 +113,31 @@ before React effects deliver the new job to the compilation actor. Deferred
 source/preview mapping responses must still reference the exact current World
 and mapping object before they can affect the UI.
 
+## Durable task center
+
+Durable processing remains outside the Workspace session and compiler actors.
+For an authenticated LaTeX project, **Build in background** submits an explicit
+job when the capability is configured; a global task control in the application
+header opens a responsive drawer with active and recent work. Completed tasks
+expose their downloadable artifacts in the drawer and display the source
+project name when it remains available.
+
+The global surface does not create a global Job domain or frontend store. It
+initially projects Document Processing jobs; another bounded context may later
+contribute a namespaced summary without surrendering lifecycle ownership.
+
+TanStack Query owns the account-scoped job list, capability projection, and
+mutations. Active jobs refresh every two seconds; an open idle drawer refreshes
+every fifteen seconds; a closed drawer with only terminal work stops polling.
+Changing accounts changes the query key and closes/reset the drawer, so stale
+work cannot cross an identity boundary. Component state owns only presentation
+choices and transient download/cancel errors.
+
+The PreviewPanel receives only the contextual submit/capability state needed by
+its button. Durable job aggregates remain in the task-center query and are not
+copied into the Workspace projection, compiler actors, preview reducer, or Yjs
+documents.
+
 ## Browser persistence
 
 - Yjs IndexedDB persistence is keyed by member, project, immutable document ID,
@@ -125,8 +152,9 @@ and mapping object before they can affect the UI.
 ## Related
 
 - [Collaboration](./collaboration.md)
+- [Durable document processing](./document-processing.md)
 - [Typst runtime](../runtimes/typst.md)
 - [LaTeX runtime](../runtimes/latex.md)
 - [Web design language](../../../web/DESIGN.md)
 - [Decision: browser compilation](../decisions/0001-browser-compilation.md)
-- [Decision: defer background rendering](../decisions/0006-defer-background-rendering.md)
+- [Decision: durable document processing](../decisions/0008-durable-document-processing.md)

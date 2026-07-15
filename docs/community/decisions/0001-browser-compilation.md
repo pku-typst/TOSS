@@ -17,6 +17,7 @@ related:
   - docs/community/runtimes/latex.md
   - docs/community/architecture/frontend.md
   - docs/community/decisions/0006-defer-background-rendering.md
+  - docs/community/decisions/0008-durable-document-processing.md
 code_paths:
   - web/src/lib/typst.worker.ts
   - web/src/lib/latex.worker.ts
@@ -32,8 +33,9 @@ workers. The server supplies authorized project state and bounded runtime
 resources but is never a preferred compiler, hedge, race participant, or
 fallback in the live preview loop.
 
-Server-side rendering, if adopted later, is a separate explicit asynchronous
-product workflow. ADR-0006 records why that workflow is currently deferred.
+Durable server-side document processing is a separate, explicit asynchronous
+product workflow. ADR-0008 accepts that boundary without changing the
+browser-only interactive compilation decision.
 
 ## Consequences
 
@@ -42,12 +44,13 @@ product workflow. ADR-0006 records why that workflow is currently deferred.
 - persistent WASM/compiler sessions improve edit latency;
 - first-load size, browser memory, worker lifecycle, and cross-origin delivery
   are product concerns;
-- server-side rendering would be a durable background-job architecture, not an
-  optimization hidden inside the preview adapter.
+- durable server processing is a separate bounded context, not an optimization
+  hidden inside the preview adapter.
 
 ## Related
 
 - [Typst runtime](../runtimes/typst.md)
 - [Community LaTeX runtime](../runtimes/latex.md)
 - [Frontend architecture](../architecture/frontend.md)
-- [Decision: defer background rendering](./0006-defer-background-rendering.md)
+- [Durable document processing](./0008-durable-document-processing.md)
+- [Superseded background-rendering decision](./0006-defer-background-rendering.md)

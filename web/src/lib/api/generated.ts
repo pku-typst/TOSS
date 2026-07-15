@@ -514,6 +514,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/processing/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["processing_capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/processing/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_processing_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/processing/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["get_processing_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/processing/jobs/{job_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["download_processing_artifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/processing/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_processing_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/product-assets/favicon": {
         parameters: {
             query?: never;
@@ -700,6 +787,24 @@ export interface paths {
         get: operations["get_project_asset_raw"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_latex_pdf_build"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1517,7 +1622,7 @@ export interface components {
         /** @enum {string} */
         AnonymousMode: "off" | "read_only" | "read_write_named";
         /** @enum {string} */
-        ApiErrorCode: "auth_credentials_invalid" | "auth_credentials_required" | "auth_email_conflict" | "auth_email_invalid" | "auth_email_required" | "auth_local_login_disabled" | "auth_local_registration_disabled" | "auth_last_login_method" | "auth_password_required" | "auth_password_too_short" | "auth_provider_account_conflict" | "auth_required" | "auth_service_unavailable" | "auth_username_conflict" | "auth_username_invalid" | "auth_username_required" | "authorization_unavailable" | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "external_git_authorization_required" | "external_git_connection_in_use" | "external_git_not_configured" | "external_git_operation_conflict" | "external_git_provider_unavailable" | "external_git_repository_conflict" | "external_git_repository_forbidden" | "external_git_repository_not_found" | "payload_too_large" | "pdf_artifact_invalid" | "pdf_artifact_not_found" | "pdf_artifact_too_large" | "project_access_forbidden" | "project_asset_invalid" | "project_asset_not_found" | "project_asset_too_large" | "project_content_changed" | "project_content_epoch_required" | "project_document_changed" | "project_document_not_found" | "project_name_invalid" | "project_not_found" | "project_path_conflict" | "project_path_invalid" | "project_service_unavailable" | "project_thumbnail_invalid" | "project_thumbnail_not_found" | "project_thumbnail_unavailable" | "project_type_disabled" | "revision_service_unavailable" | "revision_not_found" | "revision_summary_invalid" | "unprocessable_entity" | "precondition_required" | "too_many_requests" | "bad_gateway" | "service_unavailable" | "site_admin_required" | "template_asset_too_large" | "template_gallery_unavailable" | "template_instantiation_unavailable" | "template_not_found" | "template_organization_grant_not_found" | "template_organization_membership_required" | "template_publication_required" | "template_service_unavailable" | "template_thumbnail_not_found" | "template_thumbnail_unavailable" | "internal_error" | "request_failed";
+        ApiErrorCode: "auth_credentials_invalid" | "auth_credentials_required" | "auth_email_conflict" | "auth_email_invalid" | "auth_email_required" | "auth_local_login_disabled" | "auth_local_registration_disabled" | "auth_last_login_method" | "auth_password_required" | "auth_password_too_short" | "auth_provider_account_conflict" | "auth_required" | "auth_service_unavailable" | "auth_username_conflict" | "auth_username_invalid" | "auth_username_required" | "authorization_unavailable" | "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "external_git_authorization_required" | "external_git_connection_in_use" | "external_git_not_configured" | "external_git_operation_conflict" | "external_git_provider_unavailable" | "external_git_repository_conflict" | "external_git_repository_forbidden" | "external_git_repository_not_found" | "payload_too_large" | "pdf_artifact_invalid" | "pdf_artifact_not_found" | "pdf_artifact_too_large" | "project_access_forbidden" | "project_asset_invalid" | "project_asset_not_found" | "project_asset_too_large" | "project_content_changed" | "project_content_epoch_required" | "project_document_changed" | "project_document_not_found" | "project_name_invalid" | "project_not_found" | "project_path_conflict" | "project_path_invalid" | "project_service_unavailable" | "project_thumbnail_invalid" | "project_thumbnail_not_found" | "project_thumbnail_unavailable" | "project_type_disabled" | "revision_service_unavailable" | "revision_not_found" | "revision_summary_invalid" | "unprocessable_entity" | "precondition_required" | "processing_artifact_not_found" | "processing_idempotency_conflict" | "processing_idempotency_invalid" | "processing_idempotency_required" | "processing_input_invalid" | "processing_input_too_large" | "processing_job_not_found" | "processing_operation_invalid" | "processing_queue_full" | "processing_service_unavailable" | "processing_unavailable" | "too_many_requests" | "bad_gateway" | "service_unavailable" | "site_admin_required" | "template_asset_too_large" | "template_gallery_unavailable" | "template_instantiation_unavailable" | "template_not_found" | "template_organization_grant_not_found" | "template_organization_membership_required" | "template_publication_required" | "template_service_unavailable" | "template_thumbnail_not_found" | "template_thumbnail_unavailable" | "internal_error" | "request_failed";
         ApiErrorResponse: {
             code: components["schemas"]["ApiErrorCode"];
             message: string;
@@ -1534,6 +1639,7 @@ export interface components {
             brand_mark: string;
             client_id: string | null;
             distribution_id: string;
+            enabled_processing_operations: components["schemas"]["ProcessingOperation"][];
             enabled_project_types: components["schemas"]["ProjectType"][];
             external_git_providers: components["schemas"]["ExternalGitProviderResponse"][];
             groups_claim: string;
@@ -1948,6 +2054,70 @@ export interface components {
         PersonalAccessTokenListResponse: {
             tokens: components["schemas"]["PersonalAccessTokenInfo"][];
         };
+        ProcessingArtifact: {
+            download_url: string;
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            media_type: string;
+            role: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        ProcessingCapabilities: {
+            capabilities: components["schemas"]["ProcessingCapability"][];
+        };
+        ProcessingCapability: {
+            /** Format: int64 */
+            active_jobs: number;
+            /** Format: int64 */
+            active_slots: number;
+            /** Format: int64 */
+            healthy_sessions: number;
+            operation: components["schemas"]["ProcessingOperation"];
+            /** Format: int64 */
+            queued_jobs: number;
+            reason: string | null;
+            state: components["schemas"]["ProcessingCapabilityState"];
+        };
+        /** @enum {string} */
+        ProcessingCapabilityState: "available" | "waiting" | "unavailable";
+        ProcessingFailure: {
+            class: string;
+            code: string;
+            message: string;
+        };
+        ProcessingJob: {
+            artifacts: components["schemas"]["ProcessingArtifact"][];
+            /** Format: int32 */
+            attempt_count: number;
+            cancellation_requested: boolean;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            failure: null | components["schemas"]["ProcessingFailure"];
+            /** Format: uuid */
+            id: string;
+            operation: components["schemas"]["ProcessingOperation"];
+            phase: components["schemas"]["ProcessingPhase"];
+            processor_contract: string | null;
+            /** Format: uuid */
+            project_id: string | null;
+            state: components["schemas"]["ProcessingJobState"];
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProcessingJobList: {
+            jobs: components["schemas"]["ProcessingJob"][];
+        };
+        /** @enum {string} */
+        ProcessingJobState: "preparing" | "queued" | "running" | "finalizing" | "succeeded" | "failed" | "cancelled" | "expired";
+        /** @enum {string} */
+        ProcessingOperation: "latex.compile.pdf/v1" | "typst.export.pptx/v1" | "pptx.import.typst/v1";
+        /** @enum {string} */
+        ProcessingPhase: "capturing_input" | "waiting_for_worker" | "processing" | "uploading_result" | "validating_result" | "publishing_result" | "complete";
         Project: {
             archived: boolean;
             /** Format: date-time */
@@ -3485,6 +3655,158 @@ export interface operations {
             };
         };
     };
+    processing_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingCapabilities"];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_processing_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJobList"];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_processing_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJob"];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    download_processing_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Binary response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": number[];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_processing_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJob"];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     product_favicon: {
         parameters: {
             query?: never;
@@ -3974,6 +4296,39 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": number[];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    create_latex_pdf_build: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJob"];
                 };
             };
             /** @description Error response */
@@ -5838,6 +6193,17 @@ export const apiErrorCodes = [
   "revision_summary_invalid",
   "unprocessable_entity",
   "precondition_required",
+  "processing_artifact_not_found",
+  "processing_idempotency_conflict",
+  "processing_idempotency_invalid",
+  "processing_idempotency_required",
+  "processing_input_invalid",
+  "processing_input_too_large",
+  "processing_job_not_found",
+  "processing_operation_invalid",
+  "processing_queue_full",
+  "processing_service_unavailable",
+  "processing_unavailable",
   "too_many_requests",
   "bad_gateway",
   "service_unavailable",

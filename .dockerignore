@@ -4,6 +4,7 @@
 .env.*
 
 backend/target
+workers/target
 web/node_modules
 web/dist
 web/.cache

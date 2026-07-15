@@ -63,9 +63,10 @@ pub(crate) use collaboration_projection::{
     CollaborationProjectionError, CollaborationProjectionOutcome, ProjectCollaborationDocument,
 };
 pub(crate) use content::{
-    load_project_content_asset_bytes, load_project_content_snapshot, CreateProjectGraph,
-    LoadProjectContentAssetError, ProjectContentSnapshot, ReplaceProjectContent,
-    ReplaceProjectContentResult, WorkspaceAsset, WorkspaceDocument,
+    load_project_content_asset_bytes, load_project_content_snapshot,
+    lock_processing_project_snapshot, CreateProjectGraph, LoadProjectContentAssetError,
+    ProjectContentSnapshot, ReplaceProjectContent, ReplaceProjectContentResult, WorkspaceAsset,
+    WorkspaceDocument,
 };
 pub(crate) use content_generation::{
     lock_project_content_epoch, lock_project_content_exclusively, lock_project_content_mutation,

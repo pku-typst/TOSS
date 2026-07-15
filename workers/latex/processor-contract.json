@@ -1,0 +1,55 @@
+{
+  "schema": "toss-processor-contract/v1",
+  "operation": "latex.compile.pdf/v1",
+  "input_schema": "project-bundle/v1",
+  "adapter_revision": 1,
+  "worker_sdk_protocol": 1,
+  "implementation_sha256": "d1021d596a01f4c27e93b314fcbde19548711446bf87375a028474af7ecf65b4",
+  "runtime": {
+    "image": "texlive/texlive@sha256:d39efa547acfa518072600315280f92357ca8e0b9e295e09b6ccd5f5d82a1373",
+    "tex_live_release": "2026",
+    "tex_live_revision": 79639,
+    "tex_live_database_sha256": "4df90e66ac87ff5b44722e4b248a609c286ff8083d9839ddfa7604b0b1f32cef",
+    "texmf_file_database_sha256": "40b93ba7582424dfad6179c5e110bc9d078c88546573578486c0c5304c29aa07",
+    "fontconfig_listing_sha256": "0eebb68084c177be0ac74e10514395ec917d7c2d2b7c9a1f86df719d7705d7ec",
+    "driver": {
+      "name": "latexmk",
+      "version": "4.88"
+    },
+    "engines": [
+      {
+        "name": "pdftex",
+        "version": "3.141592653-2.6-1.40.29",
+        "format_sha256": "82c707f596b1b8c09d2a85a59b1d2db13101eeecb7f62b9b29b2874f8039cc8c"
+      },
+      {
+        "name": "xetex",
+        "version": "3.141592653-2.6-0.999998",
+        "format_sha256": "8b7bbed161b8d73cbd64bd035476b816ced0df64736daae9a451da852b6af9ac"
+      }
+    ]
+  },
+  "invocation_policy": {
+    "recipe": "latexmkrc/v1",
+    "project_rc": false,
+    "shell_escape": false,
+    "network": false,
+    "timezone": "UTC",
+    "locale": "C.UTF-8",
+    "source_date_epoch": "project-bundle"
+  },
+  "sandbox": {
+    "profile": "bubblewrap/v1",
+    "bubblewrap_version": "0.11.2",
+    "root": "minimal-read-only-runtime",
+    "private_pid_mount_fs_net_ipc_uts": true,
+    "process_limit": 128,
+    "open_file_limit": 256,
+    "memory_bytes": 2147483648
+  },
+  "artifacts": {
+    "required": ["application/pdf"],
+    "optional": ["text/plain"],
+    "synctex": false
+  }
+}

@@ -247,13 +247,33 @@ pub(super) async fn lock_project_content_snapshot(
     connection: &mut PgConnection,
     project_id: Uuid,
 ) -> Result<Option<ProjectContentSnapshot>, sqlx::Error> {
-    let workspace_version = sqlx::query_scalar::<_, i64>(
-        "select workspace_version from projects where id = $1 for share",
+    let project = sqlx::query(
+        "select projects.workspace_version,
+                projects.content_epoch,
+                projects.project_type,
+                coalesce(project_settings.entry_file_path,
+                    case projects.project_type when 'latex' then 'main.tex' else 'main.typ' end
+                ) as entry_file_path,
+                case
+                    when projects.project_type = 'latex'
+                    then coalesce(project_settings.latex_engine, 'xetex')
+                    else null
+                end as latex_engine,
+                extract(epoch from greatest(
+                    projects.created_at,
+                    coalesce(project_settings.updated_at, projects.created_at),
+                    coalesce((select max(updated_at) from documents where project_id = projects.id), projects.created_at),
+                    coalesce((select max(created_at) from project_assets where project_id = projects.id), projects.created_at)
+                ))::bigint as source_epoch
+         from projects
+         left join project_settings on project_settings.project_id = projects.id
+         where projects.id = $1
+         for share of projects",
     )
     .bind(project_id)
     .fetch_optional(&mut *connection)
     .await?;
-    let Some(workspace_version) = workspace_version else {
+    let Some(project) = project else {
         return Ok(None);
     };
     let documents = sqlx::query("select path, content from documents where project_id = $1")
@@ -292,7 +312,12 @@ pub(super) async fn lock_project_content_snapshot(
         })
         .collect();
     Ok(Some(ProjectContentSnapshot {
-        workspace_version,
+        workspace_version: project.get("workspace_version"),
+        content_epoch: project.get("content_epoch"),
+        project_type: project.get("project_type"),
+        entry_file_path: project.get("entry_file_path"),
+        latex_engine: project.get("latex_engine"),
+        source_epoch: project.get("source_epoch"),
         documents,
         assets,
         directories,

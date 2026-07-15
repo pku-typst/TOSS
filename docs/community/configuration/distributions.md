@@ -18,6 +18,7 @@ related:
   - docs/community/product/overview.md
   - docs/community/runtimes/typst.md
   - docs/community/runtimes/latex.md
+  - docs/community/architecture/document-processing.md
 code_paths:
   - backend/src/distribution
   - distributions/community/toss.json
@@ -48,13 +49,13 @@ Paths inside the JSON resolve relative to that file. If it is absent, source
 development searches for the Community distribution and then uses embedded
 Community defaults.
 
-The current schema is version 4 and rejects unknown fields.
+The current schema is version 5 and rejects unknown fields.
 
 | Section | Responsibility |
 | --- | --- |
 | `product` | Name, localized description, managed-name policy, mark, colors, favicon/touch icon, and indexing policy |
 | `git` | External checkpoint branch prefix and safe fallback commit identity |
-| `capabilities` | Enabled project types |
+| `capabilities` | Enabled project types and durable processing operations |
 | `typst` | Built-in catalog root and starter templates |
 | `template_gallery` | Built-in template metadata, sources, and thumbnails |
 | `experience` | Landing content, Help topics, and resource links |
@@ -69,6 +70,13 @@ distribution capability set.
 LaTeX-enabled distribution configures a LaTeX starter; a Typst-only
 distribution omits it. Backend project creation/copy and frontend controls both
 enforce the selected set.
+
+`capabilities.processing_operations` is a closed allowlist of Core-known,
+versioned operations. Community enables `latex.compile.pdf/v1`. This is product
+policy, not worker configuration: admission also requires a deployment worker
+identity with an exact processor-contract allowlist, and live availability
+requires a compatible healthy session. Do not put worker tokens or private
+processor configuration in the distribution file.
 
 The frontend reads the same distribution during build. A Typst-only build may
 alias the LaTeX editor and runtime to disabled modules and exclude BusyTeX
@@ -134,4 +142,5 @@ stable distribution ID to the same build argument.
 - [Product model](../product/overview.md)
 - [Typst runtime](../runtimes/typst.md)
 - [LaTeX runtime](../runtimes/latex.md)
+- [Document processing](../architecture/document-processing.md)
 - [Decision: distributions](../decisions/0003-configured-distributions.md)

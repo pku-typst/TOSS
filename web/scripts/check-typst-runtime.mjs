@@ -18,7 +18,7 @@ async function loadDistribution() {
     configuredPath || path.join(repoRoot, "distributions", "community", "toss.json")
   );
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
-  if (config.schema !== 4 || typeof config.id !== "string") {
+  if (config.schema !== 5 || typeof config.id !== "string") {
     throw new Error(`Unsupported distribution config: ${configPath}`);
   }
   const configRoot = path.dirname(configPath);

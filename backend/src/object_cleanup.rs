@@ -99,6 +99,14 @@ pub async fn delete_queued_objects_now(
         return;
     };
     for key in external_object_keys(keys) {
+        match object_is_pinned(db, key).await {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(error) => {
+                warn!(object_key = key, %error, "object pin lookup failed; deletion deferred");
+                continue;
+            }
+        }
         match delete_object(storage, key).await {
             Ok(()) => {
                 if let Err(error) =
@@ -117,6 +125,17 @@ pub async fn delete_queued_objects_now(
     }
 }
 
+async fn object_is_pinned(db: &PgPool, key: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "select exists(
+             select 1 from processing_input_asset_pins where object_key = $1
+         )",
+    )
+    .bind(key)
+    .fetch_one(db)
+    .await
+}
+
 async fn claim_due_object(db: &PgPool) -> Result<Option<(String, i32)>, sqlx::Error> {
     let now = Utc::now();
     let stale_before = now - chrono::Duration::minutes(DELETE_LOCK_TIMEOUT_MINUTES);
@@ -126,6 +145,10 @@ async fn claim_due_object(db: &PgPool) -> Result<Option<(String, i32)>, sqlx::Er
              from object_deletion_queue
              where next_attempt_at <= $1
                and (locked_at is null or locked_at <= $2)
+               and not exists (
+                   select 1 from processing_input_asset_pins pin
+                   where pin.object_key = object_deletion_queue.object_key
+               )
              order by next_attempt_at asc, created_at asc
              for update skip locked
              limit 1

@@ -105,6 +105,12 @@ fn add_operation_parameters(document: &mut utoipa::openapi::OpenApi) {
     );
     add_parameters(
         document,
+        "/v1/projects/{project_id}/builds",
+        HttpMethod::Post,
+        &[header("Idempotency-Key", true, ParameterKind::String)],
+    );
+    add_parameters(
+        document,
         "/v1/projects/{project_id}/documents",
         HttpMethod::Get,
         &[

@@ -29,7 +29,7 @@ administrator policy.
 
 | Source | Owns | May contain secrets? |
 | --- | --- | --- |
-| Distribution JSON selected by `TOSS_CONFIG` | Product identity, capabilities, Gallery, Help, resource links, Git naming, built-in runtime catalog | No |
+| Distribution JSON selected by `TOSS_CONFIG` | Product identity, project/processing capabilities, Gallery, Help, resource links, Git naming, built-in runtime catalog | No |
 | External provider TOML selected by `EXTERNAL_GIT_CONFIG` | Provider instance IDs, kinds, brands, public URLs, OAuth client IDs, callbacks, login visibility | No |
 | Environment / secret manager | Database, session, S3, OIDC, provider client secrets, grant encryption, limits, paths, and worker timing | Yes |
 | PostgreSQL administrator settings | Mutable site authentication and access policy when not deployment-managed | Yes |

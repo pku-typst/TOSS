@@ -17,6 +17,8 @@ related:
   - docs/community/configuration/distributions.md
   - docs/community/architecture/frontend.md
   - docs/community/development/testing.md
+  - docs/community/runtimes/latex-worker.md
+  - docs/community/decisions/0008-durable-document-processing.md
 code_paths:
   - web/src/lib/latex.worker.ts
   - web/src/lib/busyTexCompiler.ts
@@ -142,6 +144,20 @@ Set `LATEX_TEXLIVE_UPSTREAM_ENABLED=false` only for a deliberately preseeded
 offline deployment. Every file not present in the browser's basic data package
 must then already exist below `DATA_DIR/texlive/<cache-namespace>/`.
 
+## Durable native-build target
+
+ADR-0008 accepts an optional native TeX Live worker for explicit LaTeX PDF
+builds that must outlive the browser. It is a separate processor and product
+action, not a preferred preview compiler, a hedge, or a fallback for BusyTeX.
+The worker will use a pinned TeX Live tree and `latexmk` in a per-job sandbox.
+
+The BusyTeX proxy cache cannot be mounted as the native worker's `TEXMFDIST`:
+it is a lazy file cache for a different runtime contract, not a coherent native
+TeX installation. Both runtimes may deliberately use the same TeX Live
+generation, but each has its own manifest, package inventory, formats, and
+compatibility tests. The native worker is an accepted target and is not shipped
+by the current application image.
+
 ## Authorization and tests
 
 `/v1/latex/texlive/*` requires a signed-in user and is only active when the
@@ -159,4 +175,6 @@ requires a rendered browser canvas. It skips against Typst-only distributions.
 
 - [Distribution configuration](../configuration/distributions.md)
 - [Frontend architecture](../architecture/frontend.md)
+- [Native LaTeX worker](./latex-worker.md)
+- [Decision: durable document processing](../decisions/0008-durable-document-processing.md)
 - [Testing](../development/testing.md)

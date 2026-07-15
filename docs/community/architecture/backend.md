@@ -14,6 +14,7 @@ topics:
   - transactions
 related:
   - docs/community/architecture/overview.md
+  - docs/community/architecture/document-processing.md
   - docs/community/architecture/error-model.md
   - docs/community/reference/api.md
   - protocol/README.md
@@ -71,6 +72,7 @@ from operation markers under `backend/src/protocol/rest/`, grouped by context.
 | Collaboration | Yjs update and compacted snapshot tables; in-process room registry |
 | Versioning | Git repository metadata, dirty/flush state, contributors, and project worktrees |
 | External repositories | encrypted grants, OAuth attempts, project links, inbound jobs, checkpoint queues |
+| Document Processing | jobs, attempts, worker sessions, request fences, transfer tickets, input pins, blobs, and artifacts |
 | Templates | No private storage tables; it composes Workspace publication state, Access-owned template grants, and distribution-owned built-in sources |
 
 Audit writes are best effort. `audit_events` is an observability trail and
@@ -93,6 +95,20 @@ The shared choreography is deliberately small:
 
 These are named processes, not a new horizontal application layer.
 
+## Document-processing boundary
+
+`backend/src/document_processing/` is a vertical context. It owns durable job
+policy, attempts, immutable input manifests, processing blobs/artifacts, quotas,
+cancellation, finalization, and processor availability. It calls narrow
+Access, Collaboration, Workspace, and object-storage facades to authorize and
+capture one accepted project generation; those contexts do not learn queue or
+worker mechanics.
+
+Independent pull workers execute typed operations through the separately
+generated worker protocol. The public SDK and LaTeX processor live under
+`workers/`; they do not import backend persistence modules, connect to the
+application database, or publish Workspace state.
+
 ## Visibility and testing
 
 Rust module visibility is the primary architecture enforcement mechanism.
@@ -107,6 +123,7 @@ to a crate boundary or use an AST-aware dependency rule.
 ## Related
 
 - [Architecture overview](./overview.md)
+- [Durable document processing](./document-processing.md)
 - [Error model](./error-model.md)
 - [API guide](../reference/api.md)
 - [Protocol workflow](../../../protocol/README.md)

@@ -38,6 +38,7 @@ const authConfig: AuthConfig = {
   brand_mark: "N",
   client_id: "client-a",
   distribution_id: "community",
+  enabled_processing_operations: [],
   enabled_project_types: ["typst"],
   external_git_providers: [],
   groups_claim: "groups",

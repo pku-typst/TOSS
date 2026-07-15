@@ -5,6 +5,7 @@ mod localized_text;
 mod source_files;
 pub(crate) mod template_catalog;
 
+use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 use crate::workspace::ProjectType;
 use experience_content::{ExperienceConfig, ExperienceResource, LandingConfig, LandingHighlight};
@@ -16,7 +17,7 @@ use template_catalog::{BuiltinTemplate, BuiltinTemplateFile};
 use thiserror::Error;
 use uuid::Uuid;
 
-const CONFIG_SCHEMA_VERSION: u32 = 4;
+const CONFIG_SCHEMA_VERSION: u32 = 5;
 const MAX_TEMPLATE_FILES: usize = 4096;
 const MAX_TEMPLATE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TEMPLATE_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
@@ -116,6 +117,7 @@ pub(crate) struct InvalidCheckpointBranchPrefix;
 #[derive(Clone, Debug)]
 pub struct CapabilitiesConfig {
     pub project_types: Vec<ProjectType>,
+    pub processing_operations: Vec<ProcessingOperation>,
 }
 
 impl Default for DistributionConfig {
@@ -146,6 +148,7 @@ impl Default for DistributionConfig {
             },
             capabilities: CapabilitiesConfig {
                 project_types: vec![ProjectType::Typst, ProjectType::Latex],
+                processing_operations: vec![ProcessingOperation::LatexCompilePdfV1],
             },
             experience: ExperienceConfig {
                 landing: LandingConfig {
@@ -222,6 +225,10 @@ impl DistributionConfig {
         self.capabilities.project_types.contains(&project_type)
     }
 
+    pub fn supports_processing_operation(&self, operation: ProcessingOperation) -> bool {
+        self.capabilities.processing_operations.contains(&operation)
+    }
+
     pub fn starter_content(&self, project_type: ProjectType) -> Option<&str> {
         match project_type {
             ProjectType::Typst if self.supports_project_type(ProjectType::Typst) => {
@@ -279,6 +286,7 @@ fn is_hex_color(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{CheckpointBranchPrefix, DistributionConfig, InvalidCheckpointBranchPrefix};
+    use crate::document_processing::ProcessingOperation;
     use crate::experience::ExperienceVisibility;
     use crate::workspace::ProjectType;
     use std::error::Error;
@@ -305,6 +313,10 @@ mod tests {
         assert_eq!(
             config.capabilities.project_types,
             [ProjectType::Typst, ProjectType::Latex]
+        );
+        assert_eq!(
+            config.capabilities.processing_operations,
+            [ProcessingOperation::LatexCompilePdfV1]
         );
         assert!(config.supports_project_type(ProjectType::Latex));
         assert!(config

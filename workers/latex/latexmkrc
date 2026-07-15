@@ -1,0 +1,7 @@
+$pdflatex = 'pdflatex -no-shell-escape %O %S';
+$xelatex = 'xelatex -no-shell-escape %O %S';
+$lualatex = 'false';
+$latex = 'false';
+$max_repeat = 5;
+$recorder = 1;
+$cleanup_includes_cusdep_generated = 1;

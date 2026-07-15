@@ -1,5 +1,5 @@
 {
-  "schema": 4,
+  "schema": 5,
   "id": "community",
   "product": {
     "name": "Typst Collaboration",
@@ -20,7 +20,8 @@
     "fallback_email_domain": "workspace.local"
   },
   "capabilities": {
-    "project_types": ["typst", "latex"]
+    "project_types": ["typst", "latex"],
+    "processing_operations": ["latex.compile.pdf/v1"]
   },
   "typst": {
     "builtin_dir": "typst",

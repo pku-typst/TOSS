@@ -1,5 +1,6 @@
 //! Strict JSON representation of a distribution configuration file.
 
+use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 use crate::workspace::ProjectType;
 use serde::Deserialize;
@@ -138,6 +139,8 @@ pub(super) struct GitFile {
 #[serde(deny_unknown_fields)]
 pub(super) struct CapabilitiesFile {
     pub(super) project_types: Vec<ProjectType>,
+    #[serde(default)]
+    pub(super) processing_operations: Vec<ProcessingOperation>,
 }
 
 #[derive(Debug, Deserialize)]

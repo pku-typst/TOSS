@@ -271,6 +271,62 @@ impl CollaborationContext {
         }
         Ok(())
     }
+
+    pub(crate) async fn flush_project_collaboration_for_capture(
+        &self,
+        connection: &mut PgConnection,
+        project_id: Uuid,
+    ) -> Result<Vec<WorkspaceChange>, FlushProjectCollaborationError> {
+        let Some(target_update_id) =
+            CollaborationPersistence::latest_project_update_id_in_transaction(
+                connection, project_id,
+            )
+            .await
+            .map_err(|source| FlushProjectCollaborationError::LoadTarget { project_id, source })?
+        else {
+            return Ok(Vec::new());
+        };
+        let documents = CollaborationPersistence::pending_project_documents_in_transaction(
+            connection,
+            project_id,
+            target_update_id,
+        )
+        .await
+        .map_err(|source| FlushProjectCollaborationError::LoadDocuments { project_id, source })?;
+        let mut changes = Vec::new();
+        for document in documents {
+            CollaborationPersistence::lock_document_updates(connection, document.document_id)
+                .await
+                .map_err(|source| FlushProjectCollaborationError::Project {
+                    project_id,
+                    source: ReconcileCollaborationDocumentError::persistence(
+                        ReconcileCollaborationDocumentStage::LockDocument,
+                        project_id,
+                        source,
+                    ),
+                })?;
+            let state = CollaborationPersistence::load_state(connection, document)
+                .await
+                .map_err(|source| FlushProjectCollaborationError::Project {
+                    project_id,
+                    source: ReconcileCollaborationDocumentError::persistence(
+                        ReconcileCollaborationDocumentStage::LoadState,
+                        project_id,
+                        source,
+                    ),
+                })?;
+            let result = self
+                .reconcile_collaboration_document(connection, document, state, None)
+                .await
+                .map_err(|source| FlushProjectCollaborationError::Project { project_id, source })?;
+            if let ReconcileCollaborationDocumentOutcome::Current(compacted) = result {
+                if let Some(change) = compacted.workspace_change {
+                    changes.push(change);
+                }
+            }
+        }
+        Ok(changes)
+    }
 }
 
 #[derive(Debug, Error)]

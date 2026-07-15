@@ -7,6 +7,11 @@ DB_URL="$DATABASE_URL"
 CORE_API_PORT="${CORE_API_PORT:-18080}"
 CORE_API_URL="http://127.0.0.1:${CORE_API_PORT}"
 REALTIME_URL="ws://127.0.0.1:${CORE_API_PORT}"
+TMP_DIR="$(mktemp -d)"
+
+export PROCESSING_WORKER_TOKEN="community-ci-processing-token-0123456789abcdef"
+export PROCESSING_PROCESSOR_CONTRACT="sha256:1111111111111111111111111111111111111111111111111111111111111111"
+export PROCESSING_WORKER_IDENTITIES_JSON='[{"id":"community-latex-ci","token":"community-ci-processing-token-0123456789abcdef","operations":[{"id":"latex.compile.pdf/v1","processor_contracts":["sha256:1111111111111111111111111111111111111111111111111111111111111111"]}]}]'
 
 cd "$ROOT_DIR"
 
@@ -17,9 +22,11 @@ node scripts/fetch-runtime-artifacts.mjs
 node scripts/check-docs.mjs
 node scripts/check-migration-baseline.mjs
 node scripts/prebuilt-typst-compiler.mjs verify
+node scripts/check-latex-worker-contract.mjs
 
 cleanup() {
   if [[ -n "${CORE_PID:-}" ]]; then kill "$CORE_PID" >/dev/null 2>&1 || true; fi
+  rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
@@ -29,9 +36,20 @@ fi
 
 echo "[ci] cargo fmt + clippy + check + test (backend)"
 (cd backend && cargo fmt --all -- --check)
-(cd backend && cargo clippy --locked --all-targets)
+(cd backend && cargo clippy --locked --all-targets -- -D warnings)
 (cd backend && cargo check --locked)
 (cd backend && cargo test --locked)
+
+echo "[ci] verify generated public and worker OpenAPI contracts"
+(cd backend && cargo run --locked --quiet --example export_protocol "$TMP_DIR/openapi.json")
+(cd backend && cargo run --locked --quiet --example export_worker_protocol "$TMP_DIR/worker-openapi.json")
+cmp protocol/openapi.json "$TMP_DIR/openapi.json"
+cmp protocol/worker-openapi.json "$TMP_DIR/worker-openapi.json"
+
+echo "[ci] cargo fmt + clippy + test (processing workers)"
+(cd workers && cargo fmt --all -- --check)
+(cd workers && cargo clippy --locked --all-targets -- -D warnings)
+(cd workers && cargo test --locked)
 
 echo "[ci] npm ci + build (web)"
 (cd web && npm ci)
@@ -54,6 +72,9 @@ for _ in $(seq 1 180); do
   sleep 1
 done
 curl -fsS "$CORE_API_URL/health" >/dev/null
+
+echo "[ci] run durable processing protocol checks"
+CORE_API_URL="$CORE_API_URL" node scripts/processing-protocol-smoke.mjs
 
 echo "[ci] run API-level collaboration and git checks"
 CORE_API_URL="$CORE_API_URL" REALTIME_WS_URL="$REALTIME_URL" node web/scripts/realtime-multiuser-test.mjs

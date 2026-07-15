@@ -1,7 +1,7 @@
 ---
 title: "ADR-0006: Defer server-side background rendering"
-summary: "Keep the current product browser-only and retain server rendering only as a possible explicit durable workflow."
-status: accepted
+summary: "Historical rationale for deferring server rendering until it had a distinct durable product outcome."
+status: superseded
 type: decision
 scope: community
 audience:
@@ -14,6 +14,7 @@ topics:
   - resource-management
 related:
   - docs/community/decisions/0001-browser-compilation.md
+  - docs/community/decisions/0008-durable-document-processing.md
   - docs/community/architecture/frontend.md
   - docs/community/runtimes/typst.md
   - docs/community/operations/deployment.md
@@ -24,6 +25,11 @@ code_paths:
 ---
 
 # ADR-0006: Defer server-side background rendering
+
+ADR-0008 supersedes this decision for explicit durable document processing.
+The browser-only interactive compilation boundary remains accepted; this
+record preserves why a server compiler was rejected when it had no distinct
+durable product outcome.
 
 ## Decision
 
@@ -83,6 +89,7 @@ A future design must preserve these boundaries:
 ## Related
 
 - [Browser-side compilation](./0001-browser-compilation.md)
+- [Durable document processing](./0008-durable-document-processing.md)
 - [Frontend architecture](../architecture/frontend.md)
 - [Typst browser runtime](../runtimes/typst.md)
 - [Deployment](../operations/deployment.md)

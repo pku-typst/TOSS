@@ -328,6 +328,16 @@ impl CollaborationPersistence {
             .await
     }
 
+    pub async fn latest_project_update_id_in_transaction(
+        connection: &mut PgConnection,
+        project_id: Uuid,
+    ) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar("select max(id) from collab_doc_updates where project_id = $1")
+            .bind(project_id)
+            .fetch_one(connection)
+            .await
+    }
+
     pub async fn pending_project_documents(
         &self,
         project_id: Uuid,
@@ -351,6 +361,41 @@ impl CollaborationPersistence {
         .bind(project_id)
         .bind(upto_update_id)
         .fetch_all(&self.db)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| CollaborationDocument {
+                project_id: row.get("project_id"),
+                document_id: row.get("document_id"),
+                collaboration_revision: row.get("collaboration_revision"),
+                content_epoch: row.get("content_epoch"),
+            })
+            .collect())
+    }
+
+    pub async fn pending_project_documents_in_transaction(
+        connection: &mut PgConnection,
+        project_id: Uuid,
+        upto_update_id: i64,
+    ) -> Result<Vec<CollaborationDocument>, sqlx::Error> {
+        let rows = sqlx::query(
+            "select u.project_id, u.document_id, u.collaboration_revision, u.content_epoch,
+                    min(u.id) as first_update_id
+             from collab_doc_updates u
+             left join collab_doc_latest_snapshots s
+               on s.project_id = u.project_id
+              and s.document_id = u.document_id
+              and s.collaboration_revision = u.collaboration_revision
+              and s.content_epoch = u.content_epoch
+             where u.project_id = $1
+               and u.id <= $2
+               and u.id > coalesce(s.upto_update_id, 0)
+             group by u.project_id, u.document_id, u.collaboration_revision, u.content_epoch
+             order by first_update_id asc",
+        )
+        .bind(project_id)
+        .bind(upto_update_id)
+        .fetch_all(connection)
         .await?;
         Ok(rows
             .into_iter()

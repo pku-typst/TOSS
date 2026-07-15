@@ -8,6 +8,7 @@ use super::{
     CapabilitiesConfig, CheckpointBranchPrefix, DistributionConfig, GitConfig, ProductAsset,
     ProductConfig, CONFIG_SCHEMA_VERSION, MAX_PRODUCT_ASSET_BYTES,
 };
+use crate::document_processing::ProcessingOperation;
 use crate::workspace::ProjectType;
 use std::env;
 use std::path::Path;
@@ -107,6 +108,10 @@ impl DistributionConfig {
         validate_email_domain(&fallback_email_domain)?;
         let project_types = validate_project_types(file.capabilities.project_types)?;
         let latex_enabled = project_types.contains(&ProjectType::Latex);
+        let processing_operations = validate_processing_operations(
+            file.capabilities.processing_operations,
+            &project_types,
+        )?;
 
         let builtin_dir = resolve_path(base_dir, &file.typst.builtin_dir, "typst.builtin_dir")?;
         let catalog_path = builtin_dir.join("catalog.json");
@@ -167,7 +172,10 @@ impl DistributionConfig {
                 fallback_owner_name,
                 fallback_email_domain,
             },
-            capabilities: CapabilitiesConfig { project_types },
+            capabilities: CapabilitiesConfig {
+                project_types,
+                processing_operations,
+            },
             experience,
             typst_builtin_dir: Some(builtin_dir),
             builtin_templates,
@@ -224,6 +232,30 @@ fn validate_project_types(values: Vec<ProjectType>) -> Result<Vec<ProjectType>, 
     let mut normalized = vec![ProjectType::Typst];
     if latex_enabled {
         normalized.push(ProjectType::Latex);
+    }
+    Ok(normalized)
+}
+
+fn validate_processing_operations(
+    values: Vec<ProcessingOperation>,
+    project_types: &[ProjectType],
+) -> Result<Vec<ProcessingOperation>, String> {
+    let mut normalized = Vec::with_capacity(values.len());
+    for value in values {
+        if normalized.contains(&value) {
+            return Err(
+                "capabilities.processing_operations must not contain duplicates".to_string(),
+            );
+        }
+        if value
+            .project_type()
+            .is_some_and(|project_type| !project_types.contains(&project_type))
+        {
+            return Err(format!(
+                "capabilities.processing_operations cannot enable {value} without its project type"
+            ));
+        }
+        normalized.push(value);
     }
     Ok(normalized)
 }

@@ -20,6 +20,7 @@ related:
   - docs/community/architecture/versioning.md
   - docs/community/architecture/external-repositories.md
   - docs/community/architecture/identity-and-access.md
+  - docs/community/architecture/document-processing.md
 code_paths:
   - backend/src/server
   - backend/src/app_state.rs
@@ -36,18 +37,20 @@ optimization layered over a server compiler.
 ```text
 Browser
   React + CodeMirror + Yjs
-  Typst / optional LaTeX workers -> canvas preview and PDF
+  Typst / optional LaTeX browser workers -> canvas preview and local PDF
           |
           | REST + WebSocket + Git smart HTTP
           v
 Rust / Axum application
   access | workspace | collaboration | versioning | templates
-  external repositories | experience | runtime support
+  external repositories | document processing | experience | runtime support
        |                 |                     |
        v                 v                     v
   PostgreSQL      persistent filesystem    S3-compatible storage
                          |
                          +---- explicit import/checkpoint ---- external provider
+
+Optional native processor ---- authenticated pull/leases ---- document processing
 ```
 
 The production image contains the backend, precompressed SPA, migrations, one
@@ -58,7 +61,7 @@ selected distribution, and its allowed built-in runtime assets.
 | Store | Owned state | Failure effect |
 | --- | --- | --- |
 | Browser memory and IndexedDB | Active Yjs state, account-scoped Workspace snapshots, compiler/runtime caches | The active tab may continue locally; clearing site data requires rebootstrap and runtime downloads |
-| PostgreSQL | Identity, sessions, access, project metadata, text documents, Yjs logs/snapshots, asset metadata, PDF artifacts, and job state | Application cannot provide authoritative editing or authorization |
+| PostgreSQL | Identity, sessions, access, project metadata, text documents, Yjs logs/snapshots, asset metadata, PDF artifacts, processing blobs, and job state | Application cannot provide authoritative editing, authorization, or durable processing |
 | Persistent filesystem | Local Git repositories, revision history, thumbnails, and optional package caches | Live database text may remain, but local Git history or thumbnails are unavailable |
 | S3-compatible storage | Project asset bytes when configured | Text editing continues; affected asset operations fail |
 | External provider | Repository state after explicit import or checkpoint | Ordinary Workspace editing continues |
@@ -78,6 +81,7 @@ configured.
 | Identity and access | Accounts, sessions, OIDC, organizations, roles, grants, share links, guests, and personal access tokens |
 | Templates | Gallery discovery, built-in instantiation, personal-template publication, and template sharing policy |
 | Experience | Product identity, landing and Help content, assets, and resource visibility |
+| Document Processing | Explicit durable jobs, immutable inputs, attempts/leases, worker capacity, staged and published artifacts, cancellation, and retention |
 
 Distribution loading, Typst/LaTeX runtimes, object storage, cleanup, audit, and
 server composition support these contexts but do not own product aggregates.
@@ -118,6 +122,20 @@ target local commit, resolves the link and connector grant through External
 Repositories, and pushes only the managed provider branch. Provider network
 I/O never sits in the Workspace transaction.
 
+## Document processing
+
+ADR-0008 introduced the Document Processing bounded context for explicit jobs
+that must outlive a browser session, beginning with native LaTeX-to-PDF. The
+application owns job policy and durable state while independent pull workers
+own processor execution. Workers receive immutable input bundles and
+short-lived transfer capabilities; they do not receive database or
+object-store credentials.
+
+This capability does not put a server compiler into the interactive preview
+path or change the single-application-replica constraint. Omitting all worker
+identities preserves the browser product while making durable operations
+unavailable.
+
 ## Deployment constraint
 
 Run one application replica. Realtime fan-out and Git locks are process-local.
@@ -132,4 +150,5 @@ not sufficient.
 - [Collaboration](./collaboration.md)
 - [Versioning](./versioning.md)
 - [External repositories](./external-repositories.md)
+- [Durable document processing](./document-processing.md)
 - [Deployment](../operations/deployment.md)

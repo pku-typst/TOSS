@@ -114,6 +114,7 @@ mod access;
 mod collaboration;
 mod experience;
 mod external_repositories;
+mod processing;
 mod runtime;
 mod templates;
 mod versioning;
@@ -167,6 +168,12 @@ pub use external_repositories::ExternalGitCheckpointResponse;
         workspace::list_projects,
         workspace::create_project,
         workspace::rename_project,
+        processing::create_latex_pdf_build,
+        processing::processing_capabilities,
+        processing::list_processing_jobs,
+        processing::get_processing_job,
+        processing::cancel_processing_job,
+        processing::download_processing_artifact,
         external_repositories::external_git_project_status,
         external_repositories::request_external_git_checkpoint,
         external_repositories::linked_external_git_branches,
@@ -252,7 +259,8 @@ pub use external_repositories::ExternalGitCheckpointResponse;
         (name = "external-repositories"),
         (name = "templates"),
         (name = "experience"),
-        (name = "runtime")
+        (name = "runtime"),
+        (name = "document-processing")
     )
 )]
 struct ApiDocument;

@@ -9,6 +9,7 @@ type DistributionBuildConfig = {
   id?: string;
   capabilities?: {
     project_types?: string[];
+    processing_operations?: string[];
   };
 };
 
@@ -19,14 +20,23 @@ function loadDistributionBuildConfig() {
     : path.resolve(__dirname, "../distributions/community/toss.json");
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as DistributionBuildConfig;
   if (
-    config.schema !== 4 ||
+    config.schema !== 5 ||
     typeof config.id !== "string" ||
     !Array.isArray(config.capabilities?.project_types) ||
     !config.capabilities.project_types.includes("typst") ||
     config.capabilities.project_types.some(
       (projectType) => projectType !== "typst" && projectType !== "latex"
     ) ||
-    new Set(config.capabilities.project_types).size !== config.capabilities.project_types.length
+    new Set(config.capabilities.project_types).size !== config.capabilities.project_types.length ||
+    !Array.isArray(config.capabilities.processing_operations) ||
+    config.capabilities.processing_operations.some(
+      (operation) =>
+        operation !== "latex.compile.pdf/v1" &&
+        operation !== "typst.export.pptx/v1" &&
+        operation !== "pptx.import.typst/v1"
+    ) ||
+    new Set(config.capabilities.processing_operations).size !==
+      config.capabilities.processing_operations.length
   ) {
     throw new Error(`Invalid distribution build config: ${configPath}`);
   }
