@@ -87,7 +87,7 @@ services:
     restart: unless-stopped
     environment:
       PROCESSING_CORE_URL: http://core-api:8080
-      PROCESSING_WORKER_TOKEN: ${PROCESSING_WORKER_TOKEN:?set PROCESSING_WORKER_TOKEN for the processing profile}
+      PROCESSING_WORKER_TOKEN: ${PROCESSING_WORKER_TOKEN:-}
       PROCESSING_WORKER_INSTANCE: ${PROCESSING_WORKER_INSTANCE:-community-latex-local}
       PROCESSING_LATEX_SLOTS: ${PROCESSING_LATEX_SLOTS:-1}
       PROCESSING_LATEX_EXECUTOR: bubblewrap

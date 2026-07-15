@@ -14,10 +14,15 @@ topics:
 related:
   - docs/community/development/testing.md
   - docs/community/configuration/README.md
+  - docs/community/architecture/document-processing.md
   - docs/community/runtimes/typst.md
+  - docs/community/runtimes/latex-worker.md
+  - docs/community/operations/deployment.md
 code_paths:
   - rust-toolchain.toml
   - web/package.json
+  - workers/Cargo.toml
+  - workers/latex/Dockerfile
   - docker-compose.yml
   - .env.example
 ---
@@ -33,6 +38,10 @@ The supported toolchain is pinned:
 - PostgreSQL 16 for local containers;
 - Git;
 - `pkg-config` and the platform OpenSSL development package.
+
+Docker is also required to build and exercise the native TeX Live worker. Its
+real sandbox needs unprivileged user namespaces plus the repository AppArmor
+policy on affected Linux hosts; ordinary browser-preview development does not.
 
 A local Typst CLI installed through Pixi is useful for template comparison and
 offline debugging, but application preview does not invoke it. The browser uses
@@ -93,6 +102,30 @@ cargo run --locked
 Relative paths resolve from each command's working directory. The backend runs
 database migrations during startup.
 
+With no `PROCESSING_WORKER_IDENTITIES_JSON`, durable processing reports
+unavailable while Typst and BusyTeX preview continue normally. This is the
+supported browser-only development topology, not a degraded application state.
+
+## Optional processing worker
+
+The public worker SDK and native LaTeX processor use a separate Rust workspace:
+
+```bash
+node scripts/check-latex-worker-contract.mjs
+cd workers
+cargo test --locked
+```
+
+The contract check binds the SDK, processor adapter, image recipe, and runtime
+manifest to the exact processor contract. A local Core accepts that worker only
+after the same contract and token are placed in Core's identity allowlist.
+
+For an image-level build, install the host sandbox policy and use the Compose
+`processing` profile. Follow the complete
+[local processing profile](../operations/deployment.md#enable-the-local-processing-profile)
+procedure rather than weakening the sandbox to make a development container
+start. The default Compose topology deliberately omits this profile.
+
 ## Distribution build matrix
 
 The frontend and backend must use capability-compatible distribution configs.
@@ -115,4 +148,7 @@ configuration cannot activate code omitted at build time.
 
 - [Testing](./testing.md)
 - [Configuration](../configuration/README.md)
+- [Durable document processing](../architecture/document-processing.md)
 - [Typst runtime](../runtimes/typst.md)
+- [Native LaTeX worker](../runtimes/latex-worker.md)
+- [Deployment](../operations/deployment.md)

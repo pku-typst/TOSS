@@ -1,6 +1,6 @@
 ---
 title: "Glossary"
-summary: "Canonical vocabulary for projects, collaboration, Git, external providers, and distributions."
+summary: "Canonical vocabulary for projects, collaboration, durable processing, Git, external providers, and distributions."
 status: current
 type: reference
 scope: community
@@ -14,15 +14,21 @@ topics:
   - workspace
   - versioning
   - external-git
+  - document-processing
 related:
   - docs/community/product/overview.md
   - docs/community/architecture/overview.md
+  - docs/community/architecture/document-processing.md
   - docs/community/architecture/external-repositories.md
+  - docs/community/reference/worker-protocol.md
 code_paths:
   - backend/src/workspace
   - backend/src/versioning
   - backend/src/external_repositories
+  - backend/src/document_processing
   - backend/src/distribution
+  - web/src/pages/processing
+  - workers/processing-sdk
 ---
 
 # Glossary
@@ -53,14 +59,26 @@ Use these terms consistently in code, UI copy, and documentation.
 | Content epoch | A Workspace generation value used to reject writes from a client opened before destructive content replacement. |
 | Collaboration revision | The generation of one immutable document identity's Yjs state. It changes when authoritative replacement supersedes the stream. |
 | Access epoch | A project authorization generation used to invalidate realtime clients after grants change. |
+| Browser compiler worker | A browser Web Worker that owns an interactive Typst or BusyTeX compiler session. It is part of live preview and local export, not durable server processing. |
+| Processing operation | A Core-known, versioned transformation contract such as `latex.compile.pdf/v1`, with typed input, options, result, permission, and finalization rules. |
+| Processing job | The requester-visible durable aggregate for one explicit processing operation. It owns immutable input, lifecycle, cancellation, failure, and published artifacts. |
+| Processing attempt | One fenced execution lease for a processing job. Infrastructure failures may create another attempt without creating another user job. |
+| Processing worker | An independently deployed agent that advertises approved processor contracts, pulls leased work, and executes a processor in a bounded sandbox. It has no application database or object-store credential. |
+| Processor contract | The exact implementation identity for a processing runtime, including toolchain, packages, fonts, flags, sandbox policy, and result rules. It is distinct from protocol and operation versions. |
+| Processing artifact | An immutable result published by Core for a succeeded processing job and downloadable while authorization and retention permit. It is distinct from a browser-generated or Workspace-owned PDF artifact. |
+| Task center | The account-scoped frontend projection of active and recent processing jobs. It is a global presentation surface, not a new business-level job owner. |
 
 Avoid using “sync” without a qualifier. Say **Yjs collaboration**, **Workspace
 delta refresh**, **local Git flush**, **external checkpoint**, or **inbound
-sync**.
+sync**. Avoid using “worker” without distinguishing a **browser compiler
+worker**, an in-process context-owned background loop, or a **processing
+worker**.
 
 ## Related
 
 - [Product model](./product/overview.md)
 - [Architecture overview](./architecture/overview.md)
+- [Durable document processing](./architecture/document-processing.md)
+- [Worker protocol](./reference/worker-protocol.md)
 - [External repositories](./architecture/external-repositories.md)
 - [Versioning](./architecture/versioning.md)

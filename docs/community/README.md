@@ -19,6 +19,7 @@ related:
   - docs/community/development/setup.md
 code_paths:
   - docs/community
+  - distributions/community/help
   - protocol
   - web
 ---
@@ -42,7 +43,8 @@ versions of this Wiki.
 | Understand the system | [Architecture overview](./architecture/overview.md) → the relevant context page |
 | Set up a workstation | [Development setup](./development/setup.md) → [Testing](./development/testing.md) |
 | Deploy or operate it | [Deployment](./operations/deployment.md) → [Configuration](./configuration/README.md) |
-| Change an API | [API guide](./reference/api.md) → [Protocol workflow](../../protocol/README.md) |
+| Change an API | [API guide](./reference/api.md) → [Application protocols](../../protocol/README.md) |
+| Change user-facing Help | [Distribution configuration](./configuration/distributions.md#landing-help-and-resources) → localized files under `distributions/community/help/` |
 | Change a compiler runtime | [Typst runtime](./runtimes/typst.md) or [LaTeX runtime](./runtimes/latex.md) |
 | Operate or extend durable processing | [Document processing](./architecture/document-processing.md) → [Worker protocol](./reference/worker-protocol.md) → [LaTeX worker](./runtimes/latex-worker.md) |
 | Understand a design choice | [Decision records](./decisions/README.md) |
@@ -74,7 +76,7 @@ versions of this Wiki.
 - [Deployment and operations](./operations/deployment.md)
 - [API surface](./reference/api.md)
 - [Worker protocol](./reference/worker-protocol.md)
-- [Browser/server protocol](../../protocol/README.md)
+- [Application protocols](../../protocol/README.md)
 - [Product and editor design language](../../web/DESIGN.md)
 
 ## Sources of truth

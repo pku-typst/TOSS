@@ -15,10 +15,13 @@ topics:
 related:
   - docs/community/configuration/distributions.md
   - docs/community/configuration/external-git.md
+  - docs/community/architecture/document-processing.md
+  - docs/community/reference/worker-protocol.md
   - docs/community/operations/deployment.md
 code_paths:
   - .env.example
   - distributions/community/toss.json
+  - distributions/community/help
   - docs/community/configuration/external-git.example.toml
 ---
 
@@ -31,7 +34,7 @@ administrator policy.
 | --- | --- | --- |
 | Distribution JSON selected by `TOSS_CONFIG` | Product identity, project/processing capabilities, Gallery, Help, resource links, Git naming, built-in runtime catalog | No |
 | External provider TOML selected by `EXTERNAL_GIT_CONFIG` | Provider instance IDs, kinds, brands, public URLs, OAuth client IDs, callbacks, login visibility | No |
-| Environment / secret manager | Database, session, S3, OIDC, provider client secrets, grant encryption, limits, paths, and worker timing | Yes |
+| Environment / secret manager | Database, session, S3, OIDC, provider client secrets, grant encryption, limits, paths, worker identities/tokens, and worker timing | Yes |
 | PostgreSQL administrator settings | Mutable site authentication and access policy when not deployment-managed | Yes |
 | Checked-in runtime manifests | Exact compiler, package, font, and BusyTeX provenance | No |
 
@@ -58,8 +61,16 @@ keys, access tokens, employee data, or authenticated URLs in distribution JSON,
 provider TOML, the browser bundle, or logs. Use Kubernetes Secrets or an
 equivalent deployment secret manager.
 
+Worker identities are Core deployment policy. Keep
+`PROCESSING_WORKER_IDENTITIES_JSON` and the matching worker token in a secret
+manager, and allow only the exact operation and processor contracts printed by
+the deployed image. Never expose worker tokens through distribution Help,
+public capability responses, or browser configuration.
+
 ## Related
 
 - [Distributions](./distributions.md)
 - [External Git configuration](./external-git.md)
+- [Durable document processing](../architecture/document-processing.md)
+- [Worker protocol](../reference/worker-protocol.md)
 - [Deployment](../operations/deployment.md)

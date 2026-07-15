@@ -1,6 +1,6 @@
 ---
 title: "Community LaTeX runtime"
-summary: "BusyTeX lifecycle, TeX Live delivery, browser limits, and optional-distribution behavior."
+summary: "Browser BusyTeX lifecycle, native durable-build separation, TeX Live delivery, limits, and optional-distribution behavior."
 status: current
 type: guide
 scope: community
@@ -13,10 +13,12 @@ topics:
   - busytex
   - webassembly
   - texlive
+  - document-processing
 related:
   - docs/community/configuration/distributions.md
   - docs/community/architecture/frontend.md
   - docs/community/development/testing.md
+  - docs/community/architecture/document-processing.md
   - docs/community/runtimes/latex-worker.md
   - docs/community/decisions/0008-durable-document-processing.md
 code_paths:
@@ -25,6 +27,7 @@ code_paths:
   - web/scripts/sync-busytex-assets.mjs
   - backend/src/latex_runtime
   - prebuilt/busytex/build-manifest.json
+  - workers/latex
 ---
 
 # Community LaTeX runtime
@@ -144,19 +147,30 @@ Set `LATEX_TEXLIVE_UPSTREAM_ENABLED=false` only for a deliberately preseeded
 offline deployment. Every file not present in the browser's basic data package
 must then already exist below `DATA_DIR/texlive/<cache-namespace>/`.
 
-## Durable native-build target
+## Durable native-build path
 
-ADR-0008 accepts an optional native TeX Live worker for explicit LaTeX PDF
-builds that must outlive the browser. It is a separate processor and product
-action, not a preferred preview compiler, a hedge, or a fallback for BusyTeX.
-The worker will use a pinned TeX Live tree and `latexmk` in a per-job sandbox.
+Community ships an optional native TeX Live worker image for explicit LaTeX PDF
+builds that must outlive the browser. **Build PDF in background** captures one
+immutable, server-accepted project snapshot and creates a durable task. The
+worker uses the snapshot's selected pdfTeX or XeTeX engine with a pinned TeX
+Live 2026 tree and `latexmk` inside a per-job bubblewrap sandbox. The task center
+exposes queue/execution state, cancellation before finalization, failures, and
+the published PDF.
+
+This is a separate processor and product action, not a preferred preview
+compiler, a hedge, or a fallback for BusyTeX. Browser preview and local PDF
+export continue when the native worker is omitted, offline, or full. Native
+output may differ from browser output because the two paths have independent
+runtime, package, font, and sandbox contracts; the processing artifact records
+the contract that produced it.
 
 The BusyTeX proxy cache cannot be mounted as the native worker's `TEXMFDIST`:
 it is a lazy file cache for a different runtime contract, not a coherent native
 TeX installation. Both runtimes may deliberately use the same TeX Live
 generation, but each has its own manifest, package inventory, formats, and
-compatibility tests. The native worker is an accepted target and is not shipped
-by the current application image.
+compatibility tests. The native worker source and image recipe ship under
+`workers/latex`, but the worker is not embedded in the application image; it is
+built and scaled as a separate optional deployment unit.
 
 ## Authorization and tests
 
@@ -166,15 +180,27 @@ from its nested worker, so production must serve the SPA and API on one origin.
 Named temporary guest sessions do not currently carry credentials into that
 nested worker and cannot compile LaTeX projects.
 
+Native background builds require a signed-in requester with current project
+read access, a distribution-enabled operation, and an operator-approved worker
+identity and processor contract. Project access is checked again when tasks are
+listed or artifacts are downloaded.
+
 The adapter and queue behavior are covered by Vitest; request and cache behavior
 are covered by Rust tests. `web/tests/e2e/latex.spec.ts` creates XeLaTeX and
 pdfLaTeX projects, compiles packages and references, edits one project live, and
 requires a rendered browser canvas. It skips against Typst-only distributions.
 
+The separate worker workspace tests bundle validation, path safety, protocol
+coordination, and executor behavior. Release validation additionally builds the
+pinned image and runs both native engines through bubblewrap, artifact download,
+and exact-result reuse. See the native worker page for the current image-level
+evidence and commands.
+
 ## Related
 
 - [Distribution configuration](../configuration/distributions.md)
 - [Frontend architecture](../architecture/frontend.md)
+- [Durable document processing](../architecture/document-processing.md)
 - [Native LaTeX worker](./latex-worker.md)
 - [Decision: durable document processing](../decisions/0008-durable-document-processing.md)
 - [Testing](../development/testing.md)

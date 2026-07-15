@@ -93,7 +93,7 @@ runtime fingerprint and tool version. Rust tests verify the Core-authored bundle
 shape and reject unsafe paths, unknown file kinds, bad digests, and invalid
 source epochs. They do not replace an image-level bubblewrap build.
 
-## Browser/server protocol
+## Generated protocols
 
 After changing a route or wire schema, regenerate both checked-in artifacts:
 

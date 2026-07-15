@@ -6,7 +6,9 @@ Remote collaborator changes are merged into the active document. Presence indica
 
 ## Read the preview
 
-The default canvas renderer is optimized for the live editing loop. Use the preview toolbar to fit the whole page, fit the page width, zoom, or export PDF.
+The default canvas renderer is optimized for the live editing loop. Use the preview toolbar to fit the whole page, fit the page width, zoom, or generate and download a PDF in the browser.
+
+Some project types may also expose an explicit background-build control after sign-in. That durable task uses a fixed server-accepted snapshot and appears in **Tasks**; it does not replace the live browser preview or automatically include edits made after submission.
 
 Clicking supported source content can reveal the corresponding preview location. Clicking mapped preview content can return to its source position.
 

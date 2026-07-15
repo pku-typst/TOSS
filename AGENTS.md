@@ -17,9 +17,10 @@ and downstream policy remain separate concerns.
 
 | Path | Responsibility |
 | --- | --- |
-| `web/` | React/Vite application, CodeMirror workspace, browser compiler workers, preview, i18n, and UI composition |
-| `backend/` | Rust/Axum modular monolith for REST, realtime collaboration, access, Git, storage, templates, and runtime asset delivery |
-| `protocol/` | Checked-in OpenAPI contract and isolated TypeScript generator toolchain |
+| `web/` | React/Vite application, CodeMirror workspace, browser compiler workers, preview, task center, i18n, and UI composition |
+| `backend/` | Rust/Axum modular monolith for REST, realtime collaboration, access, Git, storage, templates, document processing, and runtime asset delivery |
+| `workers/` | Public processing SDK and independently deployed, sandboxed processor implementations |
+| `protocol/` | Checked-in public and worker OpenAPI contracts plus the isolated browser TypeScript generator toolchain |
 | `distributions/community/` | Neutral product configuration, Help content, starter templates, and public Typst catalog |
 | `prebuilt/` | Reproducible browser-runtime provenance and ignored, fetched package caches |
 | `third-party/typst.ts/` | Public Apache-2.0 source submodule pinned to an exact revision |
@@ -27,10 +28,10 @@ and downstream policy remain separate concerns.
 | `scripts/` | Public-safe build, validation, backup, bootstrap, and smoke-test orchestration |
 
 Generated directories such as `web/dist/`, `web/public/typst-runtime/`,
-`web/public/busytex/`, `backend/target/`, caches, and test results are not source
-modules. Regenerate them through their owning scripts. Package directories
-under `prebuilt/` are ignored caches hydrated from pinned public releases;
-never hand-edit or commit them.
+`web/public/busytex/`, `backend/target/`, `workers/target/`, caches, and test
+results are not source modules. Regenerate them through their owning scripts.
+Package directories under `prebuilt/` are ignored caches hydrated from pinned
+public releases; never hand-edit or commit them.
 
 ## Architecture boundaries
 
@@ -48,6 +49,7 @@ The backend is a modular monolith organized as vertical bounded contexts:
 | `backend/src/distribution/` | Validated distribution configuration and source-file policy |
 | `backend/src/typst_runtime/` | Built-in assets, public package proxying, and cache policy |
 | `backend/src/latex_runtime/` | Optional BusyTeX requests, upstream resolution, and cache policy |
+| `backend/src/document_processing/` | Durable jobs, immutable inputs, attempts, leases, worker sessions, cancellation, quotas, and artifacts |
 
 Do not recreate horizontal `application/`, `repositories/`, `services/`, global
 `domain/`, or generic CRUD layers. Business values and lifecycle states belong
@@ -64,9 +66,11 @@ External repository models remain provider-neutral. Provider REST DTOs, URL
 rules, pagination, OAuth refresh, and permission semantics stay under
 `external_repositories/provider/<provider>/`.
 
-The root `protocol/` directory and `backend/src/protocol/` form an integration
-boundary, not a shared domain model. Regenerate the checked-in OpenAPI and web
-types together after a wire change.
+The root `protocol/` directory and `backend/src/protocol/` form integration
+boundaries, not a shared domain model. Regenerate `protocol/openapi.json` and
+the browser types together after a public API change. Regenerate
+`protocol/worker-openapi.json` separately after an internal worker-wire change;
+never feed worker credentials or lifecycle routes into the browser generator.
 
 Community TOSS begins with `202607120001_baseline.sql` and intentionally does
 not support in-place upgrades from earlier TOSS database histories. That
@@ -83,9 +87,11 @@ assume a downstream product name, private package, one Git provider, or a
 deployment environment. Product identity, starter content, Help, public
 resources, and optional capabilities come from the validated distribution.
 
-Keep browser compilation client-side unless an architecture decision explicitly
-changes that model. Preserve persistent compiler and renderer sessions and the
-incremental vector path when changing Typst preview behavior.
+Keep the interactive compilation and preview loop client-side. Explicit durable
+Document Processing operations are a separate user action and must never become
+a preferred compiler, live-preview hedge, or silent fallback. Preserve
+persistent compiler and renderer sessions and the incremental vector path when
+changing Typst preview behavior.
 
 ## Submodule and runtime artifacts
 
@@ -127,9 +133,20 @@ Protocol changes:
 ```bash
 cd backend
 cargo run --locked --example export_protocol -- ../protocol/openapi.json
+cargo run --locked --example export_worker_protocol -- ../protocol/worker-openapi.json
 cd ../protocol
 npm run generate:types
 npm run check:types
+```
+
+Worker changes:
+
+```bash
+node scripts/check-latex-worker-contract.mjs
+cd workers
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 ```
 
 Cross-module changes use `scripts/ci-checks.sh` with a disposable PostgreSQL

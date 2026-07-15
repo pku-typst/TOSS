@@ -7,6 +7,7 @@ Open **Gallery** to create an independent project from a maintained template, or
 - **Files** contains Typst source, data, images, fonts, and other assets.
 - **Editor** changes the selected text file.
 - **Preview** compiles the project in your browser.
+- **Tasks** (after sign-in) shows durable builds and conversions that continue after the current tab closes.
 - **Settings** contains sharing, project type, export, and Git controls.
 - **Revisions** lets you inspect earlier checkpoints.
 

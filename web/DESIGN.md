@@ -14,6 +14,7 @@ topics:
   - frontend
 related:
   - docs/community/architecture/frontend.md
+  - docs/community/architecture/document-processing.md
   - docs/community/configuration/distributions.md
   - docs/community/development/testing.md
 code_paths:
@@ -57,6 +58,10 @@ than page-specific branches.
 - Help and Gallery data are cached in memory by account. Mutations explicitly
   invalidate their query; logout and session recovery clear every account-keyed
   browser cache.
+- The authenticated shell exposes one account-scoped task control. Its badge
+  summarizes active and failed durable work; its responsive drawer preserves
+  project, state, failure, cancellation, and artifact-download context without
+  turning the header into a second workflow page.
 - Desktop and mobile navigation expose the same destinations. Icon-only actions
   require accessible labels and tooltips.
 
@@ -70,6 +75,12 @@ than page-specific branches.
   controls use the extra-small radius.
 - Preserve task and feedback semantics: danger, warning, success, and running
   states use status colors rather than being forced to the brand accent.
+- Keep contextual submission beside the affected preview or import/export
+  control, then project durable lifecycle into the global task center. A native
+  background build must never look like a live-preview mode, preferred compiler,
+  or automatic fallback.
+- Closing the task drawer changes presentation only. It does not cancel work;
+  explicit cancellation is available only while the owning domain permits it.
 - Code syntax and collaborator cursors may use distinct palette colors for
   legibility, while editor chrome, focus, selection, and active states use the
   distribution accent.
@@ -85,5 +96,6 @@ distribution.
 ## Related
 
 - [Frontend architecture](../docs/community/architecture/frontend.md)
+- [Durable document processing](../docs/community/architecture/document-processing.md)
 - [Distribution configuration](../docs/community/configuration/distributions.md)
 - [Testing](../docs/community/development/testing.md)

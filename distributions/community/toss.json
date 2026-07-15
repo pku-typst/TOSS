@@ -195,6 +195,22 @@
           "visibility": "public"
         },
         {
+          "id": "background-tasks",
+          "title": {
+            "en": "Background tasks and task center",
+            "zh-CN": "后台任务与任务中心"
+          },
+          "summary": {
+            "en": "Submit durable work, follow progress, cancel safely, and download retained artifacts.",
+            "zh-CN": "提交持久任务、查看进度、安全取消并下载保留的产物。"
+          },
+          "sources": {
+            "en": "help/en/background-tasks.md",
+            "zh-CN": "help/zh-CN/background-tasks.md"
+          },
+          "visibility": "authenticated"
+        },
+        {
           "id": "collaboration-backup",
           "title": { "en": "Collaboration and backup", "zh-CN": "协作与备份" },
           "summary": {

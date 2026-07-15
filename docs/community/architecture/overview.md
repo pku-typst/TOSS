@@ -13,6 +13,7 @@ topics:
   - modular-monolith
   - storage
   - boundaries
+  - document-processing
 related:
   - docs/community/architecture/frontend.md
   - docs/community/architecture/backend.md
@@ -26,6 +27,8 @@ code_paths:
   - backend/src/app_state.rs
   - backend/src
   - web/src
+  - workers
+  - protocol/worker-openapi.json
 ---
 
 # Architecture overview
@@ -53,8 +56,9 @@ Rust / Axum application
 Optional native processor ---- authenticated pull/leases ---- document processing
 ```
 
-The production image contains the backend, precompressed SPA, migrations, one
-selected distribution, and its allowed built-in runtime assets.
+The Core production image contains the backend, precompressed SPA, migrations,
+one selected distribution, and its allowed built-in runtime assets. Optional
+native processors are built and deployed as separate images.
 
 ## Runtime stores
 

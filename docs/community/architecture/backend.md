@@ -23,6 +23,8 @@ code_paths:
   - backend/src/server/routes.rs
   - backend/src/protocol
   - backend/migrations
+  - workers/processing-sdk
+  - protocol/worker-openapi.json
 ---
 
 # Backend architecture

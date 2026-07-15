@@ -22,6 +22,7 @@ related:
 code_paths:
   - backend/src/distribution
   - distributions/community/toss.json
+  - distributions/community/help
 ---
 
 # Distribution configuration
@@ -122,6 +123,13 @@ use private no-store caching with cookie/authorization variance.
 
 Localized Help Center files are runtime product content. They remain bilingual
 even though the engineering wiki is English-only.
+
+Help must describe the capability presented by the same distribution rather
+than promising deployment capacity. Community's authenticated background-task
+topic explains the task center and native LaTeX build, while capability status
+still determines whether submission is available, queueable, or disabled at
+runtime. A downstream distribution that removes or renames an operation must
+also remove or replace the corresponding Help topic and contextual copy.
 
 ## Build selection
 

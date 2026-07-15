@@ -1,6 +1,6 @@
 ---
 title: "TOSS"
-summary: "Self-hosted collaborative writing for Typst and optional LaTeX with browser compilation, realtime editing, versioning, and explicit external Git workflows."
+summary: "Self-hosted collaborative writing for Typst and optional LaTeX with browser compilation, durable document processing, realtime editing, versioning, and explicit external Git workflows."
 status: current
 type: overview
 scope: community
@@ -13,13 +13,17 @@ topics:
   - typst
   - collaboration
   - self-hosting
+  - document-processing
 related:
   - docs/community/README.md
   - docs/community/product/overview.md
+  - docs/community/architecture/document-processing.md
   - docs/community/development/setup.md
 code_paths:
   - web
   - backend
+  - workers
+  - protocol
   - distributions/community
 ---
 
@@ -27,8 +31,9 @@ code_paths:
 
 TOSS is a self-hosted collaborative typesetting platform centered on Typst. It
 combines realtime multi-user editing, browser-side compilation and preview,
-project storage, sharing, local revision history, direct Git access, and
-owner-controlled external repository workflows in one service.
+explicit durable document processing, project storage, sharing, local revision
+history, direct Git access, and owner-controlled external repository workflows
+in one service.
 
 TOSS stands for Typst Open-Source Server.
 
@@ -39,10 +44,16 @@ TOSS stands for Typst Open-Source Server.
 - Typst compiles in a persistent browser worker and renders through incremental
   vector updates. Source and preview support bidirectional navigation.
 - Community deployments can also compile LaTeX through a persistent BusyTeX
-  worker.
+  browser worker.
+- Signed-in users can explicitly submit a LaTeX project snapshot for a durable
+  native TeX Live PDF build. The optional processor is separate from browser
+  preview: it never races, replaces, or silently backs up the browser compiler.
+- A global task center keeps background work visible after the initiating tab
+  closes and provides cancellation, failure details, and artifact downloads.
 - PostgreSQL stores accounts, access policy, workspace content, collaboration
-  state, jobs, and PDF artifacts. A persistent volume stores local Git history;
-  S3-compatible storage is optional for project assets.
+  state, durable jobs, immutable processing blobs, and PDF artifacts. A
+  persistent volume stores local Git history; S3-compatible storage is optional
+  for project assets.
 - The Template Gallery combines built-in templates, personal project templates,
   and organization-shared templates.
 - GitHub, GitLab, Gitea, and Forgejo or Codeberg provider instances can support
@@ -60,22 +71,26 @@ to the owner's external repository.
 ```text
 Browser
   React + CodeMirror + Yjs
-  Typst / optional BusyTeX workers -> canvas preview / PDF
+  Typst / optional BusyTeX workers -> live canvas preview / local PDF
+  task center -> explicit durable jobs and artifact downloads
              |
              | same-origin REST + WebSocket + Git HTTP
              v
 Rust/Axum modular monolith
   access | workspace | collaboration | versioning | external repositories
+  document processing | templates | experience | runtime support
        |                 |                         |
        v                 v                         v
   PostgreSQL       persistent Git volume     S3/MinIO (optional)
-                                                  |
-                              explicit jobs -> external Git provider
+
+  document processing <--- authenticated pull / leases ---> optional native processor
+  external repositories -------- explicit jobs ----------> external Git provider
 ```
 
-The Rust service also serves the precompressed SPA, so production uses one
-application image and origin. The current coordination model requires one
-application replica. See the
+The Core service also serves the precompressed SPA, so its production unit uses
+one application image and origin. Optional native processors use separate
+images and scale independently. The current coordination model requires one
+Core application replica. See the
 [architecture overview](./docs/community/architecture/overview.md).
 
 ## Repository map
@@ -83,8 +98,9 @@ application replica. See the
 | Path | Responsibility |
 | --- | --- |
 | `web/` | React application, editor, previews, browser workers, and localization |
-| `backend/` | Axum API, collaboration, access, storage, Git, and provider adapters |
-| `protocol/` | Checked-in OpenAPI contract and generated TypeScript workflow |
+| `backend/` | Axum API, collaboration, access, storage, Git, processing, and provider adapters |
+| `workers/` | Public processing SDK and optional native processor images |
+| `protocol/` | Checked-in browser/server and worker OpenAPI contracts plus browser TypeScript generation |
 | `distributions/community/` | Product configuration, Help content, and starter templates |
 | `prebuilt/` | Reproducible browser-runtime manifests and fetched package caches |
 | `third-party/typst.ts/` | Public compiler and renderer fork pinned as a submodule |
@@ -104,7 +120,14 @@ docker compose up --build
 ```
 
 Open <http://localhost:8080>. Compose starts PostgreSQL, MinIO, and the
-Community application.
+Community application. Interactive Typst and LaTeX preview work without any
+native processor.
+
+The native LaTeX worker is deliberately excluded from the default stack. To
+enable **Build PDF in background**, provision its token and exact processor
+contract, install the host sandbox policy, and start the `processing` Compose
+profile as described in
+[Deployment and operations](./docs/community/operations/deployment.md#enable-the-local-processing-profile).
 
 The service does not create a default administrator. Before the intended
 administrator first registers or signs in, set `BOOTSTRAP_ADMIN_EMAILS` in
@@ -162,6 +185,14 @@ cargo test --locked
 cd ../web
 npm test
 npm run build
+
+cd ..
+node scripts/check-latex-worker-contract.mjs
+
+cd workers
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 ```
 
 The repository-wide workflow is `scripts/ci-checks.sh` and requires a
@@ -179,5 +210,7 @@ history.
 
 - [Community documentation](./docs/community/README.md)
 - [Product overview](./docs/community/product/overview.md)
+- [Durable document processing](./docs/community/architecture/document-processing.md)
+- [Native LaTeX worker](./docs/community/runtimes/latex-worker.md)
 - [Development setup](./docs/community/development/setup.md)
 - [Deployment and database compatibility](./docs/community/operations/deployment.md)

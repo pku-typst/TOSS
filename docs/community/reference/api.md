@@ -39,7 +39,7 @@ Ordinary `/v1` failures use the JSON envelope
 and intended for control flow; `message` is diagnostic text and `request_id`
 correlates the response with server logs. Git smart HTTP retains its native
 protocol error bodies. Regeneration and compatibility rules are documented in
-[Browser/server protocol](../../../protocol/README.md).
+[Application protocols](../../../protocol/README.md).
 
 ## Health
 
