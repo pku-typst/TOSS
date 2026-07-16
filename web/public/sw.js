@@ -1,5 +1,6 @@
-const TYPST_CACHE = "typst-runtime-v2";
+const TYPST_CACHE = "typst-runtime-v3";
 const PROJECT_ASSET_CACHE_PREFIX = "toss.project.asset.content.v2.";
+const TYPST_RUNTIME_MANIFEST_PATH = "/typst-runtime/manifest.json";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(Promise.resolve());
@@ -22,10 +23,19 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-function isTypstRuntimePath(pathname) {
+function isTypstRuntimeAssetPath(pathname) {
   return (
-    pathname.startsWith("/typst-runtime/") ||
+    (pathname.startsWith("/typst-runtime/") && pathname !== TYPST_RUNTIME_MANIFEST_PATH) ||
     pathname.startsWith("/vendor/typst-assets/fonts/")
+  );
+}
+
+function isVersionedTypstRuntimeManifest(url) {
+  // The application build supplies this identity from its compiler/renderer
+  // ABI pins. An unversioned manifest is mutable and must never be cache-first.
+  return (
+    url.pathname === TYPST_RUNTIME_MANIFEST_PATH &&
+    Boolean(url.searchParams.get("runtime"))
   );
 }
 
@@ -46,7 +56,12 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (isTypstRuntimePath(url.pathname)) {
+  if (isVersionedTypstRuntimeManifest(url) || isTypstRuntimeAssetPath(url.pathname)) {
     event.respondWith(cacheFirst(TYPST_CACHE, request));
+    return;
+  }
+
+  if (url.pathname === TYPST_RUNTIME_MANIFEST_PATH) {
+    event.respondWith(fetch(request, { cache: "no-store" }));
   }
 });
