@@ -1,6 +1,6 @@
 //! Compatibility fence between runtime configuration and the compiled SPA.
 
-use crate::distribution::{DistributionConfig, FrontendFeature};
+use crate::distribution::{AiConnectionPolicyKind, DistributionConfig, FrontendFeature};
 use crate::workspace::ProjectType;
 use serde::Deserialize;
 use std::path::Path;
@@ -12,6 +12,7 @@ const BUILD_MANIFEST_SCHEMA: u32 = 2;
 pub(super) struct AiRuntimeBuildManifest {
     pub(super) build_id: String,
     pub(super) entry_path: String,
+    pub(super) connection_policy: AiConnectionPolicyKind,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +69,22 @@ impl WebBuildManifest {
                 return Err(format!(
                     "deployment enables frontend feature {feature} omitted from the web build"
                 ));
+            }
+        }
+        if let Some(runtime) = self.ai_runtime.as_ref() {
+            let configured_policy = distribution
+                .ai_assistant
+                .as_ref()
+                .ok_or_else(|| {
+                    "web build includes an AI Runtime but the distribution has no AI policy"
+                        .to_string()
+                })?
+                .kind();
+            if runtime.connection_policy != configured_policy {
+                return Err(
+                    "web build AI connection policy does not match the runtime distribution"
+                        .to_string(),
+                );
             }
         }
         Ok(())
@@ -155,6 +172,7 @@ mod tests {
         let mut distribution = DistributionConfig::default();
         distribution.project_types = vec![crate::workspace::ProjectType::Typst];
         distribution.frontend_features.included = vec![FrontendFeature::AiAssistant];
+        distribution.ai_assistant = Some(crate::distribution::AiAssistantConfig::UserDefined);
 
         let error = manifest.validate_runtime(&distribution, &[]).err();
 

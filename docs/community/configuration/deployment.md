@@ -80,6 +80,30 @@ When it is not enabled, the toolbar has no Assistant descriptor and Core
 returns not found for the entire reserved `/_ai-runtime` namespace rather than
 letting it fall through to the SPA static handler.
 
+Community's `user_defined` connection policy accepts no deployment fields for
+provider, model, credential, or Agent limits. Those values belong to the user
+or to hard safety bounds.
+
+For a downstream `managed_catalog` distribution only, deployment configuration
+may narrow the distribution's approved profiles and choose a default inside
+that subset:
+
+```toml
+[frontend]
+enabled_features = ["ai_assistant"]
+
+[frontend.ai_assistant]
+enabled_model_profiles = ["example-model"]
+default_model_profile = "example-model"
+```
+
+Both fields are optional. Omitting the subsection uses the distribution's full
+ordered profile list and default. An empty list, duplicate or unknown profile,
+or default outside the enabled subset fails startup. Deployment configuration
+cannot add a profile, change its metadata, replace the managed endpoint, or
+change the connection-policy kind. API keys and personal request/turn/catalog
+limits never belong in this TOML.
+
 ## Worker identities and secrets
 
 ```toml

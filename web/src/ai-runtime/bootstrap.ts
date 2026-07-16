@@ -12,8 +12,12 @@ import {
   lockedRuntimePolicy,
   runtimeConnectSource
 } from "@/features/ai/runtimePolicy";
-import { installBoundAiRuntimeFetch } from "@/ai-runtime/networkPolicy";
+import {
+  installBoundAiRuntimeFetch,
+  installManagedAiRuntimeFetch
+} from "@/ai-runtime/networkPolicy";
 import { loadAiProviderStream } from "@/ai-runtime/providerAdapter";
+import { readAiRuntimeServerPolicy } from "@/features/ai/runtimeConfig";
 
 let initialized = false;
 
@@ -63,20 +67,31 @@ async function initialize(event: MessageEvent<unknown>) {
   port.start();
 
   try {
-    const network = runtimeConnectSource(event.data.connection, expectedOrigin);
+    const policy = readAiRuntimeServerPolicy();
+    const network = runtimeConnectSource(event.data.connection, expectedOrigin, policy);
     installRuntimeMetaPolicy(earlyRuntimePolicy(network.source));
-    if (network.endpoint) installBoundAiRuntimeFetch(network.endpoint);
+    if (policy.kind === "managed_catalog") {
+      installManagedAiRuntimeFetch(policy.provider);
+    } else if (network.endpoint) {
+      installBoundAiRuntimeFetch(network.endpoint);
+    }
     acknowledgeBootstrap(port, event.data);
     const [runtime, providerStream] = await Promise.all([
       import("@/ai-runtime/runtime"),
-      event.data.connection.kind === "endpoint"
-        ? loadAiProviderStream(event.data.connection.protocol)
+      event.data.connection.kind === "endpoint" || event.data.connection.kind === "managed"
+        ? loadAiProviderStream(
+            event.data.connection.kind === "endpoint"
+              ? event.data.connection.protocol
+              : policy.kind === "managed_catalog"
+                ? policy.provider.protocol
+                : "openai-completions"
+          )
         : Promise.resolve(null)
     ]);
     runtime.prepareRuntimeSurface(bootstrapNonce(), event.data.locale);
     await runtime.prepareRuntimeResources(event.data.workspace);
     installRuntimeMetaPolicy(lockedRuntimePolicy(network.source));
-    runtime.startRuntime(port, event.data, network.endpoint, providerStream);
+    runtime.startRuntime(port, event.data, policy, network.endpoint, providerStream);
   } catch (error) {
     reportBootstrapFailure(
       port,

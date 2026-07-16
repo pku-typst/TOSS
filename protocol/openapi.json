@@ -4794,6 +4794,53 @@
           }
         }
       },
+      "AiAssistantClientConfigResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "user_defined"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "provider",
+              "default_model_profile",
+              "model_profiles",
+              "kind"
+            ],
+            "properties": {
+              "provider": {
+                "$ref": "#/components/schemas/ManagedAiProviderResponse"
+              },
+              "default_model_profile": {
+                "type": "string"
+              },
+              "model_profiles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ManagedAiModelProfileResponse"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "managed_catalog"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "AnonymousMode": {
         "type": "string",
         "enum": [
@@ -4929,6 +4976,7 @@
           "distribution_id",
           "enabled_project_types",
           "enabled_frontend_features",
+          "ai_assistant",
           "brand_mark",
           "accent_color",
           "accent_text_color",
@@ -5000,6 +5048,16 @@
             "items": {
               "$ref": "#/components/schemas/FrontendFeature"
             }
+          },
+          "ai_assistant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiAssistantClientConfigResponse"
+              }
+            ]
           },
           "brand_mark": {
             "type": "string"
@@ -6486,6 +6544,40 @@
           },
           "zh-CN": {
             "type": "string"
+          }
+        }
+      },
+      "ManagedAiModelProfileResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "model",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/LocalizedText"
+          }
+        }
+      },
+      "ManagedAiProviderResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/LocalizedText"
           }
         }
       },

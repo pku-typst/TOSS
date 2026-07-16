@@ -15,6 +15,13 @@ The endpoint must use HTTPS, except that HTTP is allowed for `localhost` and `12
 
 Signed-in accounts retain this non-secret connection metadata, including the reasoning-capability declaration, Provider request parameters, and two token limits, in account-scoped browser storage. Anonymous sessions can use a connection for the current page session, but its metadata is not saved.
 
+The **Agent settings** button also lets you set the Provider request timeout,
+maximum model calls per turn, and maximum turn duration within displayed safety
+bounds. Signed-in accounts retain these non-secret preferences in
+account-scoped browser storage; anonymous preferences stay in memory. They
+never include the credential. Setting changes apply between turns and do not
+recreate the isolated Runtime.
+
 ## Enter a credential safely
 
 After saving the non-secret profile, the isolated Runtime shows the exact bound destination, protocol, and model. Enter an API key or short-lived token there, or leave the field empty for an unauthenticated local endpoint.

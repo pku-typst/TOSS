@@ -1,3 +1,4 @@
+mod ai_assistant;
 pub(crate) mod experience_content;
 mod file_format;
 mod loader;
@@ -9,6 +10,7 @@ use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 use crate::text_enum::text_enum;
 use crate::workspace::ProjectType;
+pub use ai_assistant::{AiAssistantConfig, AiConnectionPolicyKind, ManagedAiCatalogConfig};
 use experience_content::{ExperienceConfig, ExperienceResource, LandingConfig, LandingHighlight};
 use localized_text::validate_localized_text;
 pub use localized_text::LocalizedText;
@@ -43,6 +45,7 @@ pub struct DistributionConfig {
     pub git: GitConfig,
     pub project_types: Vec<ProjectType>,
     pub frontend_features: FrontendFeaturesConfig,
+    pub ai_assistant: Option<AiAssistantConfig>,
     pub document_processing: DocumentProcessingDistributionConfig,
     pub experience: ExperienceConfig,
     pub typst_builtin_dir: Option<PathBuf>,
@@ -167,6 +170,7 @@ impl Default for DistributionConfig {
                 included: Vec::new(),
                 default_enabled: Vec::new(),
             },
+            ai_assistant: None,
             document_processing: DocumentProcessingDistributionConfig {
                 allowed_operations: vec![ProcessingOperation::LatexCompilePdfV1],
             },
@@ -311,7 +315,10 @@ fn is_hex_color(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckpointBranchPrefix, DistributionConfig, InvalidCheckpointBranchPrefix};
+    use super::{
+        AiConnectionPolicyKind, CheckpointBranchPrefix, DistributionConfig,
+        InvalidCheckpointBranchPrefix,
+    };
     use crate::document_processing::ProcessingOperation;
     use crate::experience::ExperienceVisibility;
     use crate::workspace::ProjectType;
@@ -330,6 +337,10 @@ mod tests {
         let config =
             DistributionConfig::load(&repository_path("distributions/community/toss.json"))?;
         assert_eq!(config.id, "community");
+        assert_eq!(
+            config.ai_assistant.as_ref().map(|config| config.kind()),
+            Some(AiConnectionPolicyKind::UserDefined)
+        );
         assert_eq!(config.product.brand_mark, "T");
         assert!(!config.product.name_managed);
         assert_eq!(

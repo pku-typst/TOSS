@@ -1,4 +1,5 @@
 import type { NormalizedAiEndpoint } from "@/features/ai/runtimePolicy";
+import type { AiRuntimeManagedProvider } from "@/features/ai/runtimeConfig";
 
 const ALLOWED_METHODS = new Set(["GET", "POST"]);
 
@@ -30,6 +31,46 @@ export function installBoundAiRuntimeFetch(endpoint: NormalizedAiEndpoint) {
   const boundFetch: typeof fetch = (input, init) => {
     if (!isBoundAiRuntimeRequest(input, init, endpoint)) {
       return Promise.reject(new Error("ai_runtime_request_outside_connection"));
+    }
+    return nativeFetch(input, {
+      ...init,
+      credentials: "omit",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      mode: "cors",
+      cache: "no-store",
+      keepalive: false
+    });
+  };
+  globalThis.fetch = boundFetch;
+}
+
+export function managedAiRuntimeUrls(provider: AiRuntimeManagedProvider) {
+  const base = new URL(provider.baseUrl);
+  return {
+    models: new URL("models", base).href,
+    chatCompletions: new URL("chat/completions", base).href
+  };
+}
+
+export function isManagedAiRuntimeRequest(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  provider: AiRuntimeManagedProvider
+) {
+  const target = requestUrl(input);
+  if (target.username || target.password || target.search || target.hash) return false;
+  const urls = managedAiRuntimeUrls(provider);
+  const method = requestMethod(input, init);
+  return (method === "GET" && target.href === urls.models) ||
+    (method === "POST" && target.href === urls.chatCompletions);
+}
+
+export function installManagedAiRuntimeFetch(provider: AiRuntimeManagedProvider) {
+  const nativeFetch = globalThis.fetch.bind(globalThis);
+  const boundFetch: typeof fetch = (input, init) => {
+    if (!isManagedAiRuntimeRequest(input, init, provider)) {
+      return Promise.reject(new Error("ai_runtime_request_outside_managed_provider"));
     }
     return nativeFetch(input, {
       ...init,

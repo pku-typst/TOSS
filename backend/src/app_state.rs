@@ -2,7 +2,7 @@
 
 use crate::access::OidcProviderDefaults;
 use crate::collaboration::CollaborationContext;
-use crate::distribution::{DistributionConfig, FrontendFeature};
+use crate::distribution::{AiAssistantConfig, DistributionConfig, FrontendFeature};
 use crate::document_processing::DocumentProcessingContext;
 use crate::external_repositories::{
     ExternalGitGateway, ExternalGitProviderRegistry, ProviderInstanceId,
@@ -23,6 +23,7 @@ pub(crate) struct AppState {
     pub storage: Option<ObjectStorage>,
     pub distribution: Arc<DistributionConfig>,
     pub frontend_features: Arc<Vec<FrontendFeature>>,
+    pub ai_assistant: Arc<Option<AiAssistantConfig>>,
     pub spa_index_html: Arc<[u8]>,
     pub collaboration: CollaborationContext,
     pub versioning: VersioningContext,

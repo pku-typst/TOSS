@@ -18,6 +18,7 @@ import {
   Pencil,
   Plus,
   Settings2,
+  SlidersHorizontal,
   Trash2,
   Wrench,
   X
@@ -66,6 +67,23 @@ import type {
   AiWorkspaceToolPort
 } from "@/features/ai/toolContract";
 import type { Translator, UiLocale } from "@/lib/i18n";
+import type { AuthConfig } from "@/lib/api/types";
+import { BUILD_AI_CONNECTION_POLICY } from "@/lib/buildCapabilities";
+import {
+  defaultAiAccountSettings,
+  loadAiAccountSettings,
+  saveAiAccountSettings,
+  type AiAccountSettings
+} from "@/features/ai/accountSettingsStore";
+import { isAiRuntimePreferences } from "@/features/ai/runtimePreferences";
+
+type AiAssistantClientConfig = NonNullable<AuthConfig["ai_assistant"]>;
+type ManagedAiAssistantClientConfig = Extract<
+  AiAssistantClientConfig,
+  { kind: "managed_catalog" }
+>;
+
+const MANAGED_MODEL_SEARCH_THRESHOLD = 8;
 
 type AiActivityPart = AiTranscriptToolPart | (AiTranscriptContentPart & { type: "reasoning" });
 type AiTextPart = AiTranscriptContentPart & { type: "text" };
@@ -106,6 +124,37 @@ function secureConnectionId() {
 
 function activeConnection(stored: StoredAiConnections) {
   return stored.connections.find((connection) => connection.id === stored.activeConnectionId) ?? null;
+}
+
+function localizedText(
+  value: { en: string; "zh-CN": string },
+  locale: UiLocale
+) {
+  return value[locale];
+}
+
+function managedProfile(
+  config: ManagedAiAssistantClientConfig,
+  profileId: string
+) {
+  return config.model_profiles.find((profile) => profile.id === profileId) ?? null;
+}
+
+export function filterManagedModelProfiles(
+  profiles: ManagedAiAssistantClientConfig["model_profiles"],
+  query: string,
+  locale: UiLocale
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase(locale);
+  if (!normalizedQuery) return profiles;
+  return profiles.filter((profile) => (
+    profile.model.toLocaleLowerCase(locale).includes(normalizedQuery) ||
+    localizedText(profile.label, locale).toLocaleLowerCase(locale).includes(normalizedQuery)
+  ));
+}
+
+export function shouldShowManagedModelSearch(profileCount: number) {
+  return profileCount > MANAGED_MODEL_SEARCH_THRESHOLD;
 }
 
 function renderGroups(parts: readonly AiTranscriptPart[]) {
@@ -430,6 +479,7 @@ export default function AssistantPanel({
   projectId,
   locale,
   workspacePort,
+  aiAssistantConfig,
   t
 }: {
   width: number;
@@ -437,14 +487,29 @@ export default function AssistantPanel({
   projectId: string;
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
+  aiAssistantConfig: AuthConfig["ai_assistant"];
   t: Translator;
 }) {
   const applicationOrigin = window.location.origin;
+  const policyMatchesBuild = aiAssistantConfig?.kind === BUILD_AI_CONNECTION_POLICY;
+  const managedConfig = policyMatchesBuild && aiAssistantConfig.kind === "managed_catalog"
+    ? aiAssistantConfig
+    : null;
   const [stored, setStored] = useState(() =>
     loadStoredAiConnections(accountId, applicationOrigin)
   );
+  const [accountSettings, setAccountSettings] = useState(() =>
+    loadAiAccountSettings(accountId)
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState<AiAccountSettings>(() =>
+    loadAiAccountSettings(accountId)
+  );
+  const [settingsError, setSettingsError] = useState(false);
   const initialConnection = activeConnection(stored);
-  const [managerOpen, setManagerOpen] = useState(!initialConnection);
+  const [managerOpen, setManagerOpen] = useState(
+    aiAssistantConfig?.kind === "user_defined" && !initialConnection
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<AiConnectionDraft>(defaultAiConnectionDraft);
   const [connectionError, setConnectionError] = useState(false);
@@ -455,9 +520,10 @@ export default function AssistantPanel({
   });
   const [runtime, setRuntime] = useState(() => ({
     generation: 0,
-    client: new AiRuntimeClient(locale, workspacePort)
+    client: new AiRuntimeClient(locale, workspacePort, accountSettings.runtime)
   }));
   const [promptDraft, setPromptDraft] = useState("");
+  const [managedModelQuery, setManagedModelQuery] = useState("");
   const [renameConversation, setRenameConversation] = useState<{
     id: string;
     title: string;
@@ -468,14 +534,44 @@ export default function AssistantPanel({
   const stickToBottom = useRef(true);
   const appliedConversationId = useRef<string | null>(null);
   const connection = useMemo(() => activeConnection(stored), [stored]);
+  const requestedManagedProfileId = managedConfig && accountSettings.managedModelProfileId &&
+    managedProfile(managedConfig, accountSettings.managedModelProfileId)
+    ? accountSettings.managedModelProfileId
+    : managedConfig?.default_model_profile ?? null;
   const client = runtime.client;
   const snapshot = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
+  const selectedManagedProfileId = snapshot.managedCatalog?.selectedModelProfileId ??
+    requestedManagedProfileId;
+  const selectedManagedProfile = managedConfig && selectedManagedProfileId
+    ? managedProfile(managedConfig, selectedManagedProfileId)
+    : null;
+  const availableManagedProfiles = useMemo(() => {
+    if (!managedConfig || !snapshot.managedCatalog) return [];
+    const available = new Set(snapshot.managedCatalog.availableModelProfileIds);
+    return managedConfig.model_profiles.filter((profile) => available.has(profile.id));
+  }, [managedConfig, snapshot.managedCatalog]);
+  const managedModelSearchVisible = shouldShowManagedModelSearch(
+    availableManagedProfiles.length
+  );
+  const visibleManagedProfiles = useMemo(() => {
+    return filterManagedModelProfiles(
+      availableManagedProfiles,
+      managedModelSearchVisible ? managedModelQuery : "",
+      locale
+    );
+  }, [availableManagedProfiles, locale, managedModelQuery, managedModelSearchVisible]);
+  const connectionAvailable = policyMatchesBuild && (
+    managedConfig !== null || connection !== null
+  );
   const workspaceContext = workspacePort.getContextSnapshot();
   const conversationSwitchBlocked = snapshot.status === "running" || snapshot.status === "handshaking";
   const updateConversationTranscript = conversations.updateTranscript;
 
   useEffect(() => () => client.dispose(), [client]);
   useEffect(() => client.setLocale(locale), [client, locale]);
+  useEffect(() => {
+    client.setPreferences(accountSettings.runtime);
+  }, [accountSettings.runtime, client]);
   useLayoutEffect(() => {
     const conversation = conversations.activeConversation;
     if (!conversations.ready || !conversation || appliedConversationId.current === conversation.id) return;
@@ -515,7 +611,7 @@ export default function AssistantPanel({
   }, [snapshot.messages]);
 
   function replaceRuntime() {
-    const nextClient = new AiRuntimeClient(locale, workspacePort);
+    const nextClient = new AiRuntimeClient(locale, workspacePort, accountSettings.runtime);
     const conversation = conversations.activeConversation;
     if (conversation) {
       nextClient.setConversation(
@@ -537,6 +633,47 @@ export default function AssistantPanel({
   function persist(next: StoredAiConnections) {
     setStored(next);
     saveStoredAiConnections(accountId, next);
+  }
+
+  function persistAccountSettings(next: AiAccountSettings) {
+    setAccountSettings(next);
+    saveAiAccountSettings(accountId, next);
+  }
+
+  function openAccountSettings() {
+    setSettingsDraft({
+      ...accountSettings,
+      runtime: { ...accountSettings.runtime }
+    });
+    setSettingsError(false);
+    setSettingsOpen(true);
+  }
+
+  function submitAccountSettings() {
+    if (
+      snapshot.status === "running" ||
+      snapshot.status === "handshaking" ||
+      !isAiRuntimePreferences(settingsDraft.runtime)
+    ) {
+      setSettingsError(true);
+      return;
+    }
+    persistAccountSettings({
+      ...settingsDraft,
+      runtime: { ...settingsDraft.runtime }
+    });
+    setSettingsError(false);
+    setSettingsOpen(false);
+  }
+
+  function selectManagedModel(profileId: string) {
+    if (!managedConfig || !managedProfile(managedConfig, profileId)) return;
+    if (!client.selectManagedModel(profileId)) return;
+    persistAccountSettings({
+      ...accountSettings,
+      managedModelProfileId: profileId
+    });
+    setManagedModelQuery("");
   }
 
   function submitConnection(event: FormEvent) {
@@ -688,9 +825,25 @@ export default function AssistantPanel({
         <h2>{t("workspace.assistant")}</h2>
         <div className="ai-assistant-header-actions">
           <span className={`ai-runtime-state ai-runtime-state--${snapshot.status}`}>
-            {connection ? statusLabel(snapshot.status, t) : t("ai.status.connectionRequired")}
+            {connectionAvailable
+              ? statusLabel(snapshot.status, t)
+              : policyMatchesBuild
+                ? t("ai.status.connectionRequired")
+                : t("ai.status.error")}
           </span>
-          {connection && (
+          {connectionAvailable && (
+            <button
+              type="button"
+              className="ai-header-button"
+              title={t("ai.settings.manage")}
+              aria-label={t("ai.settings.manage")}
+              disabled={snapshot.status === "running" || snapshot.status === "handshaking"}
+              onClick={openAccountSettings}
+            >
+              <SlidersHorizontal size={14} aria-hidden />
+            </button>
+          )}
+          {connection && !managedConfig && (
             <button
               type="button"
               className="ai-header-button"
@@ -704,7 +857,7 @@ export default function AssistantPanel({
         </div>
       </div>
 
-      {managerOpen && (
+      {managerOpen && !managedConfig && policyMatchesBuild && (
         <section className="ai-connection-manager" aria-label={t("ai.connection.managerTitle")}>
           <div className="ai-connection-manager-heading">
             <div>
@@ -856,14 +1009,18 @@ export default function AssistantPanel({
         </section>
       )}
 
-      {connection && !conversations.ready && !managerOpen && (
+      {!policyMatchesBuild && (
+        <p className="ai-runtime-error" role="alert">{t("ai.policy.invalid")}</p>
+      )}
+
+      {connectionAvailable && !conversations.ready && !managerOpen && (
         <div className="ai-transcript-empty">
           <LoaderCircle className="is-spinning" size={18} aria-hidden />
           <p>{t("ai.conversation.loading")}</p>
         </div>
       )}
 
-      {connection && conversations.ready && conversations.activeConversation && (
+      {connectionAvailable && conversations.ready && conversations.activeConversation && (
         <div className="ai-active-session" hidden={managerOpen}>
           <div
             className="ai-conversation-toolbar"
@@ -922,23 +1079,65 @@ export default function AssistantPanel({
               {t("ai.conversation.storageConflict")}
             </p>
           )}
-          <div className="ai-connection-summary">
-            <div>
-              <strong>{connection.name}</strong>
-              <small>{connection.model} · {t("ai.connection.tokenSummary", {
-                context: formatTokenCount(connection.contextWindow, locale),
-                output: formatTokenCount(connection.maxOutputTokens, locale)
-              })} · {reasoningCapabilityLabel(connection.reasoning, t)}</small>
+          {managedConfig && selectedManagedProfile ? (
+            <div className="ai-connection-summary ai-managed-connection-summary">
+              <div>
+                <strong>{localizedText(managedConfig.provider.label, locale)}</strong>
+                <small>{selectedManagedProfile.model}</small>
+              </div>
+              <label className="ai-managed-model-picker">
+                <span>{t("ai.managed.model")}</span>
+                {managedModelSearchVisible && (
+                  <input
+                    type="search"
+                    value={managedModelQuery}
+                    placeholder={t("ai.managed.searchModels")}
+                    aria-label={t("ai.managed.searchModels")}
+                    disabled={snapshot.status !== "ready"}
+                    onChange={(event) => setManagedModelQuery(event.target.value)}
+                  />
+                )}
+                <select
+                  value={visibleManagedProfiles.some(
+                    (profile) => profile.id === selectedManagedProfile.id
+                  ) ? selectedManagedProfile.id : ""}
+                  disabled={
+                    snapshot.status !== "ready" ||
+                    !snapshot.managedCatalog ||
+                    snapshot.managedCatalog.availableModelProfileIds.length === 0
+                  }
+                  onChange={(event) => selectManagedModel(event.target.value)}
+                >
+                  {visibleManagedProfiles.length === 0 && (
+                    <option value="" disabled>{t("ai.managed.noModelsFound")}</option>
+                  )}
+                  {visibleManagedProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {localizedText(profile.label, locale)} · {profile.model}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <span className="ai-connection-protocol">{protocolLabel(connection.protocol, t)}</span>
-          </div>
+          ) : connection ? (
+            <div className="ai-connection-summary">
+              <div>
+                <strong>{connection.name}</strong>
+                <small>{connection.model} · {t("ai.connection.tokenSummary", {
+                  context: formatTokenCount(connection.contextWindow, locale),
+                  output: formatTokenCount(connection.maxOutputTokens, locale)
+                })} · {reasoningCapabilityLabel(connection.reasoning, t)}</small>
+              </div>
+              <span className="ai-connection-protocol">{protocolLabel(connection.protocol, t)}</span>
+            </div>
+          ) : null}
           <WorkspaceContextBar context={workspaceContext} t={t} />
           <div
             className="ai-runtime-frame-wrap"
-            hidden={snapshot.status === "ready" || snapshot.status === "running"}
+            hidden={!managedConfig && (snapshot.status === "ready" || snapshot.status === "running")}
           >
             <iframe
-              key={`${connection.id}:${runtime.generation}`}
+              key={`${managedConfig ? "managed" : connection?.id}:${runtime.generation}`}
               className={`ai-runtime-frame ${snapshot.status === "configuring" ? "is-configuring" : ""}`}
               src={AI_RUNTIME_ENTRY_PATH}
               sandbox="allow-scripts"
@@ -947,7 +1146,11 @@ export default function AssistantPanel({
               title={t("ai.runtime.title")}
               onLoad={(event) => client.connect(
                 event.currentTarget,
-                toRuntimeConnection(connection),
+                managedConfig && requestedManagedProfileId
+                  ? { kind: "managed", modelProfileId: requestedManagedProfileId }
+                  : connection
+                    ? toRuntimeConnection(connection)
+                    : { kind: "fake" },
                 {
                   conversationId: conversations.activeConversation!.id,
                   messages: storedMessagesToTranscript(conversations.activeConversation!.messages),
@@ -955,7 +1158,11 @@ export default function AssistantPanel({
                 }
               )}
             />
-            <p className="ai-prototype-notice">{t("ai.connection.credentialNotice")}</p>
+            <p className="ai-prototype-notice">
+              {t(managedConfig
+                ? "ai.managed.credentialNotice"
+                : "ai.connection.credentialNotice")}
+            </p>
           </div>
           <div className="ai-transcript-shell">
             <div
@@ -1024,6 +1231,103 @@ export default function AssistantPanel({
           </form>
         </div>
       )}
+      <UiDialog
+        open={settingsOpen}
+        title={t("ai.settings.title")}
+        description={t("ai.settings.description")}
+        onClose={() => setSettingsOpen(false)}
+        actions={
+          <>
+            <UiButton
+              onClick={() => setSettingsDraft((current) => ({
+                ...current,
+                runtime: defaultAiAccountSettings().runtime
+              }))}
+            >
+              {t("ai.settings.reset")}
+            </UiButton>
+            <UiButton onClick={() => setSettingsOpen(false)}>{t("common.cancel")}</UiButton>
+            <UiButton variant="primary" onClick={submitAccountSettings}>
+              {t("common.save")}
+            </UiButton>
+          </>
+        }
+      >
+        <div className="ai-settings-fields">
+          <UiInput
+            label={t("ai.settings.providerTimeout")}
+            type="number"
+            inputMode="numeric"
+            min={10}
+            max={300}
+            step={1}
+            value={settingsDraft.runtime.providerRequestTimeoutMs / 1_000}
+            onChange={(event) => setSettingsDraft((current) => ({
+              ...current,
+              runtime: {
+                ...current.runtime,
+                providerRequestTimeoutMs: Number(event.target.value) * 1_000
+              }
+            }))}
+          />
+          <UiInput
+            label={t("ai.settings.maxCalls")}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={32}
+            step={1}
+            value={settingsDraft.runtime.maxProviderCallsPerTurn}
+            onChange={(event) => setSettingsDraft((current) => ({
+              ...current,
+              runtime: {
+                ...current.runtime,
+                maxProviderCallsPerTurn: Number(event.target.value)
+              }
+            }))}
+          />
+          <UiInput
+            label={t("ai.settings.turnTimeout")}
+            type="number"
+            inputMode="numeric"
+            min={30}
+            max={900}
+            step={1}
+            value={settingsDraft.runtime.maxTurnMs / 1_000}
+            onChange={(event) => setSettingsDraft((current) => ({
+              ...current,
+              runtime: {
+                ...current.runtime,
+                maxTurnMs: Number(event.target.value) * 1_000
+              }
+            }))}
+          />
+          {managedConfig && (
+            <UiInput
+              label={t("ai.settings.catalogTimeout")}
+              type="number"
+              inputMode="numeric"
+              min={5}
+              max={120}
+              step={1}
+              value={settingsDraft.runtime.catalogRequestTimeoutMs / 1_000}
+              onChange={(event) => setSettingsDraft((current) => ({
+                ...current,
+                runtime: {
+                  ...current.runtime,
+                  catalogRequestTimeoutMs: Number(event.target.value) * 1_000
+                }
+              }))}
+            />
+          )}
+          <p className="ai-connection-note">
+            {t(accountId ? "ai.settings.accountStorage" : "ai.settings.sessionStorage")}
+          </p>
+          {settingsError && (
+            <p className="ai-runtime-error" role="alert">{t("ai.settings.invalid")}</p>
+          )}
+        </div>
+      </UiDialog>
       <UiDialog
         open={!!renameConversation}
         title={t("ai.conversation.renameTitle")}

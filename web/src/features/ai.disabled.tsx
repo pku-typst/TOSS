@@ -2,6 +2,7 @@ import type { Translator, UiLocale } from "@/lib/i18n";
 import type { WorkspaceOptionalPanelDescriptor } from "@/pages/workspace/types";
 import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
 import type { AiWorkspaceContextSnapshot } from "@/features/ai/toolContract";
+import type { AuthConfig } from "@/lib/api/types";
 import type {
   AiWorkspaceCandidateCompileResult,
   AiWorkspacePortOptions,
@@ -33,6 +34,7 @@ export function AiAssistantPanel(_props: {
   projectId: string;
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
+  aiAssistantConfig: AuthConfig["ai_assistant"];
   t: Translator;
 }) {
   return null;

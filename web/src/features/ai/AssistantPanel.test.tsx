@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   activeTurnActivity,
+  filterManagedModelProfiles,
+  shouldShowManagedModelSearch,
   type AiTurnActivity
 } from "@/features/ai/AssistantPanel";
 import type {
@@ -79,5 +81,39 @@ describe("activeTurnActivity", () => {
 
   it("stops projecting activity after the turn settles", () => {
     expect(activeTurnActivity(assistantMessage([toolPart("complete")], "complete"))).toBeNull();
+  });
+});
+
+describe("managed model search", () => {
+  const profiles = [
+    {
+      id: "opus",
+      model: "us/vendor/claude-opus",
+      label: { en: "Opus", "zh-CN": "Opus" }
+    },
+    {
+      id: "qwen",
+      model: "example/qwen-model",
+      label: {
+        en: "Qwen",
+        "zh-CN": String.fromCodePoint(0x901a, 0x4e49, 0x63a8, 0x7406)
+      }
+    }
+  ];
+
+  it("matches localized labels and upstream model IDs", () => {
+    expect(filterManagedModelProfiles(profiles, "QWEN", "en").map((item) => item.id)).toEqual([
+      "qwen"
+    ]);
+    const localizedQuery = String.fromCodePoint(0x63a8, 0x7406);
+    expect(filterManagedModelProfiles(profiles, localizedQuery, "zh-CN").map((item) => item.id)).toEqual([
+      "qwen"
+    ]);
+    expect(filterManagedModelProfiles(profiles, "  ", "en")).toBe(profiles);
+  });
+
+  it("shows search only when the live approved list exceeds the compact selector limit", () => {
+    expect(shouldShowManagedModelSearch(8)).toBe(false);
+    expect(shouldShowManagedModelSearch(9)).toBe(true);
   });
 });

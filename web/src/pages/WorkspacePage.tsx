@@ -1336,6 +1336,7 @@ function ResolvedWorkspacePage({
                 projectId={projectId}
                 locale={locale}
                 workspacePort={aiWorkspacePort}
+                aiAssistantConfig={authConfig?.ai_assistant ?? null}
                 t={t}
               />
             </div>

@@ -1619,6 +1619,16 @@ export interface components {
             managed_fields: string[];
             settings: components["schemas"]["AuthSettings"];
         };
+        AiAssistantClientConfigResponse: {
+            /** @enum {string} */
+            kind: "user_defined";
+        } | {
+            default_model_profile: string;
+            /** @enum {string} */
+            kind: "managed_catalog";
+            model_profiles: components["schemas"]["ManagedAiModelProfileResponse"][];
+            provider: components["schemas"]["ManagedAiProviderResponse"];
+        };
         /** @enum {string} */
         AnonymousMode: "off" | "read_only" | "read_write_named";
         /** @enum {string} */
@@ -1631,6 +1641,7 @@ export interface components {
         AuthConfigResponse: {
             accent_color: string;
             accent_text_color: string;
+            ai_assistant: null | components["schemas"]["AiAssistantClientConfigResponse"];
             allow_local_login: boolean;
             allow_local_registration: boolean;
             allow_oidc: boolean;
@@ -1989,6 +2000,15 @@ export interface components {
             email: string;
             password: string;
             username: string;
+        };
+        ManagedAiModelProfileResponse: {
+            id: string;
+            label: components["schemas"]["LocalizedText"];
+            model: string;
+        };
+        ManagedAiProviderResponse: {
+            id: string;
+            label: components["schemas"]["LocalizedText"];
         };
         MoveProjectFileInput: {
             from_path: string;

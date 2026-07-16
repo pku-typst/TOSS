@@ -5,6 +5,9 @@ import type { AiWorkspaceContextSnapshot } from "@/features/ai/toolContract";
 export type AiRuntimeStatusMessage =
   | "handshaking"
   | "credentialRequired"
+  | "discoveringModels"
+  | "modelRequired"
+  | "catalogFailed"
   | "readyFake"
   | "readyConnection"
   | "readyAfterCancellation"
@@ -33,6 +36,13 @@ type AiRuntimeMessages = {
     inputLabel: string;
     inputHint: string;
     activate: string;
+  };
+  managed: {
+    credentialHint: string;
+    retry: string;
+    refresh: string;
+    replaceCredential: string;
+    clearCredential: string;
   };
   tools: {
     list: { label: string };
@@ -119,6 +129,9 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
     status: {
       handshaking: "Completing secure handshake…",
       credentialRequired: "Enter an optional credential for the bound destination",
+      discoveringModels: "Checking available managed models…",
+      modelRequired: "Choose an available managed model",
+      catalogFailed: "The managed model catalog could not be loaded",
       readyFake: "Ready · deterministic fake provider",
       readyConnection: "Ready · credential held only in this Runtime",
       readyAfterCancellation: "Ready · previous turn cancelled",
@@ -144,6 +157,13 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
       inputLabel: "Credential (optional)",
       inputHint: "Kept only in this Runtime memory. Leave blank for an unauthenticated endpoint.",
       activate: "Use connection"
+    },
+    managed: {
+      credentialHint: "Required for this managed provider and kept only in this Runtime memory.",
+      retry: "Retry",
+      refresh: "Refresh models",
+      replaceCredential: "Replace key",
+      clearCredential: "Clear key"
     },
     tools: {
       list: {
@@ -192,6 +212,9 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
     status: {
       handshaking: "正在完成安全握手……",
       credentialRequired: "请为已绑定的目标输入可选凭据",
+      discoveringModels: "正在检查可用的托管模型……",
+      modelRequired: "请选择一个可用的托管模型",
+      catalogFailed: "无法加载托管模型目录",
       readyFake: "就绪 · 确定性模拟 Provider",
       readyConnection: "就绪 · 凭据仅保存在当前 Runtime 内存中",
       readyAfterCancellation: "就绪 · 上一轮已取消",
@@ -217,6 +240,13 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
       inputLabel: "凭据（可选）",
       inputHint: "仅保存在当前 Runtime 内存中；无需认证的端点可以留空。",
       activate: "使用此连接"
+    },
+    managed: {
+      credentialHint: "托管 Provider 要求提供密钥；密钥仅保存在当前 Runtime 内存中。",
+      retry: "重试",
+      refresh: "刷新模型",
+      replaceCredential: "更换密钥",
+      clearCredential: "清除密钥"
     },
     tools: {
       list: {

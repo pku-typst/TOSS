@@ -381,6 +381,68 @@ describe("AiRuntimeClient", () => {
     await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
   });
 
+  it("projects a managed catalog and updates account preferences without recreating the Runtime", async () => {
+    const initialPreferences = {
+      providerRequestTimeoutMs: 90_000,
+      maxProviderCallsPerTurn: 8,
+      maxTurnMs: 240_000,
+      catalogRequestTimeoutMs: 15_000
+    };
+    const client = new AiRuntimeClient("en", null, initialPreferences);
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    const observed: { bootstrap?: AiRuntimeBootstrapInit } = {};
+    const { frame, postMessage } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      observed.bootstrap = init;
+      postRuntimeInitialized(port, init);
+      port.postMessage({
+        type: "toss.ai.runtime.connection_state",
+        sessionId: init.sessionId,
+        state: "discovering_models"
+      });
+      port.postMessage({
+        type: "toss.ai.runtime.managed_catalog",
+        sessionId: init.sessionId,
+        availableModelProfileIds: ["model-one", "model-two"],
+        selectedModelProfileId: "model-one"
+      });
+      port.postMessage({
+        type: "toss.ai.runtime.connection_state",
+        sessionId: init.sessionId,
+        state: "ready"
+      });
+    });
+
+    client.connect(frame, { kind: "managed", modelProfileId: "model-one" });
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+    expect(observed.bootstrap?.preferences).toEqual(initialPreferences);
+    expect(client.getSnapshot().managedCatalog).toEqual({
+      availableModelProfileIds: ["model-one", "model-two"],
+      selectedModelProfileId: "model-one",
+      errorCode: null
+    });
+
+    const modelMessage = nextPortMessage(runtimePort!);
+    expect(client.selectManagedModel("model-two")).toBe(true);
+    await expect(modelMessage).resolves.toMatchObject({
+      type: "toss.ai.host.select_managed_model",
+      modelProfileId: "model-two"
+    });
+
+    const preferences = {
+      ...initialPreferences,
+      maxProviderCallsPerTurn: 10
+    };
+    const preferencesMessage = nextPortMessage(runtimePort!);
+    expect(client.setPreferences(preferences)).toBe(true);
+    await expect(preferencesMessage).resolves.toMatchObject({
+      type: "toss.ai.host.set_preferences",
+      preferences
+    });
+    expect(postMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a ready message with the wrong nonce", async () => {
     const client = new AiRuntimeClient("en");
     clients.push(client);

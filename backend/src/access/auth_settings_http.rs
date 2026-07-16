@@ -9,7 +9,7 @@ use super::oidc_protocol::{validate_provider_discovery, OidcProtocolError};
 use super::{ensure_site_admin, AnonymousMode, AuthSettings};
 use crate::app_state::AppState;
 use crate::audit::record_event;
-use crate::distribution::FrontendFeature;
+use crate::distribution::{AiAssistantConfig, FrontendFeature, LocalizedText};
 use crate::external_repositories::{
     ExternalGitProviderCapabilities, ProviderBrand, ProviderInstanceId, ProviderKind,
 };
@@ -62,10 +62,63 @@ pub(crate) struct AuthConfigResponse {
     pub distribution_id: String,
     pub enabled_project_types: Vec<ProjectType>,
     pub enabled_frontend_features: Vec<FrontendFeature>,
+    #[schema(required)]
+    pub ai_assistant: Option<AiAssistantClientConfigResponse>,
     pub brand_mark: String,
     pub accent_color: String,
     pub accent_text_color: String,
     pub site_name_managed: bool,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum AiAssistantClientConfigResponse {
+    UserDefined,
+    ManagedCatalog {
+        provider: ManagedAiProviderResponse,
+        default_model_profile: String,
+        model_profiles: Vec<ManagedAiModelProfileResponse>,
+    },
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct ManagedAiProviderResponse {
+    pub id: String,
+    pub label: LocalizedText,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct ManagedAiModelProfileResponse {
+    pub id: String,
+    pub model: String,
+    pub label: LocalizedText,
+}
+
+fn ai_assistant_client_config(
+    config: Option<&AiAssistantConfig>,
+) -> Option<AiAssistantClientConfigResponse> {
+    match config {
+        None => None,
+        Some(AiAssistantConfig::UserDefined) => Some(AiAssistantClientConfigResponse::UserDefined),
+        Some(AiAssistantConfig::ManagedCatalog(catalog)) => {
+            Some(AiAssistantClientConfigResponse::ManagedCatalog {
+                provider: ManagedAiProviderResponse {
+                    id: catalog.provider.id.clone(),
+                    label: catalog.provider.label.clone(),
+                },
+                default_model_profile: catalog.default_model_profile.clone(),
+                model_profiles: catalog
+                    .model_profiles
+                    .iter()
+                    .map(|profile| ManagedAiModelProfileResponse {
+                        id: profile.id.clone(),
+                        model: profile.model.clone(),
+                        label: profile.label.clone(),
+                    })
+                    .collect(),
+            })
+        }
+    }
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -149,6 +202,7 @@ pub(crate) async fn auth_config(State(state): State<AppState>) -> Json<AuthConfi
         distribution_id: state.distribution.id.clone(),
         enabled_project_types: state.distribution.project_types.clone(),
         enabled_frontend_features: state.frontend_features.as_ref().clone(),
+        ai_assistant: ai_assistant_client_config(state.ai_assistant.as_ref().as_ref()),
         brand_mark: state.distribution.product.brand_mark.clone(),
         accent_color: state.distribution.product.accent_color.clone(),
         accent_text_color: state.distribution.product.accent_text_color.clone(),

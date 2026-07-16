@@ -30,6 +30,12 @@ describe("AI Runtime protocol validation", () => {
     nonce: "nonce-1",
     parentOrigin: "https://toss.example.test",
     locale: "en",
+    preferences: {
+      providerRequestTimeoutMs: 120_000,
+      maxProviderCallsPerTurn: 12,
+      maxTurnMs: 300_000,
+      catalogRequestTimeoutMs: 20_000
+    },
     connection: { kind: "fake" },
     conversation: {
       conversationId: "conversation-1",
@@ -87,6 +93,26 @@ describe("AI Runtime protocol validation", () => {
         locale: "zh-CN"
       })
     ).toBe(true);
+    expect(isAiHostToRuntimeMessage({
+      type: "toss.ai.host.set_preferences",
+      sessionId: "session-1",
+      preferences: {
+        providerRequestTimeoutMs: 90_000,
+        maxProviderCallsPerTurn: 8,
+        maxTurnMs: 240_000,
+        catalogRequestTimeoutMs: 15_000
+      }
+    })).toBe(true);
+    expect(isAiHostToRuntimeMessage({
+      type: "toss.ai.host.set_preferences",
+      sessionId: "session-1",
+      preferences: {
+        providerRequestTimeoutMs: 90_000,
+        maxProviderCallsPerTurn: 100,
+        maxTurnMs: 240_000,
+        catalogRequestTimeoutMs: 15_000
+      }
+    })).toBe(false);
     expect(isAiRuntimeBootstrapInit({
       ...bootstrap,
       connection: {

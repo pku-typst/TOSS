@@ -10,6 +10,7 @@ export default defineConfig({
   define: {
     __TOSS_BUILD_PROJECT_TYPES__: JSON.stringify(distribution.projectTypes),
     __TOSS_BUILD_FRONTEND_FEATURES__: JSON.stringify(distribution.frontendFeatures),
+    __TOSS_BUILD_AI_CONNECTION_POLICY__: JSON.stringify(distribution.aiConnectionPolicy),
     __TOSS_AI_RUNTIME_BUILD_ID__: JSON.stringify(aiRuntimeBuildId)
   },
   resolve: {

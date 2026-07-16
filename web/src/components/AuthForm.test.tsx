@@ -22,6 +22,7 @@ vi.mock("@/components/ui", () => ({
 const baseConfig: AuthConfig = {
   accent_color: "#76b900",
   accent_text_color: "#000000",
+  ai_assistant: null,
   allow_local_login: false,
   allow_local_registration: false,
   allow_oidc: true,

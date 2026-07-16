@@ -31,6 +31,11 @@
     "included": ["ai_assistant"],
     "default_enabled": []
   },
+  "ai_assistant": {
+    "connection_policy": {
+      "kind": "user_defined"
+    }
+  },
   "document_processing": {
     "allowed_operations": ["latex.compile.pdf/v1"]
   },

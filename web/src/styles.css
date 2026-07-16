@@ -3705,6 +3705,41 @@ nve-button.icon-toggle:not(.active):hover {
   font-size: 12px;
 }
 
+.ai-managed-connection-summary > label {
+  display: grid;
+  gap: 2px;
+  min-width: 112px;
+  color: var(--toss-text-muted);
+  font-size: 10px;
+}
+
+.ai-managed-connection-summary input,
+.ai-managed-connection-summary select {
+  min-width: 0;
+  max-width: 180px;
+  padding: 4px 6px;
+  border: var(--nve-ref-border-width-sm) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-canvas);
+  color: var(--toss-text-emphasis);
+  font: inherit;
+}
+
+.ai-managed-connection-summary input {
+  width: 180px;
+}
+
+.ai-settings-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-settings-fields .ai-connection-note,
+.ai-settings-fields .ai-runtime-error {
+  grid-column: 1 / -1;
+}
+
 .ai-connection-protocol {
   max-width: 45%;
   overflow: hidden;

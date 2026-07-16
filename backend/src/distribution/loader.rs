@@ -1,5 +1,6 @@
 //! Distribution-file selection, validation, and runtime assembly.
 
+use super::ai_assistant::load_ai_assistant;
 use super::experience_content::load_experience;
 use super::file_format::DistributionFile;
 use super::template_catalog::load_builtin_templates;
@@ -116,6 +117,12 @@ impl DistributionConfig {
             file.frontend_features.included,
             file.frontend_features.default_enabled,
         )?;
+        let ai_assistant = load_ai_assistant(
+            file.ai_assistant,
+            frontend_features
+                .included
+                .contains(&FrontendFeature::AiAssistant),
+        )?;
         let processing_operations = validate_processing_operations(
             file.document_processing.allowed_operations,
             &project_types,
@@ -180,6 +187,7 @@ impl DistributionConfig {
             },
             project_types,
             frontend_features,
+            ai_assistant,
             document_processing: DocumentProcessingDistributionConfig {
                 allowed_operations: processing_operations,
             },

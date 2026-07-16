@@ -178,13 +178,20 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     info!("deployment loaded from {}", deployment.source_label());
     let enabled_frontend_features = deployment.frontend_features.clone();
+    let enabled_ai_assistant = deployment.ai_assistant.clone();
     let static_dir = env::var("WEB_STATIC_DIR").unwrap_or_else(|_| "./web-dist".to_string());
     let web_build_manifest = WebBuildManifest::load(std::path::Path::new(&static_dir))?;
     web_build_manifest.validate_runtime(&distribution, &enabled_frontend_features)?;
+    let runtime_policy = enabled_ai_assistant
+        .as_ref()
+        .or(distribution.ai_assistant.as_ref());
     let built_ai_runtime = web_build_manifest
         .ai_runtime()
         .map(|manifest| {
-            ai_runtime::AiRuntimeAssets::load(std::path::Path::new(&static_dir), manifest)
+            let policy = runtime_policy.ok_or_else(|| {
+                "web build contains an AI Runtime but the distribution has no AI policy".to_string()
+            })?;
+            ai_runtime::AiRuntimeAssets::load(std::path::Path::new(&static_dir), manifest, policy)
         })
         .transpose()?;
     let ai_runtime_assets = if enabled_frontend_features.contains(&FrontendFeature::AiAssistant) {
@@ -295,6 +302,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         storage,
         distribution,
         frontend_features: Arc::new(enabled_frontend_features),
+        ai_assistant: Arc::new(enabled_ai_assistant),
         spa_index_html,
         collaboration,
         versioning: crate::versioning::VersioningContext::default(),

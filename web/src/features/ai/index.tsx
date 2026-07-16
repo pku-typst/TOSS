@@ -4,6 +4,7 @@ import { AI_ASSISTANT_PANEL_ID } from "@/features/ai/protocol";
 import type { Translator, UiLocale } from "@/lib/i18n";
 import type { WorkspaceOptionalPanelDescriptor } from "@/pages/workspace/types";
 import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
+import type { AuthConfig } from "@/lib/api/types";
 
 const AssistantPanel = lazy(() => import("@/features/ai/AssistantPanel"));
 
@@ -27,6 +28,7 @@ export function AiAssistantPanel({
   projectId,
   locale,
   workspacePort,
+  aiAssistantConfig,
   t
 }: {
   width: number;
@@ -34,6 +36,7 @@ export function AiAssistantPanel({
   projectId: string;
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
+  aiAssistantConfig: AuthConfig["ai_assistant"];
   t: Translator;
 }) {
   return (
@@ -51,6 +54,7 @@ export function AiAssistantPanel({
         projectId={projectId}
         locale={locale}
         workspacePort={workspacePort}
+        aiAssistantConfig={aiAssistantConfig}
         t={t}
       />
     </Suspense>

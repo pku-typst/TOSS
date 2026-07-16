@@ -1,6 +1,6 @@
 ---
 title: "Browser AI assistant design draft"
-summary: "Current working design for an optional browser-only BYOK project assistant isolated in a sandboxed Runtime, with tool use, human-reviewed edits, and compile feedback."
+summary: "Current design for an optional browser-only project assistant with user-defined or distribution-managed connections, an isolated Runtime, tool use, reviewed edits, and compile feedback."
 status: current
 type: architecture
 scope: community
@@ -56,12 +56,12 @@ rationale may later be promoted into an ADR.
 | --- | --- |
 | Runtime | The provider connection and agent loop run in a browser AI Runtime isolated as a unique opaque-origin iframe. TOSS Core does not proxy or execute model requests. |
 | User-provided AI | BYOK includes cloud API credentials, short-lived tokens, user-controlled gateways, OpenAI-compatible endpoints, and local services such as Ollama, LM Studio, or vLLM. |
-| Connections | TOSS ships no branded provider preset. A user defines each connection's name, API protocol, endpoint, model, reasoning capability, exact Provider request parameters, context window, maximum output tokens, and optional credential. The host application may persist sanitized non-secret profiles in account-scoped Local Storage for later reuse. |
+| Connections | Community uses `user_defined`: a user defines the non-secret connection metadata. A downstream distribution may instead use `managed_catalog`: the distribution fixes one provider endpoint/protocol and approved model profiles while the user chooses an available model. A build contains exactly one policy. |
 | Credentials | The user enters a credential into the sandboxed Runtime surface, and it exists only in that Runtime instance's memory. The host application, TOSS Core, and project never receive it. Reload, tab close, logout, account change, or endpoint change clears it. |
 | Conversations | A project owns zero or more local browser conversations and one active-conversation pointer. Conversations never cross an account or project boundary. Switching conversations resets the Runtime Agent context but keeps the current in-memory credential. |
 | Conversation persistence | For signed-in accounts, the host persists a bounded, sanitized transcript projection in IndexedDB. It never persists credentials, reasoning, system prompts, raw tool results, source excerpts, or patches. Anonymous conversations remain component-memory only. TOSS Core does not store them. |
 | Integration boundary | A one-time bootstrap transfers a versioned, capability-scoped `MessageChannel` carrying agent turns, typed tool calls, tool results, cancellation, and safe view events. It never exposes a generic authenticated fetch operation. |
-| Network confinement | A fixed bootstrap validates the selected credential-free endpoint and tightens Runtime CSP to that exact endpoint origin before loading provider code or accepting a credential. |
+| Network confinement | A fixed bootstrap validates the credential-free endpoint and tightens Runtime CSP before loading provider code or accepting a credential. Managed mode additionally permits only exact `GET /models` and `POST /chat/completions` requests at the fixed provider base URL. |
 | Deployment topology | The Community default serves the Runtime artifact from the application URL origin and forces it into an opaque security principal. A real second deployment origin is a deferred compatibility or higher-assurance mode, not a first-release prerequisite. |
 | Feature dimension | AI is an optional frontend feature, independent from project types and Document Processing operations. |
 | Agent loop | One user request may contain multiple model, tool, review, and compile-feedback turns. |
@@ -105,6 +105,16 @@ slices are implemented. They contain:
   capability declaration, bounded Provider request JSON, context window, and
   maximum output tokens; anonymous
   sessions keep the same metadata in component memory only;
+- a distribution-owned `user_defined | managed_catalog` connection policy,
+  artifact-policy matching, deployment-only managed-profile narrowing, and a
+  sanitized host projection that never discloses the managed endpoint or
+  Provider request parameters;
+- account-scoped personal AI settings for the selected managed model and
+  bounded request/turn/catalog limits; these settings are memory-only for an
+  anonymous session and never contain a credential;
+- authenticated managed-model discovery through the Runtime-owned credential,
+  intersection with the approved profile set, stale-request fencing, and
+  in-place model switching without recreating the credential-holding iframe;
 - project-bound multiple conversations with create, select, rename, and delete
   controls; authenticated conversations use a bounded account/project-scoped
   IndexedDB store, while anonymous conversations remain in memory;
@@ -116,8 +126,8 @@ slices are implemented. They contain:
   the current Runtime `Agent` closure;
 - exact `0.80.7` dependencies on `@earendil-works/pi-agent-core` and
   `@earendil-works/pi-ai`, a stateful streaming multi-turn `Agent`, cancellation,
-  bounded provider requests, and generic model construction without a provider
-  catalog or preset; and
+  bounded provider requests, and generic model construction from either a
+  user-defined connection or an approved managed model profile; and
 - lazy protocol adapters for OpenAI-compatible Chat Completions, OpenAI
   Responses, and Anthropic Messages, plus a full-base-URL fetch fence that
   forces omitted browser credentials, rejected redirects, and no referrer;
@@ -148,7 +158,8 @@ slices are implemented. They contain:
 
 The current slice does not yet expose active selection, current-preview
 diagnostics, a general compile-current-World tool, inactive-document editing,
-file creation/deletion/rename, or multi-file edits. Connection testing without inference, model discovery,
+file creation/deletion/rename, or multi-file edits. Connection testing without
+inference for user-defined endpoints,
 redaction-focused browser tests, Firefox, and WebKit validation also remain
 before enabling the feature by default.
 
@@ -435,9 +446,11 @@ enabled_features = ["ai_assistant"]
 
 When unavailable, the toolbar entry does not render and the browser does not
 load the assistant chunk. An AI-excluded distribution additionally emits no
-Assistant chunk and no Runtime artifact. Protocol, endpoint, model, and
-credential choices are user-side feature state, not deployment secrets and not
-backend capabilities.
+Assistant chunk and no Runtime artifact. Under Community, protocol, endpoint,
+model, and credential choices are user-side feature state. Under a managed
+distribution, provider and model-profile definitions are distribution policy,
+the deployment may only narrow profiles, and the user still owns the selected
+profile and credential. None of these are backend processing capabilities.
 
 An enabled build also includes the matching Runtime artifact and serves its
 reserved entry and asset routes with the required CSP, CORS, and isolation
@@ -449,16 +462,156 @@ not included or not deployment-enabled. The entry response is revalidated or
 not stored, while content-hashed modules and styles may be immutable; the exact
 host/Runtime build-ID handshake rejects rollout skew.
 
+## Connection-policy ownership
+
+The distribution chooses exactly one connection policy whenever it includes
+`ai_assistant`. Community declares:
+
+```json
+{
+  "ai_assistant": {
+    "connection_policy": { "kind": "user_defined" }
+  }
+}
+```
+
+`user_defined` keeps the existing Community contract: the signed-in user's
+sanitized connection profiles are account-scoped browser settings, and an
+anonymous session keeps the same values only in component memory.
+
+A downstream distribution may instead declare `managed_catalog`. That policy
+owns the immutable provider ID and labels, credential label, wire protocol,
+credential-free HTTPS base URL, catalog protocol, default model profile, and
+approved model profiles. Each profile owns its upstream model ID, localized
+label, context window, maximum output, reasoning-capability declaration, and
+exact bounded Provider request overrides. A representative shape is:
+
+```json
+{
+  "ai_assistant": {
+    "connection_policy": {
+      "kind": "managed_catalog",
+      "provider": {
+        "id": "example-hub",
+        "label": { "en": "Example Hub", "zh-CN": "Example Hub" },
+        "credential_label": { "en": "API key", "zh-CN": "API key" },
+        "protocol": "openai-completions",
+        "base_url": "https://inference.example.com/v1/",
+        "catalog": "openai-models"
+      },
+      "default_model_profile": "example-model",
+      "model_profiles": [
+        {
+          "id": "example-model",
+          "model": "vendor/example-model",
+          "label": { "en": "Example model", "zh-CN": "Example model" },
+          "context_window": 131072,
+          "max_output_tokens": 16384,
+          "reasoning": true,
+          "request_overrides": {}
+        }
+      ]
+    }
+  }
+}
+```
+
+Deployment configuration cannot turn a user-defined build into managed mode,
+change a managed endpoint, add a model, or alter model metadata. It may only
+narrow the distribution allowlist and choose a default inside that subset:
+
+```toml
+[frontend]
+enabled_features = ["ai_assistant"]
+
+[frontend.ai_assistant]
+enabled_model_profiles = ["example-model"]
+default_model_profile = "example-model"
+```
+
+The effective managed choices are the ordered intersection of distribution
+profiles, the optional deployment subset, and the model IDs returned by the
+credential-authenticated live catalog. A missing live model is unavailable for
+that Runtime session; the live catalog is never treated as authority to add an
+unapproved model.
+
+The build embeds only the policy kind and records it in both build manifests.
+Core refuses to start if the distribution, host artifact, and Runtime artifact
+do not agree. Core projects only safe display metadata—provider ID/label,
+default profile, and model IDs/labels—through `GET /v1/auth/config`. The full
+managed policy, including endpoint and request overrides, is serialized into
+the no-store Runtime entry and parsed only inside the isolated frame. This is a
+UI and least-disclosure boundary; the distribution file itself is still
+deployment-controlled configuration rather than a secret store.
+
+Managed activation proceeds as follows:
+
+1. the Runtime accepts the API key into its own password field and memory;
+2. it performs authenticated `GET <base>/models` under a bounded timeout;
+3. it intersects returned model IDs with approved profiles and reports only
+   approved profile IDs to the host;
+4. it selects the user's preferred profile when available, otherwise the
+   effective default and then the first available profile;
+5. model changes rebuild the in-frame Agent session without recreating the
+   iframe, so the key remains in Runtime memory; and
+6. replacing, clearing, reloading, logging out, or changing accounts destroys
+   the in-memory key.
+
+After discovery, the host renders only live approved profiles. When that list
+contains more than eight profiles, the model selector gains a local search
+field that matches both the localized display label and the exact upstream
+model ID; filtering never issues another Provider request or expands the
+allowlist.
+
+The credential surface uses the product's fixed light appearance instead of
+the browser's `prefers-color-scheme` value. This avoids an OS-level dark theme
+making the opaque Runtime disagree with the currently light-only host UI. A
+future product-wide theme capability must explicitly pass a bounded theme
+choice through the Runtime protocol rather than inheriting ambient page or OS
+styling.
+
+Credential rejection clears the key and returns to credential entry. A
+transient catalog failure retains the key, exposes a retry action, and does not
+silently fall back to an unverified model. Epoch checks discard a response from
+an older credential or refresh attempt.
+
+## Personal AI settings
+
+Provider configuration and runtime preferences are personal feature state,
+not conversation state and not deployment policy:
+
+| Value | Owner | Signed-in persistence | Anonymous persistence |
+| --- | --- | --- | --- |
+| User-defined connection name, protocol, endpoint, model metadata, and request overrides | Account | Account-scoped Local Storage | Component memory |
+| Managed selected model-profile ID | Account | Account-scoped Local Storage | Component memory |
+| Provider request timeout, maximum Provider calls per turn, turn timeout, and catalog timeout | Account | Account-scoped Local Storage | Component memory |
+| API key or short-lived token | Isolated Runtime instance | Never | Never |
+| Live catalog response | Isolated Runtime instance | Never | Never |
+| Conversation transcript projection | Account + project + conversation | Bounded IndexedDB | Component memory |
+
+Personal numeric settings are strict integers inside hard safety bounds. The
+host sends them during bootstrap and may update them between turns with a typed
+`set_preferences` message. They do not recreate the iframe. Security
+invariants remain code-owned and are not user-configurable: exact managed URLs
+and methods, redirect rejection, omitted browser credentials, response/body
+bounds, protected request fields, protocol validation, and absolute numeric
+ceilings.
+
+The current product has no AI backend or account-preferences API, so
+"account-scoped" means isolated by the signed-in account ID within this browser.
+A future cross-device preferences service may sync the same non-secret values,
+but it must not become a path for credentials or conversation/source payloads.
+
 ## Product terminology
 
 An **AI connection** is the only connection concept exposed by this feature.
-It has a user-selected name, an API protocol, an endpoint, a model, and an
-optional credential. TOSS supplies no branded provider preset. The protocol is
-still explicit because an arbitrary endpoint cannot tell the browser whether
-it expects OpenAI-compatible, Anthropic Messages, or another supported wire
-format.
+Under Community's user-defined policy it has a user-selected name, protocol,
+endpoint, model metadata, and optional credential. Under a managed policy it
+is one fixed distribution provider, one user-selected approved model profile,
+and a required user credential. A managed provider is not editable by the
+user.
 
-BYOK is the product umbrella for user-supplied AI access. It includes a static
+BYOK is the product umbrella for user-supplied AI access in both policies. It includes a static
 API key, a temporary token, a user-controlled gateway, an unauthenticated local
 endpoint, or another compatible service. The UI does not expose a separate
 taxonomy for credential ownership, billing, or transport.
@@ -625,7 +778,11 @@ Revision mode and read-only access still permit explanation. They do not
 register a mutation tool. Anonymous sessions use memory-only connections and
 conversations; broader eligibility policy for shared projects remains open.
 
-## AI connections
+## User-defined AI connections
+
+This section applies to Community's `user_defined` policy. A managed build
+replaces the connection editor with its fixed provider identity, a selector
+containing only live approved profiles, and the Runtime-owned key surface.
 
 The first-run panel shows one `Add AI connection` action. Connection creation
 uses one progressively disclosed dialog rather than a wizard. There is no
@@ -1321,6 +1478,10 @@ Vitest should cover:
 - Local Storage profile versioning, corruption handling, account isolation,
   endpoint sanitization, full-base-URL binding, and memory-only credential
   lifetime and clearing;
+- managed-policy validation, deployment subset/default constraints, build and
+  Runtime policy matching, account-scoped selected-model/preferences storage,
+  live-catalog allowlist intersection, authentication/transient failures,
+  credential-epoch races, and model switching without iframe recreation;
 - IndexedDB conversation schema validation, account/project isolation, size and
   count bounds, sanitized persistence, interrupted-turn projection, serialized
   writes, and memory fallback;
@@ -1333,7 +1494,8 @@ Vitest should cover:
 - conversation bootstrap/switch validation, history bounds, Runtime context
   reset, provider-session separation, and credential-required state retention;
 - endpoint changes, redirect rejection, credential-omitting fetch defaults,
-  and the absence of a generic authenticated fetch message;
+  managed exact-path/method fencing, and the absence of a generic authenticated
+  fetch message;
 - repeated tool turns, parallel reads, sequential writes, and cancellation;
 - accept, reject, stale snapshot, generation expiry, and compiler
   supersession;
@@ -1389,15 +1551,18 @@ The following details are intentionally unsettled:
    `apply_patch`, and `write_file` tools;
 5. future semantic summarization beyond the implemented deterministic
    `transformContext` windowing and tool-payload compaction;
-6. default run budgets for model calls, tool calls, elapsed time, and repeated
-   edit-review cycles; model context and maximum output are user-configured;
+6. whether tool-call and repeated edit-review budgets should later become
+   personal settings; Provider-call and elapsed-time limits are implemented as
+   bounded personal settings, while model context/output remain profile data;
 7. whether a rejected proposal ends the run or normally lets the model offer a
    non-editing alternative;
 8. whether the current unified-diff review surface later adopts a CodeMirror
    merge presentation without changing the accepted patch contract;
 9. inactive-document edit behavior in the first release;
 10. future AI availability rules for shared projects;
-11. model switching semantics inside an existing conversation;
+11. whether the conversation UI should record and display model transitions;
+    switching currently preserves bounded conversation history and the
+    in-memory credential while rebuilding only the in-frame Agent session;
 12. retention duration, bulk clear/export controls, and whether local
     conversation history should support an explicit per-project disable switch;
 13. whether trusting the fixed Runtime artifact plus navigation-triggered

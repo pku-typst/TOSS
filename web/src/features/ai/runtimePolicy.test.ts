@@ -45,7 +45,11 @@ describe("AI Runtime network policy", () => {
   });
 
   it("uses no network authority for the fake Runtime and locks later code loading", () => {
-    expect(runtimeConnectSource({ kind: "fake" }, "https://toss.example.test")).toEqual({
+    expect(runtimeConnectSource(
+      { kind: "fake" },
+      "https://toss.example.test",
+      { kind: "user_defined" }
+    )).toEqual({
       source: "'none'",
       endpoint: null
     });

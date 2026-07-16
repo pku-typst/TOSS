@@ -14,6 +14,10 @@ import {
   isAiProviderRequestOverrides,
   type AiProviderRequestOverrides
 } from "@/features/ai/providerRequest";
+import {
+  isAiRuntimePreferences,
+  type AiRuntimePreferences
+} from "@/features/ai/runtimePreferences";
 
 export const AI_RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const AI_RUNTIME_BUILD_ID = __TOSS_AI_RUNTIME_BUILD_ID__;
@@ -70,6 +74,10 @@ export function isAiRuntimeModelTokenBudget(
 export type AiRuntimeConnection =
   | { kind: "fake" }
   | {
+      kind: "managed";
+      modelProfileId: string;
+    }
+  | {
       kind: "endpoint";
       connectionId: string;
       protocol: AiRuntimeProviderProtocol;
@@ -100,6 +108,7 @@ export type AiRuntimeBootstrapInit = {
   nonce: string;
   parentOrigin: string;
   locale: AiRuntimeLocale;
+  preferences: AiRuntimePreferences;
   connection: AiRuntimeConnection;
   conversation: AiRuntimeConversationContext;
   workspace: AiWorkspaceCapabilities | null;
@@ -147,7 +156,15 @@ export type AiRuntimeContentEnd = {
 export type AiRuntimeConnectionState = {
   type: "toss.ai.runtime.connection_state";
   sessionId: string;
-  state: "credential_required" | "ready";
+  state: "credential_required" | "discovering_models" | "model_required" | "ready";
+};
+
+export type AiRuntimeManagedCatalog = {
+  type: "toss.ai.runtime.managed_catalog";
+  sessionId: string;
+  availableModelProfileIds: string[];
+  selectedModelProfileId?: string;
+  errorCode?: string;
 };
 
 export type AiRuntimeTurnComplete = {
@@ -213,6 +230,7 @@ export type AiRuntimeToHostMessage =
   | AiRuntimeBootstrapAcknowledged
   | AiRuntimeReady
   | AiRuntimeConnectionState
+  | AiRuntimeManagedCatalog
   | AiRuntimeContentStart
   | AiRuntimeContentDelta
   | AiRuntimeContentEnd
@@ -254,6 +272,19 @@ export type AiRuntimeSetLocale = {
   locale: AiRuntimeLocale;
 };
 
+export type AiRuntimeSelectManagedModel = {
+  type: "toss.ai.host.select_managed_model";
+  sessionId: string;
+  modelProfileId: string;
+  conversation: AiRuntimeConversationContext;
+};
+
+export type AiRuntimeSetPreferences = {
+  type: "toss.ai.host.set_preferences";
+  sessionId: string;
+  preferences: AiRuntimePreferences;
+};
+
 export type AiHostToolResult = {
   type: "toss.ai.host.tool_result";
   sessionId: string;
@@ -267,6 +298,8 @@ export type AiHostToRuntimeMessage =
   | AiRuntimeStartTurn
   | AiRuntimeCancelTurn
   | AiRuntimeSetLocale
+  | AiRuntimeSetPreferences
+  | AiRuntimeSelectManagedModel
   | AiRuntimeSetConversation
   | AiHostToolResult
   | AiRuntimeClearSession;
@@ -302,6 +335,10 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
 function isRuntimeConnection(value: unknown): value is AiRuntimeConnection {
   if (!isRecord(value) || !isBoundedString(value.kind, 32)) return false;
   if (value.kind === "fake") return hasExactKeys(value, ["kind"]);
+  if (value.kind === "managed") {
+    return hasExactKeys(value, ["kind", "modelProfileId"]) &&
+      isBoundedString(value.modelProfileId, MAX_ID_LENGTH);
+  }
   return (
     value.kind === "endpoint" &&
     hasExactKeys(value, [
@@ -370,6 +407,7 @@ export function isAiRuntimeBootstrapInit(value: unknown): value is AiRuntimeBoot
       "nonce",
       "parentOrigin",
       "locale",
+      "preferences",
       "connection",
       "conversation",
       "workspace"
@@ -381,6 +419,7 @@ export function isAiRuntimeBootstrapInit(value: unknown): value is AiRuntimeBoot
     isBoundedString(value.nonce, MAX_ID_LENGTH) &&
     isBoundedString(value.parentOrigin, 2_048) &&
     isAiRuntimeLocale(value.locale) &&
+    isAiRuntimePreferences(value.preferences) &&
     isRuntimeConnection(value.connection) &&
     isAiRuntimeConversationContext(value.conversation) &&
     (value.workspace === null || isAiWorkspaceCapabilities(value.workspace))
@@ -413,10 +452,25 @@ export function isAiHostToRuntimeMessage(value: unknown): value is AiHostToRunti
       isAiRuntimeLocale(value.locale)
     );
   }
+  if (value.type === "toss.ai.host.set_preferences") {
+    return (
+      hasExactKeys(value, ["type", "sessionId", "preferences"]) &&
+      isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
+      isAiRuntimePreferences(value.preferences)
+    );
+  }
   if (value.type === "toss.ai.host.set_conversation") {
     return (
       hasExactKeys(value, ["type", "sessionId", "conversation"]) &&
       isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
+      isAiRuntimeConversationContext(value.conversation)
+    );
+  }
+  if (value.type === "toss.ai.host.select_managed_model") {
+    return (
+      hasExactKeys(value, ["type", "sessionId", "modelProfileId", "conversation"]) &&
+      isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
+      isBoundedString(value.modelProfileId, MAX_ID_LENGTH) &&
       isAiRuntimeConversationContext(value.conversation)
     );
   }
@@ -481,7 +535,34 @@ export function isAiRuntimeToHostMessage(value: unknown): value is AiRuntimeToHo
     return (
       hasExactKeys(value, ["type", "sessionId", "state"]) &&
       isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
-      (value.state === "credential_required" || value.state === "ready")
+      (
+        value.state === "credential_required" ||
+        value.state === "discovering_models" ||
+        value.state === "model_required" ||
+        value.state === "ready"
+      )
+    );
+  }
+  if (value.type === "toss.ai.runtime.managed_catalog") {
+    const allowedKeys = [
+      "type",
+      "sessionId",
+      "availableModelProfileIds",
+      ...(value.selectedModelProfileId === undefined ? [] : ["selectedModelProfileId"]),
+      ...(value.errorCode === undefined ? [] : ["errorCode"])
+    ];
+    return (
+      hasExactKeys(value, allowedKeys) &&
+      isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
+      Array.isArray(value.availableModelProfileIds) &&
+      value.availableModelProfileIds.length <= 128 &&
+      new Set(value.availableModelProfileIds).size === value.availableModelProfileIds.length &&
+      value.availableModelProfileIds.every((id) => isBoundedString(id, MAX_ID_LENGTH)) &&
+      (
+        value.selectedModelProfileId === undefined ||
+        isBoundedString(value.selectedModelProfileId, MAX_ID_LENGTH)
+      ) &&
+      (value.errorCode === undefined || isBoundedString(value.errorCode, 64))
     );
   }
   if (value.type === "toss.ai.runtime.turn_complete") {

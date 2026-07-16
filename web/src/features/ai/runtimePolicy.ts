@@ -1,4 +1,5 @@
 import type { AiRuntimeConnection } from "@/features/ai/protocol";
+import type { AiRuntimeServerPolicy } from "@/features/ai/runtimeConfig";
 
 export type NormalizedAiEndpoint = {
   baseUrl: string;
@@ -31,9 +32,16 @@ export function normalizeAiRuntimeEndpoint(
 
 export function runtimeConnectSource(
   connection: AiRuntimeConnection,
-  applicationOrigin: string
+  applicationOrigin: string,
+  policy: AiRuntimeServerPolicy
 ) {
   if (connection.kind === "fake") return { source: "'none'", endpoint: null };
+  if (policy.kind === "managed_catalog") {
+    if (connection.kind !== "managed") throw new Error("ai_runtime_managed_connection_required");
+    const endpoint = normalizeAiRuntimeEndpoint(policy.provider.baseUrl, applicationOrigin);
+    return { source: endpoint.origin, endpoint };
+  }
+  if (connection.kind !== "endpoint") throw new Error("ai_runtime_user_connection_required");
   const endpoint = normalizeAiRuntimeEndpoint(connection.baseUrl, applicationOrigin);
   return { source: endpoint.origin, endpoint };
 }

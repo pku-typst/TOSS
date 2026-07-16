@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AI_RUNTIME_BOOTSTRAP_MARKER,
   AI_RUNTIME_NONCE_MARKER,
+  AI_RUNTIME_POLICY_MARKER,
   decorateAiRuntimeEntry
 } from "../../../aiRuntimeHtml";
 
@@ -13,6 +14,7 @@ describe("AI Runtime entry contract", () => {
 
     expect(html).toContain(AI_RUNTIME_BOOTSTRAP_MARKER);
     expect(html).toContain(AI_RUNTIME_NONCE_MARKER);
+    expect(html).toContain(AI_RUNTIME_POLICY_MARKER);
   });
 
   it("rejects an ambiguous script surface", () => {

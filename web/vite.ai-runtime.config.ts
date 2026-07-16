@@ -2,15 +2,21 @@ import path from "node:path";
 import { defineConfig } from "vite";
 import { computeAiRuntimeBuildId } from "./aiRuntimeBuildConfig";
 import { decorateAiRuntimeEntry } from "./aiRuntimeHtml";
+import { loadDistributionBuildConfig } from "./distributionBuildConfig";
 
 const buildId = computeAiRuntimeBuildId();
+const distribution = loadDistributionBuildConfig();
+if (!distribution.aiConnectionPolicy) {
+  throw new Error("Cannot build the AI Runtime for a distribution without ai_assistant");
+}
 
 export default defineConfig({
   root: path.resolve(__dirname, "ai-runtime"),
   base: "/_ai-runtime/",
   publicDir: false,
   define: {
-    __TOSS_AI_RUNTIME_BUILD_ID__: JSON.stringify(buildId)
+    __TOSS_AI_RUNTIME_BUILD_ID__: JSON.stringify(buildId),
+    __TOSS_BUILD_AI_CONNECTION_POLICY__: JSON.stringify(distribution.aiConnectionPolicy)
   },
   resolve: {
     alias: [
@@ -39,7 +45,11 @@ export default defineConfig({
         this.emitFile({
           type: "asset",
           fileName: "runtime-build.json",
-          source: `${JSON.stringify({ schema: 1, build_id: buildId }, null, 2)}\n`
+          source: `${JSON.stringify({
+            schema: 1,
+            build_id: buildId,
+            connection_policy: distribution.aiConnectionPolicy
+          }, null, 2)}\n`
         });
       }
     }

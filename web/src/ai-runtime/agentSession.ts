@@ -19,10 +19,11 @@ import type {
   AiRuntimeTokenUsage
 } from "@/features/ai/protocol";
 import { AI_RUNTIME_MODEL_TOKEN_LIMITS } from "@/features/ai/protocol";
+import {
+  DEFAULT_AI_RUNTIME_PREFERENCES,
+  type AiRuntimePreferences
+} from "@/features/ai/runtimePreferences";
 
-const REQUEST_TIMEOUT_MS = 120_000;
-const MAX_PROVIDER_CALLS_PER_TURN = 12;
-const MAX_AGENT_TURN_MS = 300_000;
 
 type EndpointConnection = Extract<AiRuntimeConnection, { kind: "endpoint" }>;
 
@@ -49,6 +50,7 @@ export type AiAgentSessionOptions = {
   stream: StreamFn;
   systemPrompt: string;
   tools?: AgentTool[];
+  preferences?: AiRuntimePreferences;
   onContent: (turnId: string, event: AiAgentContentEvent) => void;
   onUsage?: (turnId: string, usage: AiRuntimeTokenUsage) => void;
 };
@@ -157,6 +159,7 @@ export class AiAgentSession {
   private assistantMessageIndex = -1;
   private readonly openContentBlocks = new Map<string, "text" | "reasoning">();
   private readonly onUsage: AiAgentSessionOptions["onUsage"];
+  private preferences: AiRuntimePreferences;
   private contextOverflow = false;
   private compactedMessagesThisTurn = 0;
   private contextTokensThisTurn = 0;
@@ -171,6 +174,7 @@ export class AiAgentSession {
   constructor(options: AiAgentSessionOptions) {
     this.connectionId = options.connection.connectionId;
     this.onUsage = options.onUsage;
+    this.preferences = options.preferences ?? DEFAULT_AI_RUNTIME_PREFERENCES;
     const model = connectionModel(options.connection);
     const apiKey = options.credential || "unused";
     const stream: StreamFn = (model, context, streamOptions) => {
@@ -178,7 +182,7 @@ export class AiAgentSession {
         return agentError(model, "ai_agent_context_budget_exceeded");
       }
       this.providerCallsThisTurn += 1;
-      if (this.providerCallsThisTurn > MAX_PROVIDER_CALLS_PER_TURN) {
+      if (this.providerCallsThisTurn > this.preferences.maxProviderCallsPerTurn) {
         return agentError(model, "ai_agent_provider_call_budget_exceeded");
       }
       const upstreamOnPayload = streamOptions?.onPayload;
@@ -186,7 +190,7 @@ export class AiAgentSession {
         ...streamOptions,
         apiKey,
         cacheRetention: "none",
-        timeoutMs: REQUEST_TIMEOUT_MS,
+        timeoutMs: this.preferences.providerRequestTimeoutMs,
         maxRetries: 0,
         maxRetryDelayMs: 0,
         onPayload: async (payload, payloadModel) => {
@@ -280,6 +284,11 @@ export class AiAgentSession {
     this.agent.state.tools = tools;
   }
 
+  setPreferences(preferences: AiRuntimePreferences) {
+    if (this.busy) throw new Error("ai_agent_turn_in_progress");
+    this.preferences = { ...preferences };
+  }
+
   setConversation(
     conversationId: string,
     history: readonly AiRuntimeConversationHistoryMessage[]
@@ -300,7 +309,10 @@ export class AiAgentSession {
       maxOutputTokens: this.agent.state.model.maxTokens,
       contextTokens: this.contextTokensThisTurn,
       contextSource,
-      providerCalls: Math.min(this.providerCallsThisTurn, MAX_PROVIDER_CALLS_PER_TURN),
+      providerCalls: Math.min(
+        this.providerCallsThisTurn,
+        this.preferences.maxProviderCallsPerTurn
+      ),
       reportedCalls: this.reportedCallsThisTurn,
       inputTokens: this.inputTokensThisTurn,
       outputTokens: this.outputTokensThisTurn,
@@ -377,7 +389,7 @@ export class AiAgentSession {
     const timer = globalThis.setTimeout(() => {
       timedOut = true;
       this.agent.abort();
-    }, MAX_AGENT_TURN_MS);
+    }, this.preferences.maxTurnMs);
     try {
       await this.agent.prompt(prompt);
       if (timedOut) return { outcome: "failed", code: "ai_agent_turn_timeout" };

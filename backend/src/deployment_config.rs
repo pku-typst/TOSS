@@ -1,6 +1,8 @@
 //! Strict composition of optional deployment topology from one TOML document.
 
-use crate::distribution::{DistributionConfig, FrontendFeature};
+use crate::distribution::{
+    AiAssistantConfig, DistributionConfig, FrontendFeature, ManagedAiCatalogConfig,
+};
 use crate::document_processing::{ProcessingConfig, ProcessingConfigFile};
 use crate::external_repositories::{
     external_git_provider_registry_from_config, ExternalGitConfigFile, ExternalGitProviderRegistry,
@@ -13,6 +15,7 @@ const DEPLOYMENT_SCHEMA_VERSION: u32 = 1;
 
 pub(crate) struct DeploymentConfig {
     pub frontend_features: Vec<FrontendFeature>,
+    pub ai_assistant: Option<AiAssistantConfig>,
     pub external_git_providers: ExternalGitProviderRegistry,
     pub processing: ProcessingConfig,
     source_path: Option<PathBuf>,
@@ -23,6 +26,17 @@ pub(crate) struct DeploymentConfig {
 struct FrontendDeploymentFile {
     #[serde(default)]
     enabled_features: Option<Vec<FrontendFeature>>,
+    #[serde(default)]
+    ai_assistant: Option<AiAssistantDeploymentFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiAssistantDeploymentFile {
+    #[serde(default)]
+    enabled_model_profiles: Option<Vec<String>>,
+    #[serde(default)]
+    default_model_profile: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -99,12 +113,15 @@ impl DeploymentConfig {
             ));
         }
 
+        let frontend = file.frontend;
         let frontend_features = validate_frontend_features(
-            file.frontend
+            frontend
                 .enabled_features
                 .unwrap_or_else(|| distribution.frontend_features.default_enabled.clone()),
             distribution,
         )?;
+        let ai_assistant =
+            validate_ai_assistant(frontend.ai_assistant, &frontend_features, distribution)?;
         let external_git_providers =
             external_git_provider_registry_from_config(file.external_git, environment)?;
         let processing = ProcessingConfig::from_config(file.document_processing, &config_root)?;
@@ -119,6 +136,7 @@ impl DeploymentConfig {
 
         Ok(Self {
             frontend_features,
+            ai_assistant,
             external_git_providers,
             processing,
             source_path,
@@ -131,6 +149,109 @@ impl DeploymentConfig {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "built-in deployment defaults".to_string())
     }
+}
+
+fn validate_ai_assistant(
+    configured: Option<AiAssistantDeploymentFile>,
+    frontend_features: &[FrontendFeature],
+    distribution: &DistributionConfig,
+) -> Result<Option<AiAssistantConfig>, String> {
+    let enabled = frontend_features.contains(&FrontendFeature::AiAssistant);
+    let Some(distribution_config) = distribution.ai_assistant.as_ref() else {
+        if configured.is_some() {
+            return Err(
+                "frontend.ai_assistant cannot be configured when the distribution omits AI"
+                    .to_string(),
+            );
+        }
+        return Ok(None);
+    };
+    if !enabled {
+        if configured.is_some() {
+            return Err(
+                "frontend.ai_assistant cannot be configured unless ai_assistant is enabled"
+                    .to_string(),
+            );
+        }
+        return Ok(None);
+    }
+    match distribution_config {
+        AiAssistantConfig::UserDefined => {
+            if configured.is_some() {
+                return Err(
+                    "frontend.ai_assistant model selection is unavailable for a user_defined policy"
+                        .to_string(),
+                );
+            }
+            Ok(Some(AiAssistantConfig::UserDefined))
+        }
+        AiAssistantConfig::ManagedCatalog(catalog) => {
+            validate_managed_catalog_deployment(configured, catalog)
+                .map(|catalog| AiAssistantConfig::ManagedCatalog(Box::new(catalog)))
+                .map(Some)
+        }
+    }
+}
+
+fn validate_managed_catalog_deployment(
+    configured: Option<AiAssistantDeploymentFile>,
+    catalog: &ManagedAiCatalogConfig,
+) -> Result<ManagedAiCatalogConfig, String> {
+    let Some(configured) = configured else {
+        return Ok(catalog.clone());
+    };
+    let profile_ids = configured.enabled_model_profiles.unwrap_or_else(|| {
+        catalog
+            .model_profiles
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect()
+    });
+    if profile_ids.is_empty() {
+        return Err("frontend.ai_assistant.enabled_model_profiles must not be empty".to_string());
+    }
+    let mut normalized_ids = Vec::with_capacity(profile_ids.len());
+    for raw_id in profile_ids {
+        let id = raw_id.trim().to_string();
+        if normalized_ids.contains(&id) {
+            return Err(
+                "frontend.ai_assistant.enabled_model_profiles must not contain duplicates"
+                    .to_string(),
+            );
+        }
+        if !catalog
+            .model_profiles
+            .iter()
+            .any(|profile| profile.id == id)
+        {
+            return Err(format!(
+                "frontend.ai_assistant model profile {id} is not allowed by the distribution"
+            ));
+        }
+        normalized_ids.push(id);
+    }
+    let default_model_profile = configured
+        .default_model_profile
+        .unwrap_or_else(|| catalog.default_model_profile.clone())
+        .trim()
+        .to_string();
+    if !normalized_ids.contains(&default_model_profile) {
+        return Err(
+            "frontend.ai_assistant.default_model_profile must be enabled by the deployment"
+                .to_string(),
+        );
+    }
+    let model_profiles = catalog
+        .model_profiles
+        .iter()
+        .filter(|profile| normalized_ids.contains(&profile.id))
+        .cloned()
+        .collect();
+    Ok(ManagedAiCatalogConfig {
+        provider: catalog.provider.clone(),
+        default_model_profile,
+        model_profiles,
+    })
 }
 
 fn validate_frontend_features(

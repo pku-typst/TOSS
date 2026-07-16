@@ -1,6 +1,8 @@
 export const AI_RUNTIME_NONCE_MARKER =
   'data-toss-ai-nonce="__TOSS_AI_RUNTIME_NONCE__"';
 export const AI_RUNTIME_BOOTSTRAP_MARKER = 'data-toss-ai-bootstrap="true"';
+export const AI_RUNTIME_POLICY_MARKER =
+  'data-toss-ai-policy="__TOSS_AI_RUNTIME_POLICY__"';
 
 const MODULE_SCRIPT_PATTERN = /<script\b[^>]*\btype=(?:"module"|'module')[^>]*><\/script>/g;
 
@@ -19,6 +21,9 @@ export function decorateAiRuntimeEntry(html: string) {
   }
   if (!decorated.includes(AI_RUNTIME_NONCE_MARKER)) {
     decorated = decorated.replace("<script", `<script ${AI_RUNTIME_NONCE_MARKER}`);
+  }
+  if (!decorated.includes(AI_RUNTIME_POLICY_MARKER)) {
+    decorated = decorated.replace("<script", `<script ${AI_RUNTIME_POLICY_MARKER}`);
   }
   return html.replace(original, decorated);
 }

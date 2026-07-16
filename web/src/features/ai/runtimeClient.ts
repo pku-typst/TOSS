@@ -1,4 +1,5 @@
 import {
+  AI_RUNTIME_CONVERSATION_HISTORY_LIMITS,
   AI_RUNTIME_BUILD_ID,
   AI_RUNTIME_PROTOCOL_VERSION,
   isAiRuntimeToHostMessage,
@@ -23,6 +24,10 @@ import {
   type AiWorkspaceToolPort,
   type AiWorkspaceToolRequest
 } from "@/features/ai/toolContract";
+import {
+  DEFAULT_AI_RUNTIME_PREFERENCES,
+  type AiRuntimePreferences
+} from "@/features/ai/runtimePreferences";
 
 export type AiRuntimeStatus =
   | "idle"
@@ -82,6 +87,11 @@ export type AiRuntimeSnapshot = {
   error: string | null;
   errorMessage: string | null;
   usage: AiRuntimeTokenUsage | null;
+  managedCatalog: {
+    availableModelProfileIds: readonly string[];
+    selectedModelProfileId: string | null;
+    errorCode: string | null;
+  } | null;
   persistenceRevision: number;
 };
 
@@ -170,6 +180,7 @@ export class AiRuntimeClient {
     error: null,
     errorMessage: null,
     usage: null,
+    managedCatalog: null,
     persistenceRevision: 0
   };
   private readonly listeners = new Set<() => void>();
@@ -184,6 +195,7 @@ export class AiRuntimeClient {
   private loadObserved = false;
   private disposed = false;
   private locale: AiRuntimeLocale;
+  private preferences: AiRuntimePreferences;
   private connectionKind: AiRuntimeConnection["kind"] = "fake";
   private readonly workspacePort: AiWorkspaceToolPort | null;
   private readonly pendingToolCalls = new Map<
@@ -198,8 +210,13 @@ export class AiRuntimeClient {
   >();
   private toolCallsThisTurn = 0;
 
-  constructor(locale: AiRuntimeLocale, workspacePort: AiWorkspaceToolPort | null = null) {
+  constructor(
+    locale: AiRuntimeLocale,
+    workspacePort: AiWorkspaceToolPort | null = null,
+    preferences: AiRuntimePreferences = DEFAULT_AI_RUNTIME_PREFERENCES
+  ) {
     this.locale = locale;
+    this.preferences = { ...preferences };
     this.workspacePort = workspacePort;
     this.conversation = {
       conversationId: secureId("conversation"),
@@ -251,7 +268,13 @@ export class AiRuntimeClient {
     this.nonce = nonce;
     this.port.addEventListener("message", this.handleMessage);
     this.port.start();
-    this.setSnapshot({ status: "handshaking", error: null, errorMessage: null, usage: null });
+    this.setSnapshot({
+      status: "handshaking",
+      error: null,
+      errorMessage: null,
+      usage: null,
+      managedCatalog: null
+    });
 
     const init: AiRuntimeBootstrapInit = {
       type: "toss.ai.runtime.initialize",
@@ -261,6 +284,7 @@ export class AiRuntimeClient {
       nonce,
       parentOrigin: window.location.origin,
       locale: this.locale,
+      preferences: { ...this.preferences },
       connection,
       conversation: this.conversation,
       workspace: this.workspacePort
@@ -287,6 +311,41 @@ export class AiRuntimeClient {
       locale
     };
     this.port.postMessage(message);
+  }
+
+  setPreferences(preferences: AiRuntimePreferences) {
+    if (this.snapshot.status === "running" || this.snapshot.status === "handshaking") return false;
+    this.preferences = { ...preferences };
+    if (this.port && this.sessionId && this.snapshot.status !== "idle") {
+      const message: AiHostToRuntimeMessage = {
+        type: "toss.ai.host.set_preferences",
+        sessionId: this.sessionId,
+        preferences: { ...preferences }
+      };
+      this.port.postMessage(message);
+    }
+    return true;
+  }
+
+  selectManagedModel(modelProfileId: string) {
+    if (
+      this.connectionKind !== "managed" ||
+      this.snapshot.status === "running" ||
+      this.snapshot.status === "handshaking" ||
+      !this.port ||
+      !this.sessionId
+    ) return false;
+    const message: AiHostToRuntimeMessage = {
+      type: "toss.ai.host.select_managed_model",
+      sessionId: this.sessionId,
+      modelProfileId,
+      conversation: {
+        conversationId: this.conversation.conversationId,
+        history: this.conversation.history.map((item) => ({ ...item }))
+      }
+    };
+    this.port.postMessage(message);
+    return true;
   }
 
   setConversation(
@@ -452,7 +511,7 @@ export class AiRuntimeClient {
       this.runtimeReady = true;
       this.clearPreparationTimer();
       this.setSnapshot({
-        status: this.connectionKind === "endpoint" ? "configuring" : "ready",
+        status: this.connectionKind === "fake" ? "ready" : "configuring",
         error: null,
         errorMessage: null
       });
@@ -495,6 +554,20 @@ export class AiRuntimeClient {
       });
       return;
     }
+    if (message.type === "toss.ai.runtime.managed_catalog") {
+      if (this.connectionKind !== "managed" || this.snapshot.status === "running") {
+        this.fail("runtime_managed_catalog_unexpected");
+        return;
+      }
+      this.setSnapshot({
+        managedCatalog: {
+          availableModelProfileIds: [...message.availableModelProfileIds],
+          selectedModelProfileId: message.selectedModelProfileId ?? null,
+          errorCode: message.errorCode ?? null
+        }
+      });
+      return;
+    }
     if (message.type === "toss.ai.runtime.content_start") {
       this.handleContentStart(message.turnId, message.blockId, message.kind);
       return;
@@ -531,6 +604,7 @@ export class AiRuntimeClient {
         return;
       }
       this.abortPendingToolCalls(message.turnId);
+      if (message.outcome === "completed") this.recordCompletedTurn(message.turnId);
       this.setSnapshot({
         status: "ready",
         activeTurnId: null,
@@ -589,8 +663,48 @@ export class AiRuntimeClient {
       messages: [...conversation.messages],
       error: null,
       errorMessage: null,
-      usage: null
+      usage: null,
+      managedCatalog: this.connectionKind === "managed"
+        ? this.snapshot.managedCatalog
+        : null
     });
+  }
+
+  private recordCompletedTurn(turnId: string) {
+    const assistantIndex = this.snapshot.messages.findIndex((message) => message.id === turnId);
+    const assistant = this.snapshot.messages[assistantIndex];
+    const user = this.snapshot.messages[assistantIndex - 1];
+    if (!assistant || !user || assistant.role !== "assistant" || user.role !== "user") return;
+    const boundedContent = (message: AiTranscriptMessage) => {
+      const content = message.parts
+        .filter((part): part is AiTranscriptContentPart => part.type === "text")
+        .map((part) => part.text)
+        .join("\n\n");
+      const limit = AI_RUNTIME_CONVERSATION_HISTORY_LIMITS.maxContentLength;
+      return content.length <= limit
+        ? content
+        : `${content.slice(0, limit - 1).trimEnd()}…`;
+    };
+    const userContent = boundedContent(user);
+    const assistantContent = boundedContent(assistant);
+    if (!userContent || !assistantContent) return;
+    const pair = [
+      { role: "user" as const, content: userContent, timestamp: user.startedAt },
+      { role: "assistant" as const, content: assistantContent, timestamp: assistant.startedAt }
+    ];
+    if (
+      userContent.length + assistantContent.length >
+      AI_RUNTIME_CONVERSATION_HISTORY_LIMITS.maxTotalLength
+    ) return;
+    const history = [...this.conversation.history, ...pair];
+    const totalLength = () => history.reduce((total, item) => total + item.content.length, 0);
+    while (
+      history.length > AI_RUNTIME_CONVERSATION_HISTORY_LIMITS.maxMessages ||
+      totalLength() > AI_RUNTIME_CONVERSATION_HISTORY_LIMITS.maxTotalLength
+    ) {
+      history.splice(0, 2);
+    }
+    this.conversation = { ...this.conversation, history };
   }
 
   private handleContentStart(

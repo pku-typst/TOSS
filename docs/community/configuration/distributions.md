@@ -58,6 +58,7 @@ The current schema is version 6 and rejects unknown fields.
 | `git` | External checkpoint branch prefix and safe fallback commit identity |
 | `project_types` | Included cross-layer project types and their starter templates |
 | `frontend_features` | Frontend feature build bounds and safe defaults |
+| `ai_assistant` | Required connection policy when the Assistant is included: Community user-defined connections or one downstream managed provider/model catalog |
 | `document_processing` | Product allowlist of durable processing operations |
 | `typst` | Built-in catalog root |
 | `template_gallery` | Built-in template metadata, sources, and thumbnails |
@@ -82,6 +83,17 @@ its lazy host chunk and matching isolated Runtime, while deployment
 configuration still decides whether either route is exposed. Browser AI
 remains separate from Document Processing.
 
+When `frontend_features.included` contains `ai_assistant`, the top-level
+`ai_assistant.connection_policy` is required. Community uses
+`{"kind":"user_defined"}`. A downstream `managed_catalog` policy fixes one
+credential-free HTTPS provider base URL, the `openai-completions` wire protocol,
+`openai-models` discovery, and one or more approved model profiles. Profiles
+carry stable IDs, upstream model IDs, localized labels, context/output limits,
+reasoning capability, and bounded request overrides. Duplicate IDs/models,
+unsafe URLs or request fields, invalid token budgets, and missing defaults fail
+distribution loading. See the complete shape and ownership rules in
+[Browser AI assistant](../architecture/browser-ai-assistant.md#connection-policy-ownership).
+
 `document_processing.allowed_operations` is a closed allowlist of Core-known,
 versioned operations. Community enables `latex.compile.pdf/v1`. This is product
 policy, not worker configuration: the deployment TOML must configure a worker
@@ -89,12 +101,15 @@ identity with an exact processor-contract allowlist, and live availability
 requires a compatible healthy session. Do not put worker identities, tokens,
 or private processor configuration in the distribution file.
 
-The frontend build reads only `project_types` and `frontend_features`; it does
-not parse `document_processing`. A Typst-only build aliases the LaTeX editor
+The frontend build reads `project_types`, `frontend_features`, and the AI
+connection-policy kind when AI is included; it does not parse
+`document_processing` or receive a managed endpoint/model profile. A Typst-only build aliases the LaTeX editor
 and runtime to disabled modules and excludes BusyTeX assets. Every build emits
 `toss-build-manifest.json`, which Core checks against runtime configuration.
 Schema 2 also binds an included AI host build to the exact
-`/_ai-runtime/bootstrap.html` artifact and build ID. An AI-excluded build emits
+`/_ai-runtime/bootstrap.html` artifact, build ID, and connection-policy kind.
+Core injects the validated full Runtime policy only when serving that no-store
+entry. An AI-excluded build emits
 neither the Assistant chunk, candidate compiler/docs-tool path, KaTeX assets,
 nor the Runtime artifact.
 

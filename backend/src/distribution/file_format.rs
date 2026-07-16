@@ -15,10 +15,53 @@ pub(super) struct DistributionFile {
     pub(super) git: GitFile,
     pub(super) project_types: ProjectTypesFile,
     pub(super) frontend_features: FrontendFeaturesFile,
+    #[serde(default)]
+    pub(super) ai_assistant: Option<AiAssistantFile>,
     pub(super) document_processing: DocumentProcessingFile,
     pub(super) typst: TypstFile,
     pub(super) template_gallery: TemplateGalleryFile,
     pub(super) experience: ExperienceFile,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AiAssistantFile {
+    pub(super) connection_policy: AiConnectionPolicyFile,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum AiConnectionPolicyFile {
+    UserDefined,
+    ManagedCatalog {
+        provider: Box<ManagedAiProviderFile>,
+        default_model_profile: String,
+        model_profiles: Vec<ManagedAiModelProfileFile>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedAiProviderFile {
+    pub(super) id: String,
+    pub(super) label: LocalizedTextFile,
+    pub(super) credential_label: LocalizedTextFile,
+    pub(super) protocol: String,
+    pub(super) base_url: String,
+    pub(super) catalog: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedAiModelProfileFile {
+    pub(super) id: String,
+    pub(super) model: String,
+    pub(super) label: LocalizedTextFile,
+    pub(super) context_window: u64,
+    pub(super) max_output_tokens: u64,
+    pub(super) reasoning: bool,
+    #[serde(default)]
+    pub(super) request_overrides: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
