@@ -199,8 +199,9 @@ cargo test --locked
 ```
 
 The repository-wide workflow is `scripts/ci-checks.sh` and requires a
-disposable PostgreSQL database. See
-[testing and validation](./docs/community/development/testing.md).
+disposable PostgreSQL database. It composes the same preflight, backend,
+worker, web, and integration phases that GitHub Actions runs as parallel jobs.
+See [testing and validation](./docs/community/development/testing.md).
 
 ## License
 

@@ -2,11 +2,50 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  checks:
+  preflight:
+    name: preflight
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout with compiler provenance
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: protocol/package-lock.json
+
+      - name: Cache verified browser runtime artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            prebuilt/typst-compiler/package
+            prebuilt/busytex/package
+          key: browser-runtime-${{ hashFiles('prebuilt/typst-compiler/build-manifest.json', 'prebuilt/typst-compiler/artifact.json', 'prebuilt/busytex/build-manifest.json') }}
+
+      - name: Run preflight checks
+        run: scripts/ci/preflight.sh
+
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -21,26 +60,88 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-
+    env:
+      DATABASE_URL: postgres://typstapp:community-ci@127.0.0.1:5432/typstappdb
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: true
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
 
+      - name: Cache backend Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+          shared-key: backend
+          cache-on-failure: true
+
+      - name: Run backend checks
+        run: scripts/ci/backend.sh
+
+      - name: Prepare Core integration artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/core-api"
+          cp backend/target/debug/core-api "$RUNNER_TEMP/core-api/core-api"
+          strip "$RUNNER_TEMP/core-api/core-api"
+
+      - name: Upload Core integration artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-api
+          path: ${{ runner.temp }}/core-api/core-api
+          if-no-files-found: error
+          retention-days: 1
+
+  workers:
+    name: workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
           node-version: "24.18.0"
-          cache: "npm"
-          cache-dependency-path: web/package-lock.json
 
-      - name: Cache verified browser runtime artifacts
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache worker Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workers -> target
+          shared-key: workers
+          cache-on-failure: true
+
+      - name: Run worker checks
+        run: scripts/ci/workers.sh
+
+  web:
+    name: web
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: |
+            protocol/package-lock.json
+            web/package-lock.json
+
+      - name: Restore verified browser runtime artifacts
         uses: actions/cache@v6
         with:
           path: |
@@ -48,16 +149,114 @@ jobs:
             prebuilt/busytex/package
           key: browser-runtime-${{ hashFiles('prebuilt/typst-compiler/build-manifest.json', 'prebuilt/typst-compiler/artifact.json', 'prebuilt/busytex/build-manifest.json') }}
 
-      - name: Install Playwright Chromium
+      - name: Run web checks
+        run: scripts/ci/web.sh
+
+      - name: Package web integration artifact
+        run: tar --exclude='*.gz' -czf "$RUNNER_TEMP/web-dist.tar.gz" -C web dist
+
+      - name: Upload web integration artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: ${{ runner.temp }}/web-dist.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  integration:
+    name: integration
+    needs:
+      - preflight
+      - backend
+      - web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: typstapp
+          POSTGRES_PASSWORD: community-ci
+          POSTGRES_DB: typstappdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U typstapp -d typstappdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://typstapp:community-ci@127.0.0.1:5432/typstappdb
+      CORE_API_PORT: "18080"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install browser test tooling
+        working-directory: web
         run: |
-          cd web
           npm ci
           npx playwright install --with-deps chromium
 
-      - name: Run CI checks
-        env:
-          DATABASE_URL: postgres://typstapp:community-ci@127.0.0.1:5432/typstappdb
-          CORE_API_PORT: "18080"
+      - name: Download Core integration artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: core-api
+          path: ${{ runner.temp }}/core-api
+
+      - name: Download web integration artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: ${{ runner.temp }}/web-dist
+
+      - name: Prepare integration artifacts
         run: |
-          chmod +x scripts/ci-checks.sh
-          scripts/ci-checks.sh
+          chmod +x "$RUNNER_TEMP/core-api/core-api"
+          tar -xzf "$RUNNER_TEMP/web-dist/web-dist.tar.gz" -C web
+
+      - name: Run integration checks
+        env:
+          CORE_API_BIN: ${{ runner.temp }}/core-api/core-api
+          WEB_STATIC_DIR: ${{ github.workspace }}/web/dist
+        run: scripts/ci/integration.sh
+
+  checks:
+    name: checks
+    if: ${{ always() }}
+    needs:
+      - preflight
+      - backend
+      - workers
+      - web
+      - integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI domain
+        env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          WORKERS_RESULT: ${{ needs.workers.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+        run: |
+          for result in \
+            "$PREFLIGHT_RESULT" \
+            "$BACKEND_RESULT" \
+            "$WORKERS_RESULT" \
+            "$WEB_RESULT" \
+            "$INTEGRATION_RESULT"; do
+            if [[ "$result" != "success" ]]; then
+              echo "Required CI job did not succeed: $result" >&2
+              exit 1
+            fi
+          done

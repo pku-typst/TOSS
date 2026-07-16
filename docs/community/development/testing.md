@@ -17,6 +17,12 @@ related:
   - protocol/README.md
 code_paths:
   - scripts/check-docs.mjs
+  - scripts/ci-checks.sh
+  - scripts/ci/preflight.sh
+  - scripts/ci/backend.sh
+  - scripts/ci/workers.sh
+  - scripts/ci/web.sh
+  - scripts/ci/integration.sh
   - backend/Cargo.toml
   - workers/Cargo.toml
   - web/package.json
@@ -55,7 +61,6 @@ and API-reference coverage against the checked-in OpenAPI contract.
 cd backend
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
-cargo check --locked
 cargo test --locked
 ```
 
@@ -168,6 +173,27 @@ CORE_API_URL=http://127.0.0.1:8080 \
 LATEX_WORKER_CONTAINER=toss-latex-worker-1 \
 node scripts/processing-latex-benchmark.mjs
 ```
+
+## Repository-wide CI
+
+Use the sequential wrapper for one-command local validation:
+
+```bash
+DATABASE_URL=postgres://user:password@127.0.0.1:5432/disposable_toss \
+CORE_API_PORT=18080 \
+scripts/ci-checks.sh
+```
+
+The wrapper composes independently runnable phase scripts under `scripts/ci/`.
+GitHub Actions runs preflight, backend, and worker validation concurrently,
+runs the web phase after preflight has populated the verified runtime cache,
+and starts integration only from the backend and web artifacts produced by
+that exact commit. The final `checks` job is the stable aggregate branch gate.
+
+Backend Clippy and tests remain in one job so they reuse one Cargo target.
+Integration scenarios likewise share one Core process, disposable database,
+and Playwright installation; split either group only after measurements show
+that it has become the critical path.
 
 The benchmark uses the same generated 21 KiB multi-pass corpus on both paths.
 It measures new browser contexts, one-character edits in a persistent BusyTeX
