@@ -274,28 +274,31 @@ message destination.
 
 The child accepts initialization only from `event.source === parent`, validates
 the expected application URL origin derived from its immutable entry
-configuration, and echoes the nonce and exact protocol/build identifier over
-the transferred port. The host validates the expected `WindowProxy`, nonce,
-and exact version,
-then removes the global listener. All operational traffic uses only the
-dedicated port. An iframe `load`, navigation, generation change, or failed
-handshake closes the port and destroys the session. The first release fails
+configuration, and acknowledges the nonce and exact protocol/build identifier
+over the transferred port before loading optional resources. The host validates
+that acknowledgement and leaves the session in `configuring` under a separate
+bounded preparation deadline. Only after Runtime modules and Typst documentation
+resources are loaded and the final no-more-code-loading CSP is installed does
+the child send `ready`. All operational traffic uses only the dedicated port,
+and no turn or tool message is accepted before that second transition. An
+iframe `load`, navigation, generation change, or failed handshake/preparation
+closes the port and destroys the session. The first release fails
 closed on any build mismatch instead of negotiating several protocol versions.
 This is channel binding and replay protection, not code attestation; TLS,
 artifact provenance, CSP, and the fixed Runtime route establish which code was
 loaded.
 
 Every envelope is runtime-validated and carries a session ID, request or turn
-ID where applicable, bounded payload, and explicit message type. The bootstrap
-ready exchange additionally carries the exact protocol version, build ID, and
-one-use nonce.
+ID where applicable, bounded payload, and explicit message type. Both bootstrap
+acknowledgement and ready messages carry the exact protocol version, build ID,
+and one-use nonce.
 
 The target semantic surface is deliberately narrow:
 
 | Direction | Messages |
 | --- | --- |
 | Host to Runtime | initialize locale, tool definitions, and a bounded conversation; update locale; switch conversation; start a user turn with its conversation ID and a bounded Workspace-state snapshot; return a tool result; cancel a turn; clear the session |
-| Runtime to host | ready and connection state, typed content start/delta/end events, typed tool call, turn completion, sanitized usage and error state |
+| Runtime to host | bootstrap acknowledgement, ready and connection state, typed content start/delta/end events, typed tool call, turn completion, sanitized usage and error state |
 
 Protocol version 1 initializes with a bounded locale, non-secret connection
 profile including user-declared context and output limits, tool definitions,
@@ -581,9 +584,16 @@ person or script with access to the browser profile can inspect it. Core never
 receives or backs up this database. Anonymous conversations are kept only in
 component memory and disappear when the project page is replaced.
 
-Writes are serialized, streaming updates are debounced, and terminal updates
-flush immediately. Scope cleanup captures the old account/project before a new
-scope becomes active, so a delayed write cannot land in another project. Quota,
+Writes are serialized within a tab. Streaming deltas are projected only at
+message/tool milestones rather than on every animation frame, and terminal
+updates flush immediately. Each conversation record carries a storage revision;
+IndexedDB compares and increments it in the same read/write transaction. A
+stale tab therefore cannot overwrite or delete a newer record: it preserves its
+local copy in memory, disables further persistence for that tab, and shows a
+conflict notice. A newly selected scope waits for writes already registered by
+the previous scope before loading. Scope generations and revision maps are
+identity-scoped, so even a rapid A-to-B-to-A transition cannot confuse an old A
+write with the new A view or land a delayed write in another project. Quota,
 corruption, or IndexedDB failures fail down to the in-memory collection rather
 than blocking chat. Loading validates and bounds every record instead of
 trusting browser storage.
@@ -1024,7 +1034,10 @@ PDF/vector artifact or entering the persistent preview renderer; LaTeX uses a
 distinct runtime queue for the same reason.
 Browser HTTP/module/package caches remain reusable, but compiler linear memory,
 incremental state, and request queues do not. The candidate runtime is disposed
-after 60 seconds idle.
+after 60 seconds with no active or queued verification. Candidate checks use a
+FIFO, abort-aware scheduler: a queued cancellation does not disturb active work,
+an active cancellation invalidates only the isolated candidate runtime, and a
+verification is never treated as passing merely because a newer request exists.
 
 A lightweight parse-only pass now precedes Typst candidate compilation. It uses
 the existing official `typst-syntax` WASM parser, reports the first actionable

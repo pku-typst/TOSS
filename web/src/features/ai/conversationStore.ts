@@ -66,6 +66,7 @@ export type AiStoredConversationMessage = {
 
 export type AiConversation = {
   id: string;
+  revision: number;
   title: string;
   autoTitle: boolean;
   createdAt: number;
@@ -100,6 +101,10 @@ function boundedString(value: unknown, maxLength: number, allowEmpty = false): v
 
 function finiteTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function storageRevision(value: unknown) {
+  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0;
 }
 
 function isMessageState(value: unknown): value is AiStoredConversationMessageState {
@@ -187,6 +192,9 @@ export function normalizeAiConversation(value: unknown): AiConversation | null {
   if (
     !isRecord(value) ||
     !boundedString(value.id, MAX_ID_LENGTH) ||
+    !(value.revision === undefined || (
+      Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
+    )) ||
     !boundedString(value.title, MAX_TITLE_LENGTH) ||
     !value.title.trim() ||
     typeof value.autoTitle !== "boolean" ||
@@ -201,6 +209,7 @@ export function normalizeAiConversation(value: unknown): AiConversation | null {
   if (messages.some((message) => message === null)) return null;
   return {
     id: value.id,
+    revision: storageRevision(value.revision),
     title: value.title,
     autoTitle: value.autoTitle,
     createdAt: value.createdAt,
@@ -217,6 +226,7 @@ export function createAiConversation(title: string, now = Date.now()): AiConvers
   const id = `conversation-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   return {
     id,
+    revision: 0,
     title: normalizedTitle,
     autoTitle: true,
     createdAt: now,
@@ -442,16 +452,35 @@ export class AiConversationStore {
     scope: AiConversationScope,
     conversation: AiConversation,
     activeConversationId: string | null = conversation.id
-  ) {
+  ): Promise<AiConversation> {
     const normalized = normalizeAiConversation(boundedConversation(conversation));
     if (!normalized) throw new Error("ai_conversation_invalid");
     const database = await this.database();
     const transaction = database.transaction([CONVERSATIONS_STORE, SCOPES_STORE], "readwrite");
     const key = scopeKey(scope);
-    transaction.objectStore(CONVERSATIONS_STORE).put({
+    const recordKey = conversationKey(scope, normalized.id);
+    const existingValue = await requestResult(
+      transaction.objectStore(CONVERSATIONS_STORE).get(recordKey)
+    );
+    const existing = existingValue === undefined
+      ? null
+      : normalizeStoredConversationRecord(existingValue, scope);
+    if (
+      (existing && existing.revision !== normalized.revision) ||
+      (!existing && existingValue !== undefined) ||
+      (!existing && existingValue === undefined && normalized.revision !== 0)
+    ) {
+      await transactionDone(transaction);
+      throw new AiConversationWriteConflict(existing);
+    }
+    const saved = {
       ...normalized,
+      revision: normalized.revision + 1
+    };
+    transaction.objectStore(CONVERSATIONS_STORE).put({
+      ...saved,
       schema: AI_CONVERSATION_STORE_SCHEMA,
-      key: conversationKey(scope, normalized.id),
+      key: recordKey,
       scopeKey: key
     } satisfies StoredConversationRecord);
     transaction.objectStore(SCOPES_STORE).put({
@@ -461,6 +490,7 @@ export class AiConversationStore {
     } satisfies StoredScopeRecord);
     await transactionDone(transaction);
     await this.enforceLimit(scope);
+    return saved;
   }
 
   async setActive(scope: AiConversationScope, activeConversationId: string | null) {
@@ -474,10 +504,28 @@ export class AiConversationStore {
     await transactionDone(transaction);
   }
 
-  async delete(scope: AiConversationScope, conversationId: string, nextActiveId: string | null) {
+  async delete(
+    scope: AiConversationScope,
+    conversationId: string,
+    expectedRevision: number,
+    nextActiveId: string | null
+  ) {
     const database = await this.database();
     const transaction = database.transaction([CONVERSATIONS_STORE, SCOPES_STORE], "readwrite");
-    transaction.objectStore(CONVERSATIONS_STORE).delete(conversationKey(scope, conversationId));
+    const store = transaction.objectStore(CONVERSATIONS_STORE);
+    const recordKey = conversationKey(scope, conversationId);
+    const existingValue = await requestResult(store.get(recordKey));
+    const existing = existingValue === undefined
+      ? null
+      : normalizeStoredConversationRecord(existingValue, scope);
+    if (
+      (existing && existing.revision !== expectedRevision) ||
+      (!existing && existingValue !== undefined)
+    ) {
+      await transactionDone(transaction);
+      throw new AiConversationWriteConflict(existing);
+    }
+    if (existing) store.delete(recordKey);
     transaction.objectStore(SCOPES_STORE).put({
       schema: AI_CONVERSATION_STORE_SCHEMA,
       scopeKey: scopeKey(scope),
@@ -493,7 +541,16 @@ export class AiConversationStore {
     const database = await this.database();
     const transaction = database.transaction(CONVERSATIONS_STORE, "readwrite");
     const store = transaction.objectStore(CONVERSATIONS_STORE);
-    for (const conversation of stale) store.delete(conversationKey(scope, conversation.id));
+    const currentRecords = await Promise.all(stale.map((conversation) =>
+      requestResult(store.get(conversationKey(scope, conversation.id)))
+    ));
+    for (const [index, value] of currentRecords.entries()) {
+      const conversation = stale[index];
+      const current = normalizeStoredConversationRecord(value, scope);
+      if (current?.revision === conversation.revision) {
+        store.delete(conversationKey(scope, conversation.id));
+      }
+    }
     await transactionDone(transaction);
   }
 
@@ -519,5 +576,12 @@ export class AiConversationStore {
       });
     }
     return this.databasePromise;
+  }
+}
+
+export class AiConversationWriteConflict extends Error {
+  constructor(readonly current: AiConversation | null) {
+    super("ai_conversation_write_conflict");
+    this.name = "AiConversationWriteConflict";
   }
 }

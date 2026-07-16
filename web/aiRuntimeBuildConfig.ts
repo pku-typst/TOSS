@@ -4,12 +4,12 @@ import path from "node:path";
 
 const FIXED_AI_RUNTIME_BUILD_INPUTS = [
   "ai-runtime/bootstrap.html",
+  "aiRuntimeBuildConfig.ts",
   "aiRuntimeHtml.ts",
   "package-lock.json",
-  "vite.ai-runtime.config.ts",
-  "src/features/ai/protocol.ts",
-  "src/features/ai/runtimePolicy.ts",
-  "src/features/ai/toolContract.ts"
+  "package.json",
+  "tsconfig.json",
+  "vite.ai-runtime.config.ts"
 ] as const;
 
 function runtimeSourceInputs(directory: string): string[] {
@@ -17,14 +17,17 @@ function runtimeSourceInputs(directory: string): string[] {
     .flatMap((entry) => {
       const relativePath = path.posix.join(directory, entry.name);
       if (entry.isDirectory()) return runtimeSourceInputs(relativePath);
-      return entry.isFile() && !entry.name.endsWith(".test.ts") ? [relativePath] : [];
+      return entry.isFile() && !/\.test\.[^.]+$/.test(entry.name) ? [relativePath] : [];
     });
 }
 
-function aiRuntimeBuildInputs() {
+export function aiRuntimeBuildInputs() {
   return [
     ...FIXED_AI_RUNTIME_BUILD_INPUTS,
-    ...runtimeSourceInputs("src/ai-runtime")
+    // The build identity is a deployment fence, not a cache optimization. Hash
+    // every production browser source so a future transitive Runtime import can
+    // never escape the host/iframe version binding.
+    ...runtimeSourceInputs("src")
   ].sort();
 }
 

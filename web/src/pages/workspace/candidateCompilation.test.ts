@@ -79,10 +79,29 @@ describe("Workspace candidate compilation", () => {
         workspaceKey: "project-a:assistant-candidate",
         entryFilePath: "main.typ",
       }),
+      undefined,
     );
     expect(result).toMatchObject({
       errors: [],
       diagnostics: [{ message: "A semantic warning" }],
     });
+  });
+
+  it("forwards cancellation to the isolated candidate compiler", async () => {
+    const controller = new AbortController();
+    compileTypstCandidateClientSide.mockRejectedValue(
+      new DOMException("Aborted", "AbortError"),
+    );
+
+    await expect(compileWorkspaceCandidate(
+      world("#let value = 1\nValue: #value"),
+      { kind: "typst", emitPdf: false },
+      "main.typ",
+      controller.signal,
+    )).rejects.toMatchObject({ name: "AbortError" });
+    expect(compileTypstCandidateClientSide).toHaveBeenCalledWith(
+      expect.any(Object),
+      controller.signal,
+    );
   });
 });

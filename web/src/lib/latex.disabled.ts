@@ -36,7 +36,10 @@ export async function compileLatexClientSide(
   };
 }
 
-export function compileLatexCandidateClientSide(options: CompileOptions) {
+export function compileLatexCandidateClientSide(
+  options: CompileOptions,
+  _signal?: AbortSignal
+) {
   return compileLatexClientSide(options);
 }
 

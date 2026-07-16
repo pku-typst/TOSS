@@ -10,6 +10,7 @@ import {
   type TypstRuntimeModule,
   verifyRuntimeModule
 } from "@/lib/typstRuntime";
+import { CandidateRuntimeScheduler } from "@/lib/candidateRuntime";
 import type {
   TypstDocumentPosition,
   TypstMappingResponse,
@@ -155,7 +156,7 @@ class TypstWorkerRuntime {
   }
 
   dispose() {
-    this.resetWorker("Typst candidate compiler disposed after becoming idle");
+    this.resetWorker("Typst compiler runtime was disposed");
     this.notify({ stage: "idle" });
   }
 
@@ -902,28 +903,14 @@ function getCanvasDocument(
 
 const runtime = new TypstWorkerRuntime();
 const CANDIDATE_RUNTIME_IDLE_MS = 60_000;
-let candidateRuntime: TypstWorkerRuntime | null = null;
-let candidateRuntimeIdleTimer: number | null = null;
+let candidateRuntime: CandidateRuntimeScheduler<TypstWorkerRuntime> | null = null;
 
-function activeCandidateRuntime() {
-  if (candidateRuntimeIdleTimer !== null) {
-    window.clearTimeout(candidateRuntimeIdleTimer);
-    candidateRuntimeIdleTimer = null;
-  }
-  candidateRuntime ??= new TypstWorkerRuntime();
+function candidateRuntimeScheduler() {
+  candidateRuntime ??= new CandidateRuntimeScheduler(
+    () => new TypstWorkerRuntime(),
+    CANDIDATE_RUNTIME_IDLE_MS,
+  );
   return candidateRuntime;
-}
-
-function releaseCandidateRuntimeWhenIdle(selectedRuntime: TypstWorkerRuntime) {
-  if (candidateRuntimeIdleTimer !== null) {
-    window.clearTimeout(candidateRuntimeIdleTimer);
-  }
-  candidateRuntimeIdleTimer = window.setTimeout(() => {
-    if (candidateRuntime !== selectedRuntime) return;
-    selectedRuntime.dispose();
-    candidateRuntime = null;
-    candidateRuntimeIdleTimer = null;
-  }, CANDIDATE_RUNTIME_IDLE_MS);
 }
 
 async function compileTypstWithRuntime(
@@ -998,9 +985,9 @@ export function compileTypstClientSide(options: CompileOptions) {
  * cannot supersede live preview work or mutate its incremental renderer session. */
 export async function compileTypstCandidateClientSide(
   options: Omit<CompileOptions, "emitPdf" | "pdfOnly" | "diagnosticsOnly">,
+  signal?: AbortSignal,
 ) {
-  const selectedRuntime = activeCandidateRuntime();
-  try {
+  return candidateRuntimeScheduler().run(async (selectedRuntime) => {
     const output = await compileTypstWithRuntime(selectedRuntime, {
       ...options,
       emitPdf: false,
@@ -1008,9 +995,7 @@ export async function compileTypstCandidateClientSide(
       diagnosticsOnly: true,
     });
     return { ...output, pdfData: null };
-  } finally {
-    releaseCandidateRuntimeWhenIdle(selectedRuntime);
-  }
+  }, signal);
 }
 
 export function subscribeTypstRuntimeStatus(listener: (status: TypstRuntimeStatus) => void) {

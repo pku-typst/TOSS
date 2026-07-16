@@ -1,4 +1,5 @@
 import type { CompileDiagnostic } from "./typst";
+import { CandidateRuntimeScheduler } from "./candidateRuntime";
 import { validateLatexCompileInput } from "./latexRuntimeUtils";
 
 export type LatexCompileOutput = {
@@ -121,12 +122,12 @@ export class LatexWorkerRuntime {
     this.active?.resolve({
       id: this.active.id,
       ok: false,
-      errors: ["LaTeX candidate compiler disposed after becoming idle"]
+      errors: ["LaTeX compiler runtime was disposed"]
     });
     this.queued?.resolve({
       id: this.queued.id,
       ok: false,
-      errors: ["LaTeX candidate compiler disposed after becoming idle"]
+      errors: ["LaTeX compiler runtime was disposed"]
     });
     this.active = null;
     this.queued = null;
@@ -185,33 +186,20 @@ export class LatexWorkerRuntime {
 
 const runtime = new LatexWorkerRuntime();
 const CANDIDATE_RUNTIME_IDLE_MS = 60_000;
-let candidateRuntime: LatexWorkerRuntime | null = null;
-let candidateRuntimeIdleTimer: number | null = null;
+let candidateRuntime: CandidateRuntimeScheduler<LatexWorkerRuntime> | null = null;
 
-function activeCandidateRuntime() {
-  if (candidateRuntimeIdleTimer !== null) {
-    window.clearTimeout(candidateRuntimeIdleTimer);
-    candidateRuntimeIdleTimer = null;
-  }
-  candidateRuntime ??= new LatexWorkerRuntime();
+function candidateRuntimeScheduler() {
+  candidateRuntime ??= new CandidateRuntimeScheduler(
+    () => new LatexWorkerRuntime(),
+    CANDIDATE_RUNTIME_IDLE_MS,
+  );
   return candidateRuntime;
-}
-
-function releaseCandidateRuntimeWhenIdle(selectedRuntime: LatexWorkerRuntime) {
-  if (candidateRuntimeIdleTimer !== null) {
-    window.clearTimeout(candidateRuntimeIdleTimer);
-  }
-  candidateRuntimeIdleTimer = window.setTimeout(() => {
-    if (candidateRuntime !== selectedRuntime) return;
-    selectedRuntime.dispose();
-    candidateRuntime = null;
-    candidateRuntimeIdleTimer = null;
-  }, CANDIDATE_RUNTIME_IDLE_MS);
 }
 
 async function compileLatexWithRuntime(
   selectedRuntime: LatexWorkerRuntime,
   options: CompileOptions,
+  supersededErrors: string[] = [],
 ): Promise<LatexCompileOutput> {
   if (!options.documents.length) {
     return {
@@ -227,7 +215,7 @@ async function compileLatexWithRuntime(
     return {
       vectorData: null,
       pdfData: null,
-      errors: [],
+      errors: supersededErrors,
       diagnostics: [],
       compiledAt: Date.now()
     };
@@ -260,14 +248,18 @@ export function compileLatexClientSide(options: CompileOptions) {
 }
 
 /** Keeps Assistant candidate checks independent from the live preview queue. */
-export async function compileLatexCandidateClientSide(options: CompileOptions) {
-  const selectedRuntime = activeCandidateRuntime();
-  try {
-    const output = await compileLatexWithRuntime(selectedRuntime, options);
+export function compileLatexCandidateClientSide(
+  options: CompileOptions,
+  signal?: AbortSignal,
+) {
+  return candidateRuntimeScheduler().run(async (selectedRuntime) => {
+    const output = await compileLatexWithRuntime(
+      selectedRuntime,
+      options,
+      ["LaTeX candidate compilation was superseded before it ran"],
+    );
     return { ...output, pdfData: null };
-  } finally {
-    releaseCandidateRuntimeWhenIdle(selectedRuntime);
-  }
+  }, signal);
 }
 
 export function subscribeLatexRuntimeStatus(listener: (status: LatexRuntimeStatus) => void) {

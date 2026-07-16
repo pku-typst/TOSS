@@ -2,6 +2,8 @@ import {
   AI_RUNTIME_BUILD_ID,
   AI_RUNTIME_PROTOCOL_VERSION,
   isAiRuntimeBootstrapInit,
+  type AiRuntimeBootstrapInit,
+  type AiRuntimeBootstrapAcknowledged,
   type AiRuntimeError
 } from "@/features/ai/protocol";
 import {
@@ -35,6 +37,20 @@ function reportBootstrapFailure(port: MessagePort, sessionId: string, message: s
   port.postMessage(error);
 }
 
+function acknowledgeBootstrap(
+  port: MessagePort,
+  init: Pick<AiRuntimeBootstrapInit, "sessionId" | "nonce">
+) {
+  const acknowledged: AiRuntimeBootstrapAcknowledged = {
+    type: "toss.ai.runtime.bootstrap_ack",
+    protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
+    buildId: AI_RUNTIME_BUILD_ID,
+    sessionId: init.sessionId,
+    nonce: init.nonce
+  };
+  port.postMessage(acknowledged);
+}
+
 async function initialize(event: MessageEvent<unknown>) {
   if (initialized || event.source !== window.parent || event.ports.length !== 1) return;
   if (!isAiRuntimeBootstrapInit(event.data)) return;
@@ -50,6 +66,7 @@ async function initialize(event: MessageEvent<unknown>) {
     const network = runtimeConnectSource(event.data.connection, expectedOrigin);
     installRuntimeMetaPolicy(earlyRuntimePolicy(network.source));
     if (network.endpoint) installBoundAiRuntimeFetch(network.endpoint);
+    acknowledgeBootstrap(port, event.data);
     const [runtime, providerStream] = await Promise.all([
       import("@/ai-runtime/runtime"),
       event.data.connection.kind === "endpoint"

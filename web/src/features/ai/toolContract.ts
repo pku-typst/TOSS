@@ -350,7 +350,7 @@ export function isAiWorkspaceToolArguments(
     return (
       isBoundedString(value.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
       isBoundedString(value.base_snapshot, 128) &&
-      isBoundedString(value.content, AI_WORKSPACE_TOOL_LIMITS.maxWriteFileCharacters)
+      isBoundedString(value.content, AI_WORKSPACE_TOOL_LIMITS.maxWriteFileCharacters, true)
     );
   }
   if (!hasOnlyKeys(

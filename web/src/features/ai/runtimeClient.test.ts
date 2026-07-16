@@ -47,11 +47,54 @@ function runtimeFrame(onBootstrap: (init: AiRuntimeBootstrapInit, port: MessageP
   };
 }
 
+function postBootstrapAck(port: MessagePort, init: AiRuntimeBootstrapInit) {
+  port.postMessage({
+    type: "toss.ai.runtime.bootstrap_ack",
+    protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
+    buildId: AI_RUNTIME_BUILD_ID,
+    sessionId: init.sessionId,
+    nonce: init.nonce
+  });
+}
+
+function postRuntimeReady(port: MessagePort, init: AiRuntimeBootstrapInit) {
+  port.postMessage({
+    type: "toss.ai.runtime.ready",
+    protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
+    buildId: AI_RUNTIME_BUILD_ID,
+    sessionId: init.sessionId,
+    nonce: init.nonce
+  });
+}
+
+function postRuntimeInitialized(port: MessagePort, init: AiRuntimeBootstrapInit) {
+  postBootstrapAck(port, init);
+  postRuntimeReady(port, init);
+}
+
 afterEach(() => {
   for (const client of clients.splice(0)) client.dispose();
 });
 
 describe("AiRuntimeClient", () => {
+  it("acknowledges the sandbox before its resources become ready", async () => {
+    const client = new AiRuntimeClient("en");
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    let runtimeInit: AiRuntimeBootstrapInit | null = null;
+    const { frame } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      runtimeInit = init;
+      postBootstrapAck(port, init);
+    });
+
+    client.connect(frame);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("configuring"));
+    expect(client.startTurn("too early")).toBe(false);
+    postRuntimeReady(runtimePort!, runtimeInit!);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+  });
+
   it("binds the handshake and projects a complete streamed turn", async () => {
     const client = new AiRuntimeClient("en");
     clients.push(client);
@@ -61,13 +104,7 @@ describe("AiRuntimeClient", () => {
       observed.bootstrap = init;
       runtimePort = port;
       port.start();
-      port.postMessage({
-        type: "toss.ai.runtime.ready",
-        protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-        buildId: AI_RUNTIME_BUILD_ID,
-        sessionId: init.sessionId,
-        nonce: init.nonce
-      });
+      postRuntimeInitialized(port, init);
     });
 
     client.connect(frame);
@@ -210,13 +247,7 @@ describe("AiRuntimeClient", () => {
       observed.bootstrap = init;
       runtimePort = port;
       port.start();
-      port.postMessage({
-        type: "toss.ai.runtime.ready",
-        protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-        buildId: AI_RUNTIME_BUILD_ID,
-        sessionId: init.sessionId,
-        nonce: init.nonce
-      });
+      postRuntimeInitialized(port, init);
     });
 
     client.connect(frame, { kind: "fake" }, {
@@ -263,13 +294,7 @@ describe("AiRuntimeClient", () => {
     const client = new AiRuntimeClient("en");
     clients.push(client);
     const { frame, postMessage } = runtimeFrame((init, port) => {
-      port.postMessage({
-        type: "toss.ai.runtime.ready",
-        protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-        buildId: AI_RUNTIME_BUILD_ID,
-        sessionId: init.sessionId,
-        nonce: init.nonce
-      });
+      postRuntimeInitialized(port, init);
     });
 
     client.connect(frame);
@@ -291,13 +316,7 @@ describe("AiRuntimeClient", () => {
     const { frame } = runtimeFrame((init, port) => {
       runtimePort = port;
       sessionId = init.sessionId;
-      port.postMessage({
-        type: "toss.ai.runtime.ready",
-        protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-        buildId: AI_RUNTIME_BUILD_ID,
-        sessionId,
-        nonce: init.nonce
-      });
+      postRuntimeInitialized(port, init);
     });
 
     client.connect(frame);
@@ -334,13 +353,7 @@ describe("AiRuntimeClient", () => {
     const { frame } = runtimeFrame((init, port) => {
       runtimePort = port;
       runtimeSessionId = init.sessionId;
-      port.postMessage({
-        type: "toss.ai.runtime.ready",
-        protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-        buildId: AI_RUNTIME_BUILD_ID,
-        sessionId: init.sessionId,
-        nonce: init.nonce
-      });
+      postRuntimeInitialized(port, init);
       port.postMessage({
         type: "toss.ai.runtime.connection_state",
         sessionId: init.sessionId,
@@ -372,6 +385,7 @@ describe("AiRuntimeClient", () => {
     const client = new AiRuntimeClient("en");
     clients.push(client);
     const { frame } = runtimeFrame((init, port) => {
+      postBootstrapAck(port, init);
       port.postMessage({
         type: "toss.ai.runtime.ready",
         protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
@@ -416,13 +430,7 @@ describe("AiRuntimeClient", () => {
       observed.bootstrap = init;
       runtimePort = port;
       port.start();
-      port.postMessage({
-        type: "toss.ai.runtime.ready",
-        protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-        buildId: AI_RUNTIME_BUILD_ID,
-        sessionId: init.sessionId,
-        nonce: init.nonce
-      });
+      postRuntimeInitialized(port, init);
     });
 
     client.connect(frame);

@@ -57,14 +57,14 @@ export async function compileWorkspaceCandidate(
     appOrigin: window.location.origin,
   };
   const output = target.kind === "latex"
-    ? await compileLatexCandidateClientSide({
-        ...common,
-        engine: target.engine,
-      })
-    : await compileTypstCandidateClientSide({
-        ...common,
-        fontData: compileWorldFontData(world).slice(),
-      });
+      ? await compileLatexCandidateClientSide({
+          ...common,
+          engine: target.engine,
+        }, signal)
+      : await compileTypstCandidateClientSide({
+          ...common,
+          fontData: compileWorldFontData(world).slice(),
+        }, signal);
   checkAbort(signal);
   return {
     errors: output.errors,

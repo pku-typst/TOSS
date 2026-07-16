@@ -418,6 +418,35 @@ describe("AI Workspace tool port", () => {
     );
   });
 
+  it("allows a full-file replacement to produce an empty file", async () => {
+    let candidate = "not-reviewed";
+    const port = portFor(source, async (proposal) => {
+      candidate = proposal.candidateText;
+      return "rejected";
+    });
+    const read = await port.execute({
+      tool: "read_project_file",
+      arguments: { path: "main.typ" }
+    });
+    if (read.outcome !== "success" || !("snapshot_id" in read.result)) return;
+    if (typeof read.result.snapshot_id !== "string") return;
+
+    const response = await port.execute({
+      tool: "write_file",
+      arguments: {
+        path: "main.typ",
+        base_snapshot: read.result.snapshot_id,
+        content: ""
+      }
+    });
+
+    expect(candidate).toBe("");
+    expect(response).toMatchObject({
+      outcome: "success",
+      result: { status: "rejected" }
+    });
+  });
+
   it("returns candidate diagnostics to the agent without opening review", async () => {
     let reviews = 0;
     const port = portFor(source, async () => {

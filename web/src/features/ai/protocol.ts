@@ -113,6 +113,14 @@ export type AiRuntimeReady = {
   nonce: string;
 };
 
+export type AiRuntimeBootstrapAcknowledged = {
+  type: "toss.ai.runtime.bootstrap_ack";
+  protocolVersion: typeof AI_RUNTIME_PROTOCOL_VERSION;
+  buildId: string;
+  sessionId: string;
+  nonce: string;
+};
+
 export type AiRuntimeContentStart = {
   type: "toss.ai.runtime.content_start";
   sessionId: string;
@@ -202,6 +210,7 @@ export type AiRuntimeToolCancel = {
 };
 
 export type AiRuntimeToHostMessage =
+  | AiRuntimeBootstrapAcknowledged
   | AiRuntimeReady
   | AiRuntimeConnectionState
   | AiRuntimeContentStart
@@ -430,7 +439,10 @@ export function isAiHostToRuntimeMessage(value: unknown): value is AiHostToRunti
 
 export function isAiRuntimeToHostMessage(value: unknown): value is AiRuntimeToHostMessage {
   if (!isRecord(value) || !isBoundedString(value.type, 64)) return false;
-  if (value.type === "toss.ai.runtime.ready") {
+  if (
+    value.type === "toss.ai.runtime.bootstrap_ack" ||
+    value.type === "toss.ai.runtime.ready"
+  ) {
     return (
       hasExactKeys(value, ["type", "protocolVersion", "buildId", "sessionId", "nonce"]) &&
       value.protocolVersion === AI_RUNTIME_PROTOCOL_VERSION &&

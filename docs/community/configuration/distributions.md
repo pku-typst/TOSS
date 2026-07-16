@@ -95,7 +95,8 @@ and runtime to disabled modules and excludes BusyTeX assets. Every build emits
 `toss-build-manifest.json`, which Core checks against runtime configuration.
 Schema 2 also binds an included AI host build to the exact
 `/_ai-runtime/bootstrap.html` artifact and build ID. An AI-excluded build emits
-neither the Assistant chunk nor the Runtime artifact.
+neither the Assistant chunk, candidate compiler/docs-tool path, KaTeX assets,
+nor the Runtime artifact.
 
 ## Product identity
 

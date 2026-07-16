@@ -55,6 +55,22 @@ describe("AI Runtime protocol validation", () => {
     expect(isAiRuntimeBootstrapInit({ ...bootstrap, locale: "fr" })).toBe(false);
   });
 
+  it("validates the bootstrap acknowledgement separately from readiness", () => {
+    expect(isAiRuntimeToHostMessage({
+      type: "toss.ai.runtime.bootstrap_ack",
+      protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
+      buildId: AI_RUNTIME_BUILD_ID,
+      sessionId: "session-1",
+      nonce: "nonce-1"
+    })).toBe(true);
+    expect(isAiRuntimeToHostMessage({
+      type: "toss.ai.runtime.bootstrap_ack",
+      protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
+      buildId: AI_RUNTIME_BUILD_ID,
+      sessionId: "session-1"
+    })).toBe(false);
+  });
+
   it("rejects unknown fields and generic network messages", () => {
     expect(isAiRuntimeBootstrapInit({ ...bootstrap, credential: "secret" })).toBe(false);
     expect(
@@ -356,6 +372,10 @@ describe("AI Runtime protocol validation", () => {
       }
     } as const;
     expect(isAiRuntimeToHostMessage(writeCall)).toBe(true);
+    expect(isAiRuntimeToHostMessage({
+      ...writeCall,
+      arguments: { ...writeCall.arguments, content: "" }
+    })).toBe(true);
     expect(isAiRuntimeToHostMessage({
       ...writeCall,
       arguments: { ...writeCall.arguments, extra: true }

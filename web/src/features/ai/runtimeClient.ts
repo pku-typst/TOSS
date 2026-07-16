@@ -82,9 +82,11 @@ export type AiRuntimeSnapshot = {
   error: string | null;
   errorMessage: string | null;
   usage: AiRuntimeTokenUsage | null;
+  persistenceRevision: number;
 };
 
 const HANDSHAKE_TIMEOUT_MS = 5_000;
+const RUNTIME_PREPARATION_TIMEOUT_MS = 30_000;
 const MAX_TRANSCRIPT_MESSAGE_LENGTH = 131_072;
 
 function secureId(prefix: string) {
@@ -167,13 +169,16 @@ export class AiRuntimeClient {
     activeTurnId: null,
     error: null,
     errorMessage: null,
-    usage: null
+    usage: null,
+    persistenceRevision: 0
   };
   private readonly listeners = new Set<() => void>();
   private port: MessagePort | null = null;
   private sessionId: string | null = null;
   private nonce: string | null = null;
   private handshakeTimer: number | null = null;
+  private preparationTimer: number | null = null;
+  private runtimeReady = false;
   private notificationHandle: number | null = null;
   private notificationUsesAnimationFrame = false;
   private loadObserved = false;
@@ -187,6 +192,10 @@ export class AiRuntimeClient {
   >();
   private readonly observedToolCallIds = new Set<string>();
   private readonly observedContentBlockIds = new Set<string>();
+  private readonly pendingContentDeltas = new Map<
+    string,
+    { turnId: string; blockId: string; text: string }
+  >();
   private toolCallsThisTurn = 0;
 
   constructor(locale: AiRuntimeLocale, workspacePort: AiWorkspaceToolPort | null = null) {
@@ -198,7 +207,8 @@ export class AiRuntimeClient {
     };
     this.snapshot = {
       ...this.snapshot,
-      conversationId: this.conversation.conversationId
+      conversationId: this.conversation.conversationId,
+      persistenceRevision: 0
     };
   }
 
@@ -225,6 +235,7 @@ export class AiRuntimeClient {
     }
     this.loadObserved = true;
     this.connectionKind = connection.kind;
+    this.runtimeReady = false;
     if (conversation) this.setConversationState(conversation);
     const target = frame.contentWindow;
     if (!target) {
@@ -362,7 +373,7 @@ export class AiRuntimeClient {
       error: null,
       errorMessage: null,
       usage: null
-    });
+    }, false, true);
     this.port.postMessage(message);
     return true;
   }
@@ -403,7 +414,7 @@ export class AiRuntimeClient {
       this.fail("runtime_session_mismatch");
       return;
     }
-    if (message.type === "toss.ai.runtime.ready") {
+    if (message.type === "toss.ai.runtime.bootstrap_ack") {
       if (
         this.snapshot.status !== "handshaking" ||
         message.nonce !== this.nonce ||
@@ -414,6 +425,32 @@ export class AiRuntimeClient {
         return;
       }
       this.clearHandshakeTimer();
+      this.preparationTimer = window.setTimeout(() => {
+        this.preparationTimer = null;
+        if (!this.runtimeReady && this.snapshot.status === "configuring") {
+          this.fail("runtime_preparation_timeout");
+        }
+      }, RUNTIME_PREPARATION_TIMEOUT_MS);
+      this.setSnapshot({
+        status: "configuring",
+        error: null,
+        errorMessage: null
+      });
+      return;
+    }
+    if (message.type === "toss.ai.runtime.ready") {
+      if (
+        this.snapshot.status !== "configuring" ||
+        this.preparationTimer === null ||
+        message.nonce !== this.nonce ||
+        message.protocolVersion !== AI_RUNTIME_PROTOCOL_VERSION ||
+        message.buildId !== AI_RUNTIME_BUILD_ID
+      ) {
+        this.fail("runtime_handshake_invalid");
+        return;
+      }
+      this.runtimeReady = true;
+      this.clearPreparationTimer();
       this.setSnapshot({
         status: this.connectionKind === "endpoint" ? "configuring" : "ready",
         error: null,
@@ -421,7 +458,15 @@ export class AiRuntimeClient {
       });
       return;
     }
-    if (this.snapshot.status === "handshaking" || this.snapshot.status === "idle") {
+    if (message.type === "toss.ai.runtime.error" && !this.runtimeReady) {
+      this.fail(message.code);
+      return;
+    }
+    if (
+      this.snapshot.status === "handshaking" ||
+      this.snapshot.status === "idle" ||
+      !this.runtimeReady
+    ) {
       this.fail("runtime_message_before_ready");
       return;
     }
@@ -492,7 +537,7 @@ export class AiRuntimeClient {
         messages: replaceMessage(this.snapshot.messages, message.turnId, (item) =>
           settleMessage(item, message.outcome === "cancelled" ? "cancelled" : "complete")
         )
-      });
+      }, false, true);
       return;
     }
     if (message.turnId && message.turnId === this.snapshot.activeTurnId) {
@@ -505,7 +550,7 @@ export class AiRuntimeClient {
         messages: replaceMessage(this.snapshot.messages, message.turnId, (item) =>
           settleMessage(item, "error")
         )
-      });
+      }, false, true);
       return;
     }
     this.fail(message.code);
@@ -532,6 +577,7 @@ export class AiRuntimeClient {
     this.abortPendingToolCalls();
     this.observedToolCallIds.clear();
     this.observedContentBlockIds.clear();
+    this.pendingContentDeltas.clear();
     this.toolCallsThisTurn = 0;
     this.conversation = {
       conversationId: conversation.conversationId,
@@ -583,21 +629,24 @@ export class AiRuntimeClient {
       !part ||
       part.type === "tool" ||
       part.state !== "streaming" ||
-      contentLength(message) + delta.length > MAX_TRANSCRIPT_MESSAGE_LENGTH
+      contentLength(message) + this.pendingContentLength(turnId) + delta.length >
+        MAX_TRANSCRIPT_MESSAGE_LENGTH
     ) {
       this.fail(part ? "runtime_output_too_large_or_closed" : "runtime_content_block_missing");
       return;
     }
-    this.setSnapshot({
-      messages: replaceMessage(this.snapshot.messages, turnId, (item) =>
-        replacePart(item, blockId, (current) => current.type === "tool"
-          ? current
-          : { ...current, text: current.text + delta })
-      )
-    }, true);
+    const key = `${turnId}\u0000${blockId}`;
+    const pending = this.pendingContentDeltas.get(key);
+    this.pendingContentDeltas.set(key, {
+      turnId,
+      blockId,
+      text: `${pending?.text ?? ""}${delta}`
+    });
+    this.scheduleNotification();
   }
 
   private handleContentEnd(turnId: string, blockId: string) {
+    this.flushContentDeltas();
     const message = this.activeAssistantMessage(turnId);
     if (!message) return;
     const part = message.parts.find((item) => item.id === blockId);
@@ -612,7 +661,7 @@ export class AiRuntimeClient {
           ? current
           : { ...current, state: "complete", completedAt })
       )
-    }, true);
+    }, true, true);
   }
 
   private handleToolCall(message: AiRuntimeToolCall) {
@@ -759,6 +808,7 @@ export class AiRuntimeClient {
     outcome: AiTranscriptToolOutcome | null,
     errorCode: AiWorkspaceToolErrorCode | null
   ) {
+    this.flushContentDeltas();
     const partId = `tool-${callId}`;
     const message = this.snapshot.messages.find((item) => item.id === turnId);
     const part = message?.parts.find((item) => item.id === partId);
@@ -770,7 +820,7 @@ export class AiRuntimeClient {
           ? current
           : { ...current, state, outcome, errorCode, completedAt })
       )
-    }, true);
+    }, true, true);
   }
 
   private abortPendingToolCalls(turnId?: string) {
@@ -781,8 +831,18 @@ export class AiRuntimeClient {
     }
   }
 
-  private setSnapshot(update: Partial<AiRuntimeSnapshot>, deferNotification = false) {
-    this.snapshot = { ...this.snapshot, ...update };
+  private setSnapshot(
+    update: Partial<AiRuntimeSnapshot>,
+    deferNotification = false,
+    persistenceMilestone = false
+  ) {
+    this.snapshot = {
+      ...this.snapshot,
+      ...update,
+      persistenceRevision: persistenceMilestone
+        ? this.snapshot.persistenceRevision + 1
+        : update.persistenceRevision ?? this.snapshot.persistenceRevision
+    };
     if (deferNotification) {
       this.scheduleNotification();
       return;
@@ -797,6 +857,7 @@ export class AiRuntimeClient {
       this.notificationHandle = window.requestAnimationFrame(() => {
         this.notificationHandle = null;
         this.notificationUsesAnimationFrame = false;
+        this.flushContentDeltas();
         for (const listener of this.listeners) listener();
       });
       return;
@@ -804,13 +865,37 @@ export class AiRuntimeClient {
     this.notificationUsesAnimationFrame = false;
     this.notificationHandle = window.setTimeout(() => {
       this.notificationHandle = null;
+      this.flushContentDeltas();
       for (const listener of this.listeners) listener();
     }, 16);
   }
 
   private notifyNow() {
     this.cancelScheduledNotification();
+    this.flushContentDeltas();
     for (const listener of this.listeners) listener();
+  }
+
+  private pendingContentLength(turnId: string) {
+    let length = 0;
+    for (const pending of this.pendingContentDeltas.values()) {
+      if (pending.turnId === turnId) length += pending.text.length;
+    }
+    return length;
+  }
+
+  private flushContentDeltas() {
+    if (this.pendingContentDeltas.size === 0) return;
+    let messages = this.snapshot.messages;
+    for (const { turnId, blockId, text } of this.pendingContentDeltas.values()) {
+      messages = replaceMessage(messages, turnId, (message) =>
+        replacePart(message, blockId, (part) => part.type === "tool"
+          ? part
+          : { ...part, text: part.text + text })
+      );
+    }
+    this.pendingContentDeltas.clear();
+    this.snapshot = { ...this.snapshot, messages };
   }
 
   private cancelScheduledNotification() {
@@ -838,7 +923,7 @@ export class AiRuntimeClient {
             settleMessage(message, "error")
           )
         : this.snapshot.messages
-    });
+    }, false, activeTurnId !== null);
   }
 
   private clearHandshakeTimer() {
@@ -847,9 +932,17 @@ export class AiRuntimeClient {
     this.handshakeTimer = null;
   }
 
+  private clearPreparationTimer() {
+    if (this.preparationTimer === null) return;
+    window.clearTimeout(this.preparationTimer);
+    this.preparationTimer = null;
+  }
+
   private closePort() {
     this.abortPendingToolCalls();
     this.clearHandshakeTimer();
+    this.clearPreparationTimer();
+    this.runtimeReady = false;
     this.port?.removeEventListener("message", this.handleMessage);
     this.port?.close();
     this.port = null;

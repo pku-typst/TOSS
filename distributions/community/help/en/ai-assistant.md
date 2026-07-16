@@ -78,7 +78,10 @@ not contain credentials, reasoning text, system prompts, raw tool results,
 source excerpts returned by tools, or patches. Final answers can quote project
 content, so local conversation history should still be treated as project data.
 Anonymous conversations remain only while the project page stays open. A reload
-restores signed-in conversation history but not the credential.
+restores signed-in conversation history but not the credential. If another tab
+updates the same conversation first, TOSS will not overwrite it: this tab keeps
+its local copy in memory, stops persistent writes, and displays a conflict
+notice.
 
 Answers stream into the conversation and support Markdown, code blocks, tables,
 baseline KaTeX math (`$...$` inline, or opening and closing `$$` delimiters on

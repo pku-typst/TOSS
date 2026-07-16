@@ -72,6 +72,7 @@ function transcript(): AiTranscriptMessage[] {
 function conversation(messages = transcriptToStoredMessages(transcript())): AiConversation {
   return {
     id: "conversation-1",
+    revision: 0,
     title: "Inspect main.typ",
     autoTitle: false,
     createdAt: 1,
@@ -148,6 +149,7 @@ describe("AI conversation persistence projection", () => {
 
   it("rejects malformed persisted records", () => {
     expect(normalizeAiConversation({ ...conversation(), title: "" })).toBeNull();
+    expect(normalizeAiConversation({ ...conversation(), revision: -1 })).toBeNull();
     expect(normalizeAiConversation({
       ...conversation(),
       messages: [{ ...conversation().messages[0], state: "streaming" }]

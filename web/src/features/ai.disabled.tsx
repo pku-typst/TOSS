@@ -11,6 +11,11 @@ import type {
   AssistantEditProposal,
   AssistantEditReviewDecision
 } from "@/pages/workspace/assistantEditReview";
+import type {
+  CompileTarget,
+  CompileWorld
+} from "@/pages/workspace/compileWorld";
+import type { WorkspaceCandidateCompilation } from "@/pages/workspace/candidateCompilation";
 
 export const AI_ASSISTANT_PANEL_ID = "feature:ai_assistant" as const;
 
@@ -80,6 +85,23 @@ export function createAiWorkspacePort(
       };
     }
   };
+}
+
+export function compileWorldWithCandidateDocument(
+  _world: CompileWorld,
+  _path: string,
+  _candidateText: string
+): CompileWorld | null {
+  return null;
+}
+
+export async function compileWorkspaceCandidate(
+  _world: CompileWorld,
+  _target: CompileTarget,
+  _candidatePath: string,
+  _signal?: AbortSignal
+): Promise<WorkspaceCandidateCompilation> {
+  return { errors: ["workspace_tool_not_available"], diagnostics: [] };
 }
 
 export type {

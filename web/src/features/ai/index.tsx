@@ -64,6 +64,8 @@ export {
   type AiWorkspacePortOptions,
   type AiWorkspaceToolSource
 } from "@/pages/workspace/assistantWorkspacePort";
+export { compileWorkspaceCandidate } from "@/pages/workspace/candidateCompilation";
+export { compileWorldWithCandidateDocument } from "@/pages/workspace/compileWorld";
 export type {
   AiWorkspaceContextSnapshot,
   AiWorkspaceToolPort

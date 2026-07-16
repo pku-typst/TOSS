@@ -493,14 +493,20 @@ export default function AssistantPanel({
       !conversations.ready ||
       snapshot.conversationId !== conversations.activeConversationId
     ) return;
-    updateConversationTranscript(snapshot.messages, snapshot.status !== "running");
+    updateConversationTranscript(
+      snapshot.messages,
+      snapshot.status !== "running",
+      `${runtime.generation}:${snapshot.persistenceRevision}`
+    );
   }, [
     conversations.activeConversationId,
     conversations.ready,
     updateConversationTranscript,
     snapshot.conversationId,
     snapshot.messages,
-    snapshot.status
+    snapshot.persistenceRevision,
+    snapshot.status,
+    runtime.generation
   ]);
   useLayoutEffect(() => {
     const transcript = transcriptRef.current;
@@ -509,25 +515,22 @@ export default function AssistantPanel({
   }, [snapshot.messages]);
 
   function replaceRuntime() {
-    setRuntime((current) => {
-      current.client.dispose();
-      const nextClient = new AiRuntimeClient(locale, workspacePort);
-      const conversation = conversations.activeConversation;
-      if (conversation) {
-        nextClient.setConversation(
-          conversation.id,
-          storedMessagesToTranscript(conversation.messages),
-          conversationHistory(conversation)
-        );
-        appliedConversationId.current = conversation.id;
-      } else {
-        appliedConversationId.current = null;
-      }
-      return {
-        generation: current.generation + 1,
-        client: nextClient
-      };
-    });
+    const nextClient = new AiRuntimeClient(locale, workspacePort);
+    const conversation = conversations.activeConversation;
+    if (conversation) {
+      nextClient.setConversation(
+        conversation.id,
+        storedMessagesToTranscript(conversation.messages),
+        conversationHistory(conversation)
+      );
+      appliedConversationId.current = conversation.id;
+    } else {
+      appliedConversationId.current = null;
+    }
+    setRuntime((current) => ({
+      generation: current.generation + 1,
+      client: nextClient
+    }));
     setPromptDraft("");
   }
 
@@ -914,6 +917,11 @@ export default function AssistantPanel({
               <Trash2 size={14} aria-hidden />
             </button>
           </div>
+          {conversations.storageError === "conflict" && (
+            <p className="ai-runtime-error" role="alert">
+              {t("ai.conversation.storageConflict")}
+            </p>
+          )}
           <div className="ai-connection-summary">
             <div>
               <strong>{connection.name}</strong>

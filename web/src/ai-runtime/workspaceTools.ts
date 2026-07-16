@@ -174,7 +174,7 @@ const writeFileTool = (
     }),
     content: Type.String({
       description: messages.writeFile.content,
-      minLength: 1,
+      minLength: 0,
       maxLength: AI_WORKSPACE_TOOL_LIMITS.maxWriteFileCharacters
     })
   }, { additionalProperties: false }),

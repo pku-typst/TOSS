@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AiConversationStore,
+  AiConversationWriteConflict,
   MAX_AI_CONVERSATIONS_PER_PROJECT,
   aiConversationTitleFromPrompt,
   conversationHistory,
@@ -21,18 +22,12 @@ export type AiConversationRepository = Pick<
 type ConversationState = AiConversationCollection & {
   ready: boolean;
   persistent: boolean;
+  storageError: "conflict" | "unavailable" | null;
 };
 
 const browserConversationStore = typeof window !== "undefined" && window.indexedDB
   ? new AiConversationStore(window.indexedDB)
   : null;
-
-function sameMessages(
-  left: AiConversation["messages"],
-  right: AiConversation["messages"]
-) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
 
 function activeConversation(state: ConversationState) {
   return state.conversations.find((conversation) => (
@@ -51,21 +46,26 @@ export function useAiConversations({
   defaultTitle: string;
   repository?: AiConversationRepository | null;
 }) {
-  const scope = useMemo<AiConversationScope | null>(() => accountId
+  const scope = useMemo<AiConversationScope | null>(() => accountId && repository
     ? { accountId, projectId }
-    : null, [accountId, projectId]);
+    : null, [accountId, projectId, repository]);
   const scopeRef = useRef(scope);
   const defaultTitleRef = useRef(defaultTitle);
   defaultTitleRef.current = defaultTitle;
   const [state, setReactState] = useState<ConversationState>({
     ready: false,
     persistent: !!scope && !!repository,
+    storageError: null,
     conversations: [],
     activeConversationId: null
   });
   const stateRef = useRef(state);
   const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   const saveTimers = useRef(new Map<string, number>());
+  const persistedRevisions = useRef(
+    new WeakMap<AiConversationScope, Map<string, number>>()
+  );
+  const transcriptVersions = useRef(new Map<string, string>());
 
   const commit = useCallback((next: ConversationState) => {
     stateRef.current = next;
@@ -76,18 +76,57 @@ export function useAiConversations({
     operation: () => Promise<unknown>,
     operationScope: AiConversationScope | null = scopeRef.current
   ) => {
-    writeQueue.current = writeQueue.current.then(operation).catch(() => {
-      const currentScope = scopeRef.current;
-      if (
-        operationScope?.accountId !== currentScope?.accountId ||
-        operationScope?.projectId !== currentScope?.projectId
-      ) {
-        return;
-      }
+    writeQueue.current = writeQueue.current.then(() => {
+      const isCurrentScope = operationScope === scopeRef.current;
+      if (isCurrentScope && !stateRef.current.persistent) return;
+      return operation();
+    }).catch((error: unknown) => {
+      if (operationScope !== scopeRef.current) return;
       const current = stateRef.current;
-      if (current.persistent) commit({ ...current, persistent: false });
+      if (current.persistent) {
+        commit({
+          ...current,
+          persistent: false,
+          storageError: error instanceof AiConversationWriteConflict ? "conflict" : "unavailable"
+        });
+      }
     });
   }, [commit]);
+
+  const revisionsForScope = useCallback((targetScope: AiConversationScope) => {
+    let revisions = persistedRevisions.current.get(targetScope);
+    if (!revisions) {
+      revisions = new Map();
+      persistedRevisions.current.set(targetScope, revisions);
+    }
+    return revisions;
+  }, []);
+
+  const persistConversation = useCallback(async (
+    targetScope: AiConversationScope,
+    conversation: AiConversation,
+    activeConversationId: string | null
+  ) => {
+    if (!repository) return;
+    const revisions = revisionsForScope(targetScope);
+    const expectedRevision = revisions.get(conversation.id) ?? conversation.revision;
+    const saved = await repository.save(
+      targetScope,
+      { ...conversation, revision: expectedRevision },
+      activeConversationId
+    );
+    revisions.set(conversation.id, saved.revision);
+    if (scopeRef.current !== targetScope) return;
+    const current = stateRef.current;
+    const local = current.conversations.find((item) => item.id === saved.id);
+    if (!local || local.revision === saved.revision) return;
+    commit({
+      ...current,
+      conversations: current.conversations.map((item) =>
+        item.id === saved.id ? { ...item, revision: saved.revision } : item
+      )
+    });
+  }, [commit, repository, revisionsForScope]);
 
   const flushConversation = useCallback((
     conversationId: string,
@@ -102,10 +141,10 @@ export function useAiConversations({
     const conversation = current.conversations.find((item) => item.id === conversationId);
     if (!conversation || !targetScope || !repository || !current.persistent) return;
     enqueue(
-      () => repository.save(targetScope, conversation, current.activeConversationId),
+      () => persistConversation(targetScope, conversation, current.activeConversationId),
       targetScope
     );
-  }, [enqueue, repository]);
+  }, [enqueue, persistConversation, repository]);
 
   const scheduleSave = useCallback((conversationId: string, immediate: boolean) => {
     if (!stateRef.current.persistent || !scopeRef.current || !repository) return;
@@ -132,12 +171,15 @@ export function useAiConversations({
       }
     };
     scopeRef.current = scope;
+    if (scope) persistedRevisions.current.set(scope, new Map());
+    transcriptVersions.current.clear();
     for (const timer of timers.values()) window.clearTimeout(timer);
     timers.clear();
     const fallback = createAiConversation(defaultTitleRef.current);
     commit({
       ready: false,
       persistent: !!scope && !!repository,
+      storageError: null,
       conversations: [],
       activeConversationId: null
     });
@@ -145,36 +187,52 @@ export function useAiConversations({
       commit({
         ready: true,
         persistent: false,
+        storageError: null,
         conversations: [fallback],
         activeConversationId: fallback.id
       });
       return cleanup;
     }
-    void repository.load(scope).then((collection) => {
+    const writesBeforeLoad = writeQueue.current;
+    void writesBeforeLoad.then(() => repository.load(scope)).then((collection) => {
       if (cancelled) return;
       if (collection.conversations.length > 0) {
-        commit({ ...collection, ready: true, persistent: true });
+        const revisions = revisionsForScope(scope);
+        for (const conversation of collection.conversations) {
+          revisions.set(conversation.id, conversation.revision);
+        }
+        commit({ ...collection, ready: true, persistent: true, storageError: null });
         return;
       }
       const next = {
         conversations: [fallback],
         activeConversationId: fallback.id,
         ready: true,
-        persistent: true
+        persistent: true,
+        storageError: null
       } satisfies ConversationState;
       commit(next);
-      enqueue(() => repository.save(scope, fallback, fallback.id), scope);
+      enqueue(() => persistConversation(scope, fallback, fallback.id), scope);
     }).catch(() => {
       if (cancelled) return;
       commit({
         ready: true,
         persistent: false,
+        storageError: "unavailable",
         conversations: [fallback],
         activeConversationId: fallback.id
       });
     });
     return cleanup;
-  }, [commit, enqueue, flushConversation, repository, scope]);
+  }, [
+    commit,
+    enqueue,
+    flushConversation,
+    persistConversation,
+    repository,
+    revisionsForScope,
+    scope
+  ]);
 
   useEffect(() => {
     const flushActive = () => {
@@ -218,10 +276,10 @@ export function useAiConversations({
     commit(next);
     const currentScope = scopeRef.current;
     if (currentScope && repository && next.persistent) {
-      enqueue(() => repository.save(currentScope, conversation, conversation.id));
+      enqueue(() => persistConversation(currentScope, conversation, conversation.id));
     }
     return conversation;
-  }, [commit, enqueue, flushConversation, repository]);
+  }, [commit, enqueue, flushConversation, persistConversation, repository]);
 
   const rename = useCallback((conversationId: string, title: string) => {
     const normalizedTitle = title.trim().slice(0, 80);
@@ -266,6 +324,7 @@ export function useAiConversations({
     const timer = saveTimers.current.get(conversationId);
     if (timer !== undefined) window.clearTimeout(timer);
     saveTimers.current.delete(conversationId);
+    transcriptVersions.current.delete(conversationId);
     let conversations = current.conversations.filter((item) => item.id !== conversationId);
     if (conversations.length === 0) conversations = [createAiConversation(defaultTitleRef.current)];
     const activeConversationId = current.activeConversationId === conversationId
@@ -276,25 +335,35 @@ export function useAiConversations({
     const currentScope = scopeRef.current;
     if (currentScope && repository && next.persistent) {
       enqueue(async () => {
-        await repository.delete(currentScope, conversationId, activeConversationId);
+        const revisions = revisionsForScope(currentScope);
+        const expectedRevision = revisions.get(conversationId) ?? existing.revision;
+        await repository.delete(
+          currentScope,
+          conversationId,
+          expectedRevision,
+          activeConversationId
+        );
+        revisions.delete(conversationId);
         const replacement = conversations.find((item) => item.id === activeConversationId);
         if (replacement && current.conversations.length === 1) {
-          await repository.save(currentScope, replacement, replacement.id);
+          await persistConversation(currentScope, replacement, replacement.id);
         }
       });
     }
     return conversations.find((item) => item.id === activeConversationId) ?? null;
-  }, [commit, enqueue, repository]);
+  }, [commit, enqueue, persistConversation, repository, revisionsForScope]);
 
   const updateTranscript = useCallback((
     messages: readonly AiTranscriptMessage[],
-    immediate = false
+    immediate = false,
+    sourceVersion?: string
   ) => {
     const current = stateRef.current;
     const conversation = activeConversation(current);
     if (!conversation) return;
+    if (sourceVersion && transcriptVersions.current.get(conversation.id) === sourceVersion) return;
+    if (sourceVersion) transcriptVersions.current.set(conversation.id, sourceVersion);
     const storedMessages = transcriptToStoredMessages(messages);
-    if (sameMessages(conversation.messages, storedMessages)) return;
     const updated = { ...conversation, messages: storedMessages, updatedAt: Date.now() };
     const next = {
       ...current,

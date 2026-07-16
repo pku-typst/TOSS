@@ -16,6 +16,8 @@ import {
   AssistantEditReviewCoordinator,
   AssistantEditReviewPane,
   aiAssistantWorkspacePanel,
+  compileWorkspaceCandidate,
+  compileWorldWithCandidateDocument,
   createAiWorkspacePort,
   type AiWorkspaceCandidateCompileResult,
   type AiWorkspaceContextSnapshot,
@@ -48,8 +50,6 @@ import { useRealtimeDoc } from "@/pages/workspace/hooks/useRealtimeDoc";
 import { useWorkspaceAssetHydration } from "@/pages/workspace/hooks/useWorkspaceAssetHydration";
 import { useWorkspaceCompilation } from "@/pages/workspace/hooks/useWorkspaceCompilation";
 import { useWorkspaceCompileInputs } from "@/pages/workspace/hooks/useWorkspaceCompileInputs";
-import { compileWorkspaceCandidate } from "@/pages/workspace/candidateCompilation";
-import { compileWorldWithCandidateDocument } from "@/pages/workspace/compileWorld";
 import { useWorkspaceFileActions } from "@/pages/workspace/hooks/useWorkspaceFileActions";
 import { useWorkspaceSession } from "@/pages/workspace/hooks/useWorkspaceSession";
 import { useWorkspaceProjectActions } from "@/pages/workspace/hooks/useWorkspaceProjectActions";

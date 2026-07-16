@@ -269,7 +269,9 @@ Network failure does not prove ownership loss, but the agent must stop the
 sandbox before the last confirmed lease expires. It must never continue work on
 the assumption that a failed heartbeat will eventually succeed. The SDK lease
 guard centralizes server-time offset, renewal margin, cancellation propagation,
-and process termination.
+and process termination. Claim renewal is a single HTTP attempt raced directly
+against the last confirmed lease deadline and shutdown signal; it does not use
+the generic mutation retry loop, so a stalled request cannot hide lease expiry.
 
 ## Transfer tickets
 

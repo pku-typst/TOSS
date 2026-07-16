@@ -466,7 +466,7 @@ function normalizeFullFileContent(baseText: string, content: string) {
   const baseEndsWithNewline = baseHasCrLf
     ? baseText.endsWith("\r\n")
     : baseText.endsWith("\n");
-  if (baseEndsWithNewline && !normalized.endsWith("\n")) normalized += "\n";
+  if (normalized.length > 0 && baseEndsWithNewline && !normalized.endsWith("\n")) normalized += "\n";
   const candidateText = baseHasCrLf ? normalized.replaceAll("\n", "\r\n") : normalized;
   return candidateText.length <= AI_WORKSPACE_TOOL_LIMITS.maxWriteFileCharacters
     ? candidateText

@@ -133,7 +133,7 @@ impl CoreClient {
         claim_id: Uuid,
         input: &ClaimHeartbeatInput,
     ) -> Result<ClaimHeartbeatResponse, ClientError> {
-        self.worker_json(
+        self.worker_json_once(
             Method::POST,
             &format!("/internal/v1/processing/claims/{claim_id}/heartbeat"),
             input,
@@ -279,22 +279,9 @@ impl CoreClient {
         let url = self.resolve(path)?;
         let mut attempt = 0;
         loop {
-            let result = async {
-                checked(
-                    self.http
-                        .request(method.clone(), url.clone())
-                        .bearer_auth(self.worker_token.as_ref())
-                        .json(input)
-                        .send()
-                        .await
-                        .map_err(ClientError::Transport)?,
-                )
-                .await?
-                .json::<O>()
-                .await
-                .map_err(ClientError::InvalidResponse)
-            }
-            .await;
+            let result = self
+                .worker_json_attempt(method.clone(), url.clone(), input)
+                .await;
             match result {
                 Err(error)
                     if retryable_mutation_error(&error) && attempt + 1 < MUTATION_ATTEMPTS =>
@@ -305,6 +292,45 @@ impl CoreClient {
                 result => return result,
             }
         }
+    }
+
+    async fn worker_json_once<I, O>(
+        &self,
+        method: Method,
+        path: &str,
+        input: &I,
+    ) -> Result<O, ClientError>
+    where
+        I: Serialize + ?Sized,
+        O: DeserializeOwned,
+    {
+        let url = self.resolve(path)?;
+        self.worker_json_attempt(method, url, input).await
+    }
+
+    async fn worker_json_attempt<I, O>(
+        &self,
+        method: Method,
+        url: Url,
+        input: &I,
+    ) -> Result<O, ClientError>
+    where
+        I: Serialize + ?Sized,
+        O: DeserializeOwned,
+    {
+        checked(
+            self.http
+                .request(method, url)
+                .bearer_auth(self.worker_token.as_ref())
+                .json(input)
+                .send()
+                .await
+                .map_err(ClientError::Transport)?,
+        )
+        .await?
+        .json::<O>()
+        .await
+        .map_err(ClientError::InvalidResponse)
     }
 
     async fn worker_empty<I: Serialize + ?Sized>(
