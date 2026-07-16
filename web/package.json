@@ -19,11 +19,14 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:i18n": "playwright test tests/e2e/i18n.spec.ts",
+    "test:ai-agent-local": "node scripts/local-ai-agent-scenario.mjs",
+    "sync:typst-docs": "node scripts/sync-typst-docs.mjs sync",
+    "check:typst-docs": "node scripts/sync-typst-docs.mjs verify",
     "sync:typst-assets": "node scripts/sync-typst-assets.mjs",
     "sync:busytex-assets": "node scripts/sync-busytex-assets.mjs",
     "check:typst-runtime": "npm run sync:typst-assets && node scripts/check-typst-runtime.mjs",
     "dev": "npm run sync:typst-assets && npm run sync:busytex-assets && vite --host 127.0.0.1 --port 3000",
-    "build": "npm run lint && npm run check:i18n && npm run check:protocol && npm run sync:typst-assets && npm run sync:busytex-assets && tsc -b && vite build && node scripts/build-ai-runtime.mjs && node scripts/precompress-dist.mjs && npm run check:ai-excluded-build",
+    "build": "npm run lint && npm run check:i18n && npm run check:protocol && npm run check:typst-docs && npm run sync:typst-assets && npm run sync:busytex-assets && tsc -b && vite build && node scripts/build-ai-runtime.mjs && node scripts/precompress-dist.mjs && npm run check:ai-excluded-build",
     "preview": "npm run sync:typst-assets && npm run sync:busytex-assets && vite preview --host 127.0.0.1 --port 3000"
   },
   "dependencies": {
@@ -31,6 +34,8 @@
     "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
+    "@earendil-works/pi-agent-core": "0.80.7",
+    "@earendil-works/pi-ai": "0.80.7",
     "@fontsource-variable/noto-sans-sc": "5.2.10",
     "@lezer/highlight": "^1.2.3",
     "@myriaddreamin/typst-ts-renderer": "0.8.0-rc3",
@@ -52,6 +57,7 @@
     "react-router-dom": "^7.18.1",
     "remark-gfm": "^4.0.1",
     "texlyre-busytex": "1.2.3",
+    "typebox": "1.1.38",
     "xstate": "^5.32.4",
     "y-indexeddb": "^9.0.12",
     "yjs": "^13.6.31"

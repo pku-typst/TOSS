@@ -234,6 +234,22 @@
           "visibility": "authenticated"
         },
         {
+          "id": "ai-assistant",
+          "title": { "en": "Browser AI assistant", "zh-CN": "浏览器 AI 助手" },
+          "summary": {
+            "en": "Configure browser-only AI, manage project conversations, understand credential isolation, and diagnose CORS requirements.",
+            "zh-CN": "配置纯浏览器 AI、管理项目对话、了解凭据隔离方式，并排查 CORS 要求。"
+          },
+          "sources": {
+            "en": "help/en/ai-assistant.md",
+            "zh-CN": "help/zh-CN/ai-assistant.md"
+          },
+          "visibility": "authenticated",
+          "availability": {
+            "frontend_features": ["ai_assistant"]
+          }
+        },
+        {
           "id": "packages",
           "title": { "en": "Packages and assets", "zh-CN": "包与附件" },
           "summary": {

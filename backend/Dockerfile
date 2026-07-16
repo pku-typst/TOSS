@@ -16,6 +16,7 @@ WORKDIR /workspace
 COPY web/package.json ./web/package.json
 COPY web/package-lock.json ./web/package-lock.json
 COPY web/typst-runtime.config.json ./web/typst-runtime.config.json
+COPY third-party/typst.ts/Cargo.toml ./third-party/typst.ts/Cargo.toml
 COPY scripts/fetch-runtime-artifacts.mjs ./scripts/fetch-runtime-artifacts.mjs
 COPY scripts/prebuilt-typst-compiler.mjs ./scripts/prebuilt-typst-compiler.mjs
 COPY scripts/typst-compiler-builder.Dockerfile ./scripts/typst-compiler-builder.Dockerfile

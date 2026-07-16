@@ -13,9 +13,16 @@ export default defineConfig({
     __TOSS_AI_RUNTIME_BUILD_ID__: JSON.stringify(aiRuntimeBuildId)
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src")
-    }
+    alias: [
+      {
+        find: "@earendil-works/pi-ai/compat",
+        replacement: path.resolve(__dirname, "src/ai-runtime/piAgentCompat.ts")
+      },
+      {
+        find: "@",
+        replacement: path.resolve(__dirname, "src")
+      }
+    ]
   },
   test: {
     execArgv: ["--no-experimental-webstorage"],

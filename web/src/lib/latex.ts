@@ -117,6 +117,24 @@ export class LatexWorkerRuntime {
     };
   }
 
+  dispose() {
+    this.active?.resolve({
+      id: this.active.id,
+      ok: false,
+      errors: ["LaTeX candidate compiler disposed after becoming idle"]
+    });
+    this.queued?.resolve({
+      id: this.queued.id,
+      ok: false,
+      errors: ["LaTeX candidate compiler disposed after becoming idle"]
+    });
+    this.active = null;
+    this.queued = null;
+    this.worker?.terminate();
+    this.worker = null;
+    this.notify({ stage: "idle" });
+  }
+
   compile(options: CompileOptions): Promise<WorkerCompileResponse> {
     try {
       validateLatexCompileInput(options);
@@ -166,8 +184,35 @@ export class LatexWorkerRuntime {
 }
 
 const runtime = new LatexWorkerRuntime();
+const CANDIDATE_RUNTIME_IDLE_MS = 60_000;
+let candidateRuntime: LatexWorkerRuntime | null = null;
+let candidateRuntimeIdleTimer: number | null = null;
 
-export async function compileLatexClientSide(options: CompileOptions): Promise<LatexCompileOutput> {
+function activeCandidateRuntime() {
+  if (candidateRuntimeIdleTimer !== null) {
+    window.clearTimeout(candidateRuntimeIdleTimer);
+    candidateRuntimeIdleTimer = null;
+  }
+  candidateRuntime ??= new LatexWorkerRuntime();
+  return candidateRuntime;
+}
+
+function releaseCandidateRuntimeWhenIdle(selectedRuntime: LatexWorkerRuntime) {
+  if (candidateRuntimeIdleTimer !== null) {
+    window.clearTimeout(candidateRuntimeIdleTimer);
+  }
+  candidateRuntimeIdleTimer = window.setTimeout(() => {
+    if (candidateRuntime !== selectedRuntime) return;
+    selectedRuntime.dispose();
+    candidateRuntime = null;
+    candidateRuntimeIdleTimer = null;
+  }, CANDIDATE_RUNTIME_IDLE_MS);
+}
+
+async function compileLatexWithRuntime(
+  selectedRuntime: LatexWorkerRuntime,
+  options: CompileOptions,
+): Promise<LatexCompileOutput> {
   if (!options.documents.length) {
     return {
       vectorData: null,
@@ -177,7 +222,7 @@ export async function compileLatexClientSide(options: CompileOptions): Promise<L
       compiledAt: Date.now()
     };
   }
-  const result = await runtime.compile(options);
+  const result = await selectedRuntime.compile(options);
   if (result.superseded) {
     return {
       vectorData: null,
@@ -208,6 +253,21 @@ export async function compileLatexClientSide(options: CompileOptions): Promise<L
     diagnostics: result.diagnostics ?? [],
     compiledAt: Date.now()
   };
+}
+
+export function compileLatexClientSide(options: CompileOptions) {
+  return compileLatexWithRuntime(runtime, options);
+}
+
+/** Keeps Assistant candidate checks independent from the live preview queue. */
+export async function compileLatexCandidateClientSide(options: CompileOptions) {
+  const selectedRuntime = activeCandidateRuntime();
+  try {
+    const output = await compileLatexWithRuntime(selectedRuntime, options);
+    return { ...output, pdfData: null };
+  } finally {
+    releaseCandidateRuntimeWhenIdle(selectedRuntime);
+  }
 }
 
 export function subscribeLatexRuntimeStatus(listener: (status: LatexRuntimeStatus) => void) {

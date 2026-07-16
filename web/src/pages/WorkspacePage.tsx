@@ -1,9 +1,11 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
@@ -11,7 +13,13 @@ import { UiButton } from "@/components/ui";
 import {
   AiAssistantPanel,
   AI_ASSISTANT_PANEL_ID,
-  aiAssistantWorkspacePanel
+  AssistantEditReviewCoordinator,
+  AssistantEditReviewPane,
+  aiAssistantWorkspacePanel,
+  createAiWorkspacePort,
+  type AiWorkspaceCandidateCompileResult,
+  type AiWorkspaceContextSnapshot,
+  type AiWorkspaceToolSource
 } from "@/features/ai";
 import {
   coreApiBaseUrl,
@@ -40,6 +48,8 @@ import { useRealtimeDoc } from "@/pages/workspace/hooks/useRealtimeDoc";
 import { useWorkspaceAssetHydration } from "@/pages/workspace/hooks/useWorkspaceAssetHydration";
 import { useWorkspaceCompilation } from "@/pages/workspace/hooks/useWorkspaceCompilation";
 import { useWorkspaceCompileInputs } from "@/pages/workspace/hooks/useWorkspaceCompileInputs";
+import { compileWorkspaceCandidate } from "@/pages/workspace/candidateCompilation";
+import { compileWorldWithCandidateDocument } from "@/pages/workspace/compileWorld";
 import { useWorkspaceFileActions } from "@/pages/workspace/hooks/useWorkspaceFileActions";
 import { useWorkspaceSession } from "@/pages/workspace/hooks/useWorkspaceSession";
 import { useWorkspaceProjectActions } from "@/pages/workspace/hooks/useWorkspaceProjectActions";
@@ -405,6 +415,8 @@ function ResolvedWorkspacePage({
     realtimeBoundPath,
     hasActiveLiveDoc,
     applyDocumentDeltas,
+    replaceActiveDocumentText,
+    readActiveDocumentText,
     sendCursor,
     reconnectNow,
     sendSyncSnapshot
@@ -682,6 +694,305 @@ function ResolvedWorkspacePage({
     hasActiveLiveDoc &&
     realtimeDocReady &&
     realtimeBoundPath === activePath;
+  const aiWorkspaceScopeId = `${workspaceSessionGeneration}:${
+    isRevisionMode ? `revision:${activeRevisionId}` : "live"
+  }`;
+  const aiWorkspaceSource = useMemo<AiWorkspaceToolSource>(() => ({
+    scopeId: aiWorkspaceScopeId,
+    projectType,
+    mode: isRevisionMode ? "revision" : "live",
+    entryFilePath: sourceEntryFilePath,
+    activePath,
+    nodes: currentNodes,
+    documents: sourceDocs,
+    activeDocument:
+      isActiveTextDoc && (isRevisionMode || activeLiveDocReady || workspaceOffline)
+        ? { path: activePath, text: editorDocumentText }
+        : null,
+    documentIdentities: isRevisionMode ? {} : documentIdentities
+  }), [
+    activeLiveDocReady,
+    activePath,
+    aiWorkspaceScopeId,
+    currentNodes,
+    documentIdentities,
+    editorDocumentText,
+    isActiveTextDoc,
+    isRevisionMode,
+    projectType,
+    sourceDocs,
+    sourceEntryFilePath,
+    workspaceOffline
+  ]);
+  const aiWorkspaceSourceRef = useRef(aiWorkspaceSource);
+  useLayoutEffect(() => {
+    aiWorkspaceSourceRef.current = aiWorkspaceSource;
+  }, [aiWorkspaceSource]);
+  const getAiWorkspaceSource = useCallback(() => {
+    const source = aiWorkspaceSourceRef.current;
+    if (source.mode !== "live") return source;
+    const latestText = readActiveDocumentText();
+    if (latestText === null) return source;
+    if (
+      source.activeDocument?.path === source.activePath &&
+      source.activeDocument.text === latestText
+    ) return source;
+    return {
+      ...source,
+      activeDocument: { path: source.activePath, text: latestText }
+    };
+  }, [readActiveDocumentText]);
+  const aiWorkspaceAllowsEdits = !!canWrite && !isRevisionMode;
+  const aiCandidateAssetsReady = !requiredAssetPaths.some(
+    (path) => !assetBase64[path] && !assetLoadFailedRef.current.has(path)
+  );
+  const aiCandidateCompileRevision = useMemo(() => ({
+    world: compileWorld,
+    target: compileTarget,
+    ready:
+      workspaceLoaded &&
+      !workspaceSyncPending &&
+      compileActiveLiveDocReady &&
+      aiCandidateAssetsReady
+  }), [
+    aiCandidateAssetsReady,
+    compileActiveLiveDocReady,
+    compileTarget,
+    compileWorld,
+    workspaceLoaded,
+    workspaceSyncPending
+  ]);
+  const aiCandidateCompileRevisionRef = useRef(aiCandidateCompileRevision);
+  useLayoutEffect(() => {
+    aiCandidateCompileRevisionRef.current = aiCandidateCompileRevision;
+  }, [aiCandidateCompileRevision]);
+  const verifyAiCandidate = useCallback(async (
+    candidate: { path: string; baseText: string; candidateText: string },
+    signal?: AbortSignal
+  ): Promise<AiWorkspaceCandidateCompileResult> => {
+    let revision = aiCandidateCompileRevisionRef.current;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (revision.world.source(candidate.path) === candidate.baseText) break;
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      revision = aiCandidateCompileRevisionRef.current;
+    }
+    if (!revision.ready) {
+      return {
+        outcome: "unavailable",
+        reason: "workspace_sync_pending"
+      };
+    }
+    if (revision.world.source(candidate.path) !== candidate.baseText) {
+      return {
+        outcome: "unavailable",
+        reason: "compiler_world_stale"
+      };
+    }
+    const candidateWorld = compileWorldWithCandidateDocument(
+      revision.world,
+      candidate.path,
+      candidate.candidateText
+    );
+    if (!candidateWorld) {
+      return {
+        outcome: "unavailable",
+        reason: "document_missing"
+      };
+    }
+    const output = await compileWorkspaceCandidate(
+      candidateWorld,
+      revision.target,
+      candidate.path,
+      signal
+    );
+    return {
+      outcome: "completed",
+      revision,
+      errors: output.errors,
+      diagnostics: output.diagnostics
+    };
+  }, []);
+  const isAiCandidateRevisionCurrent = useCallback(
+    (revision: object) => aiCandidateCompileRevisionRef.current === revision,
+    []
+  );
+  const assistantEditReviewCoordinator = useMemo(
+    () => new AssistantEditReviewCoordinator(aiWorkspaceScopeId),
+    [aiWorkspaceScopeId]
+  );
+  useEffect(
+    () => () => assistantEditReviewCoordinator.dispose(),
+    [assistantEditReviewCoordinator]
+  );
+  const assistantEditReviewSnapshot = useSyncExternalStore(
+    assistantEditReviewCoordinator.subscribe,
+    assistantEditReviewCoordinator.getSnapshot,
+    assistantEditReviewCoordinator.getSnapshot
+  );
+  const assistantEditProposal = assistantEditReviewSnapshot.proposal;
+  const aiWorkspaceContext = useMemo<AiWorkspaceContextSnapshot>(() => {
+    const files = currentNodes.filter((node) => node.kind === "file");
+    const textFiles = files.filter((node) => isTextFile(node.path)).length;
+    const diagnosticErrors = compileDiagnostics.filter(
+      (diagnostic) => diagnostic.severity === "error"
+    ).length;
+    const warningCount = compileDiagnostics.filter(
+      (diagnostic) => diagnostic.severity === "warning"
+    ).length;
+    const compiling = compileActive || [
+      "downloading-compiler",
+      "downloading-package",
+      "compiling"
+    ].includes(compileRuntimeStatus.stage);
+    const compilationState = !workspaceLoaded || workspaceSyncPending
+      ? "unavailable" as const
+      : compiling
+        ? "running" as const
+        : compileErrors.length > 0 || diagnosticErrors > 0
+          ? "failed" as const
+          : vectorData || pdfData
+            ? "succeeded" as const
+            : "idle" as const;
+    return {
+      schema: 1,
+      project_name: project.name,
+      project_type: projectType,
+      mode: isRevisionMode ? "revision" : "live",
+      entry_file_path: sourceEntryFilePath,
+      active_path: activePath,
+      access: aiWorkspaceAllowsEdits ? "edit" : "read",
+      workspace_state: workspaceOffline
+        ? "offline"
+        : !workspaceLoaded || workspaceSyncPending
+          ? "syncing"
+          : "ready",
+      active_document_state:
+        isActiveTextDoc && (isRevisionMode || activeLiveDocReady || workspaceOffline)
+          ? "ready"
+          : "unavailable",
+      files: {
+        total: files.length,
+        text: textFiles,
+        assets: files.length - textFiles
+      },
+      compilation: {
+        state: compilationState,
+        errors: Math.max(compileErrors.length, diagnosticErrors),
+        warnings: warningCount
+      },
+      pending_edit_review: assistantEditProposal !== null
+    };
+  }, [
+    activeLiveDocReady,
+    activePath,
+    aiWorkspaceAllowsEdits,
+    assistantEditProposal,
+    compileActive,
+    compileDiagnostics,
+    compileErrors.length,
+    compileRuntimeStatus.stage,
+    currentNodes,
+    isActiveTextDoc,
+    isRevisionMode,
+    pdfData,
+    project.name,
+    projectType,
+    sourceEntryFilePath,
+    vectorData,
+    workspaceLoaded,
+    workspaceOffline,
+    workspaceSyncPending
+  ]);
+  const aiWorkspaceContextRef = useRef(aiWorkspaceContext);
+  useLayoutEffect(() => {
+    aiWorkspaceContextRef.current = aiWorkspaceContext;
+  }, [aiWorkspaceContext]);
+  const getAiWorkspaceContext = useCallback(
+    () => aiWorkspaceContextRef.current,
+    []
+  );
+  const aiWorkspacePort = useMemo(
+    () => createAiWorkspacePort({
+      scopeId: aiWorkspaceScopeId,
+      projectType,
+      mode: isRevisionMode ? "revision" : "live",
+      allowEdits: aiWorkspaceAllowsEdits,
+      getContextSnapshot: getAiWorkspaceContext,
+      getSource: getAiWorkspaceSource,
+      verifyCandidate: verifyAiCandidate,
+      isCandidateRevisionCurrent: isAiCandidateRevisionCurrent,
+      requestEditReview: (proposal, signal) =>
+        assistantEditReviewCoordinator.request(proposal, signal)
+    }),
+    [
+      aiWorkspaceAllowsEdits,
+      aiWorkspaceScopeId,
+      assistantEditReviewCoordinator,
+      getAiWorkspaceContext,
+      getAiWorkspaceSource,
+      isAiCandidateRevisionCurrent,
+      isRevisionMode,
+      projectType,
+      verifyAiCandidate
+    ]
+  );
+  const assistantEditProposalIsCurrent = !!assistantEditProposal &&
+    aiWorkspaceAllowsEdits &&
+    activeLiveDocReady &&
+    assistantEditProposal.path === activePath &&
+    assistantEditProposal.baseText === editorDocumentText &&
+    isAiCandidateRevisionCurrent(assistantEditProposal.verificationRevision);
+  useEffect(() => {
+    if (assistantEditProposal && singlePanelMode) selectCompactPanel("editor");
+  }, [assistantEditProposal, selectCompactPanel, singlePanelMode]);
+  useEffect(() => {
+    if (!assistantEditProposal || assistantEditProposalIsCurrent) return;
+    assistantEditReviewCoordinator.markStale(assistantEditProposal.id);
+    if (singlePanelMode) selectCompactPanel(AI_ASSISTANT_PANEL_ID);
+  }, [
+    assistantEditProposal,
+    assistantEditProposalIsCurrent,
+    assistantEditReviewCoordinator,
+    selectCompactPanel,
+    singlePanelMode
+  ]);
+  const rejectAssistantEdit = useCallback(() => {
+    if (!assistantEditProposal) return;
+    assistantEditReviewCoordinator.reject(assistantEditProposal.id);
+    if (singlePanelMode) selectCompactPanel(AI_ASSISTANT_PANEL_ID);
+  }, [
+    assistantEditProposal,
+    assistantEditReviewCoordinator,
+    selectCompactPanel,
+    singlePanelMode
+  ]);
+  const acceptAssistantEdit = useCallback(() => {
+    if (!assistantEditProposal) return;
+    if (!isAiCandidateRevisionCurrent(assistantEditProposal.verificationRevision)) {
+      assistantEditReviewCoordinator.markStale(assistantEditProposal.id);
+      if (singlePanelMode) selectCompactPanel(AI_ASSISTANT_PANEL_ID);
+      return;
+    }
+    const outcome = replaceActiveDocumentText(
+      assistantEditProposal.path,
+      assistantEditProposal.baseText,
+      assistantEditProposal.candidateText
+    );
+    if (outcome === "applied") {
+      assistantEditReviewCoordinator.accept(assistantEditProposal.id);
+    } else {
+      assistantEditReviewCoordinator.markStale(assistantEditProposal.id);
+    }
+    if (singlePanelMode) selectCompactPanel(AI_ASSISTANT_PANEL_ID);
+  }, [
+    assistantEditProposal,
+    assistantEditReviewCoordinator,
+    isAiCandidateRevisionCurrent,
+    replaceActiveDocumentText,
+    selectCompactPanel,
+    singlePanelMode
+  ]);
   const isActiveEditableTextDoc = isActiveTextDoc && activePathIsTextFile;
   const currentEditorLanguage = editorLanguageForPath(activePath);
   const previewPercent = Math.round(previewZoom * 100);
@@ -929,6 +1240,15 @@ function ResolvedWorkspacePage({
               reconnectCountdownText={reconnectCountdownText}
               onReconnectNow={reconnectNow}
               activePathExistsInTree={activePathExistsInTree}
+              editorOverride={assistantEditProposal ? (
+                <AssistantEditReviewPane
+                  proposal={assistantEditProposal}
+                  canAccept={assistantEditProposalIsCurrent}
+                  onReject={rejectAssistantEdit}
+                  onAccept={acceptAssistantEdit}
+                  t={t}
+                />
+              ) : null}
               panelStyle={
                 effectiveShowPreviewPanel
                   ? { flex: `${editorRatio} 1 0`, minWidth: 320 }
@@ -1008,9 +1328,14 @@ function ResolvedWorkspacePage({
               hidden={!assistantPanelActive}
             >
               <AiAssistantPanel
-                key={`${effectiveUserId}:${projectId}:${workspaceSessionGeneration}`}
+                key={`${effectiveUserId}:${projectId}:${aiWorkspaceScopeId}:${
+                  aiWorkspaceAllowsEdits ? "write" : "read"
+                }`}
                 width={auxiliaryPanelWidth}
+                accountId={authUser?.user_id ?? null}
+                projectId={projectId}
                 locale={locale}
+                workspacePort={aiWorkspacePort}
                 t={t}
               />
             </div>

@@ -5,24 +5,83 @@ import {
   type AiHostToRuntimeMessage,
   type AiRuntimeBootstrapInit,
   type AiRuntimeConnection,
+  type AiRuntimeConversationContext,
+  type AiRuntimeConversationHistoryMessage,
   type AiRuntimeLocale,
+  type AiRuntimeTokenUsage,
+  type AiRuntimeToolCall,
   type AiRuntimeToHostMessage
 } from "@/features/ai/protocol";
+import {
+  AI_WORKSPACE_TOOL_LIMITS,
+  isAiWorkspaceContextSnapshot,
+  isAiWorkspaceToolExecution,
+  type AiWorkspaceContextSnapshot,
+  type AiWorkspaceToolErrorCode,
+  type AiWorkspaceToolExecution,
+  type AiWorkspaceToolName,
+  type AiWorkspaceToolPort,
+  type AiWorkspaceToolRequest
+} from "@/features/ai/toolContract";
 
-export type AiRuntimeStatus = "idle" | "handshaking" | "ready" | "running" | "error";
+export type AiRuntimeStatus =
+  | "idle"
+  | "handshaking"
+  | "configuring"
+  | "ready"
+  | "running"
+  | "error";
+
+export type AiTranscriptContentPart = {
+  id: string;
+  type: "text" | "reasoning";
+  text: string;
+  state: "streaming" | "complete";
+  startedAt: number;
+  completedAt: number | null;
+};
+
+export type AiTranscriptToolOutcome =
+  | "success"
+  | "accepted"
+  | "rejected"
+  | "stale"
+  | "compile_failed";
+
+export type AiTranscriptToolPart = {
+  id: string;
+  type: "tool";
+  tool: AiWorkspaceToolName;
+  path: string | null;
+  query: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  state: "running" | "complete" | "error" | "cancelled";
+  outcome: AiTranscriptToolOutcome | null;
+  errorCode: AiWorkspaceToolErrorCode | null;
+  startedAt: number;
+  completedAt: number | null;
+};
+
+export type AiTranscriptPart = AiTranscriptContentPart | AiTranscriptToolPart;
 
 export type AiTranscriptMessage = {
   id: string;
   role: "user" | "assistant";
-  text: string;
-  state: "complete" | "streaming" | "cancelled" | "error";
+  parts: readonly AiTranscriptPart[];
+  state: "complete" | "streaming" | "cancelled" | "error" | "interrupted";
+  startedAt: number;
+  completedAt: number | null;
 };
 
 export type AiRuntimeSnapshot = {
   status: AiRuntimeStatus;
+  conversationId: string;
   messages: readonly AiTranscriptMessage[];
   activeTurnId: string | null;
   error: string | null;
+  errorMessage: string | null;
+  usage: AiRuntimeTokenUsage | null;
 };
 
 const HANDSHAKE_TIMEOUT_MS = 5_000;
@@ -42,24 +101,105 @@ function replaceMessage(
   return messages.map((message) => (message.id === id ? update(message) : message));
 }
 
+function replacePart(
+  message: AiTranscriptMessage,
+  id: string,
+  update: (part: AiTranscriptPart) => AiTranscriptPart
+): AiTranscriptMessage {
+  return {
+    ...message,
+    parts: message.parts.map((part) => part.id === id ? update(part) : part)
+  };
+}
+
+function contentLength(message: AiTranscriptMessage) {
+  return message.parts.reduce(
+    (total, part) => total + (part.type === "text" || part.type === "reasoning" ? part.text.length : 0),
+    0
+  );
+}
+
+function settleMessage(
+  message: AiTranscriptMessage,
+  state: "complete" | "cancelled" | "error"
+): AiTranscriptMessage {
+  const completedAt = Date.now();
+  return {
+    ...message,
+    state,
+    completedAt,
+    parts: message.parts.map((part) => {
+      if (part.type !== "tool") {
+        return part.state === "complete"
+          ? part
+          : { ...part, state: "complete" as const, completedAt };
+      }
+      if (part.state !== "running") return part;
+      return {
+        ...part,
+        state: state === "cancelled" ? "cancelled" as const : "error" as const,
+        completedAt
+      };
+    })
+  };
+}
+
+function toolPresentation(message: AiRuntimeToolCall) {
+  const args = message.arguments as Record<string, unknown>;
+  const explicitPath = typeof args.path === "string" ? args.path : null;
+  const prefix = typeof args.path_prefix === "string" && args.path_prefix
+    ? args.path_prefix
+    : null;
+  return {
+    path: explicitPath ?? prefix,
+    query: typeof args.query === "string" ? args.query.slice(0, 256) : null,
+    startLine: typeof args.start_line === "number" ? args.start_line : null,
+    endLine: typeof args.end_line === "number" ? args.end_line : null
+  };
+}
+
 export class AiRuntimeClient {
+  private conversation: AiRuntimeConversationContext;
   private snapshot: AiRuntimeSnapshot = {
     status: "idle",
+    conversationId: "",
     messages: [],
     activeTurnId: null,
-    error: null
+    error: null,
+    errorMessage: null,
+    usage: null
   };
   private readonly listeners = new Set<() => void>();
   private port: MessagePort | null = null;
   private sessionId: string | null = null;
   private nonce: string | null = null;
   private handshakeTimer: number | null = null;
+  private notificationHandle: number | null = null;
+  private notificationUsesAnimationFrame = false;
   private loadObserved = false;
   private disposed = false;
   private locale: AiRuntimeLocale;
+  private connectionKind: AiRuntimeConnection["kind"] = "fake";
+  private readonly workspacePort: AiWorkspaceToolPort | null;
+  private readonly pendingToolCalls = new Map<
+    string,
+    { turnId: string; controller: AbortController }
+  >();
+  private readonly observedToolCallIds = new Set<string>();
+  private readonly observedContentBlockIds = new Set<string>();
+  private toolCallsThisTurn = 0;
 
-  constructor(locale: AiRuntimeLocale) {
+  constructor(locale: AiRuntimeLocale, workspacePort: AiWorkspaceToolPort | null = null) {
     this.locale = locale;
+    this.workspacePort = workspacePort;
+    this.conversation = {
+      conversationId: secureId("conversation"),
+      history: []
+    };
+    this.snapshot = {
+      ...this.snapshot,
+      conversationId: this.conversation.conversationId
+    };
   }
 
   readonly subscribe = (listener: () => void) => {
@@ -69,13 +209,23 @@ export class AiRuntimeClient {
 
   readonly getSnapshot = () => this.snapshot;
 
-  connect(frame: HTMLIFrameElement, connection: AiRuntimeConnection = { kind: "fake" }) {
+  connect(
+    frame: HTMLIFrameElement,
+    connection: AiRuntimeConnection = { kind: "fake" },
+    conversation?: {
+      conversationId: string;
+      messages: readonly AiTranscriptMessage[];
+      history: readonly AiRuntimeConversationHistoryMessage[];
+    }
+  ) {
     if (this.disposed) return;
     if (this.loadObserved) {
       this.fail("runtime_navigated");
       return;
     }
     this.loadObserved = true;
+    this.connectionKind = connection.kind;
+    if (conversation) this.setConversationState(conversation);
     const target = frame.contentWindow;
     if (!target) {
       this.fail("runtime_window_missing");
@@ -90,7 +240,7 @@ export class AiRuntimeClient {
     this.nonce = nonce;
     this.port.addEventListener("message", this.handleMessage);
     this.port.start();
-    this.setSnapshot({ status: "handshaking", error: null });
+    this.setSnapshot({ status: "handshaking", error: null, errorMessage: null, usage: null });
 
     const init: AiRuntimeBootstrapInit = {
       type: "toss.ai.runtime.initialize",
@@ -100,7 +250,14 @@ export class AiRuntimeClient {
       nonce,
       parentOrigin: window.location.origin,
       locale: this.locale,
-      connection
+      connection,
+      conversation: this.conversation,
+      workspace: this.workspacePort
+        ? {
+            ...this.workspacePort.capabilities,
+            tools: [...this.workspacePort.capabilities.tools]
+          }
+        : null
     };
     target.postMessage(init, "*", [channel.port2]);
     this.handshakeTimer = window.setTimeout(() => {
@@ -121,25 +278,90 @@ export class AiRuntimeClient {
     this.port.postMessage(message);
   }
 
+  setConversation(
+    conversationId: string,
+    messages: readonly AiTranscriptMessage[],
+    history: readonly AiRuntimeConversationHistoryMessage[]
+  ) {
+    if (this.snapshot.status === "running" || this.snapshot.status === "handshaking") return false;
+    this.setConversationState({ conversationId, messages, history });
+    if (this.port && this.sessionId && this.snapshot.status !== "idle") {
+      const message: AiHostToRuntimeMessage = {
+        type: "toss.ai.host.set_conversation",
+        sessionId: this.sessionId,
+        conversation: this.conversation
+      };
+      this.port.postMessage(message);
+    }
+    return true;
+  }
+
   startTurn(prompt: string) {
     const text = prompt.trim();
     if (this.snapshot.status !== "ready" || !text || !this.sessionId || !this.port) return false;
+    let workspace: AiWorkspaceContextSnapshot | null = null;
+    if (this.workspacePort) {
+      try {
+        workspace = this.workspacePort.getContextSnapshot();
+      } catch {
+        this.fail("workspace_context_unavailable");
+        return false;
+      }
+      if (
+        !isAiWorkspaceContextSnapshot(workspace) ||
+        workspace.project_type !== this.workspacePort.capabilities.project_type ||
+        workspace.mode !== this.workspacePort.capabilities.mode
+      ) {
+        this.fail("workspace_context_invalid");
+        return false;
+      }
+    }
     const turnId = secureId("turn");
+    const startedAt = Date.now();
+    this.abortPendingToolCalls();
+    this.observedToolCallIds.clear();
+    this.observedContentBlockIds.clear();
+    this.toolCallsThisTurn = 0;
     const message: AiHostToRuntimeMessage = {
       type: "toss.ai.host.start_turn",
       sessionId: this.sessionId,
+      conversationId: this.conversation.conversationId,
       turnId,
-      prompt: text
+      prompt: text,
+      workspace
     };
     this.setSnapshot({
       status: "running",
       activeTurnId: turnId,
       messages: [
         ...this.snapshot.messages,
-        { id: secureId("user"), role: "user", text, state: "complete" },
-        { id: turnId, role: "assistant", text: "", state: "streaming" }
+        {
+          id: secureId("user"),
+          role: "user",
+          parts: [{
+            id: secureId("content"),
+            type: "text",
+            text,
+            state: "complete",
+            startedAt,
+            completedAt: startedAt
+          }],
+          state: "complete",
+          startedAt,
+          completedAt: startedAt
+        },
+        {
+          id: turnId,
+          role: "assistant",
+          parts: [],
+          state: "streaming",
+          startedAt,
+          completedAt: null
+        }
       ],
-      error: null
+      error: null,
+      errorMessage: null,
+      usage: null
     });
     this.port.postMessage(message);
     return true;
@@ -147,6 +369,7 @@ export class AiRuntimeClient {
 
   cancelTurn() {
     if (!this.port || !this.sessionId || !this.snapshot.activeTurnId) return;
+    this.abortPendingToolCalls(this.snapshot.activeTurnId);
     const message: AiHostToRuntimeMessage = {
       type: "toss.ai.host.cancel_turn",
       sessionId: this.sessionId,
@@ -166,6 +389,7 @@ export class AiRuntimeClient {
       this.port.postMessage(message);
     }
     this.closePort();
+    this.cancelScheduledNotification();
     this.listeners.clear();
   }
 
@@ -190,29 +414,61 @@ export class AiRuntimeClient {
         return;
       }
       this.clearHandshakeTimer();
-      this.setSnapshot({ status: "ready", error: null });
+      this.setSnapshot({
+        status: this.connectionKind === "endpoint" ? "configuring" : "ready",
+        error: null,
+        errorMessage: null
+      });
       return;
     }
     if (this.snapshot.status === "handshaking" || this.snapshot.status === "idle") {
       this.fail("runtime_message_before_ready");
       return;
     }
-    if (message.type === "toss.ai.runtime.assistant_delta") {
-      if (message.turnId !== this.snapshot.activeTurnId) {
-        this.fail("runtime_turn_mismatch");
-        return;
+    if (message.type === "toss.ai.runtime.tool_call") {
+      this.handleToolCall(message);
+      return;
+    }
+    if (message.type === "toss.ai.runtime.tool_cancel") {
+      const pending = this.pendingToolCalls.get(message.callId);
+      if (pending && pending.turnId === message.turnId) {
+        this.pendingToolCalls.delete(message.callId);
+        pending.controller.abort();
       }
-      const current = this.snapshot.messages.find((item) => item.id === message.turnId);
-      if (!current || current.text.length + message.text.length > MAX_TRANSCRIPT_MESSAGE_LENGTH) {
-        this.fail("runtime_output_too_large");
+      this.finishToolPart(message.turnId, message.callId, "cancelled", null, null);
+      return;
+    }
+    if (message.type === "toss.ai.runtime.connection_state") {
+      if (this.snapshot.status === "running") {
+        this.fail("runtime_connection_state_during_turn");
         return;
       }
       this.setSnapshot({
-        messages: replaceMessage(this.snapshot.messages, message.turnId, (item) => ({
-          ...item,
-          text: item.text + message.text
-        }))
+        status: message.state === "ready" ? "ready" : "configuring",
+        error: null,
+        errorMessage: null
       });
+      return;
+    }
+    if (message.type === "toss.ai.runtime.content_start") {
+      this.handleContentStart(message.turnId, message.blockId, message.kind);
+      return;
+    }
+    if (message.type === "toss.ai.runtime.content_delta") {
+      this.handleContentDelta(message.turnId, message.blockId, message.delta);
+      return;
+    }
+    if (message.type === "toss.ai.runtime.content_end") {
+      this.handleContentEnd(message.turnId, message.blockId);
+      return;
+    }
+    if (message.type === "toss.ai.runtime.usage") {
+      if (message.turnId !== this.snapshot.activeTurnId || this.snapshot.status !== "running") {
+        this.fail("runtime_usage_outside_turn");
+        return;
+      }
+      const { type: _type, sessionId: _sessionId, turnId: _turnId, ...usage } = message;
+      this.setSnapshot({ usage }, true);
       return;
     }
     if (message.type === "toss.ai.runtime.turn_complete") {
@@ -220,48 +476,367 @@ export class AiRuntimeClient {
         this.fail("runtime_turn_mismatch");
         return;
       }
+      const assistantMessage = this.activeAssistantMessage(message.turnId);
+      if (!assistantMessage) return;
+      if (
+        message.outcome === "completed" &&
+        assistantMessage.parts.some((part) => part.state === "streaming" || part.state === "running")
+      ) {
+        this.fail("runtime_turn_completed_with_open_parts");
+        return;
+      }
+      this.abortPendingToolCalls(message.turnId);
       this.setSnapshot({
         status: "ready",
         activeTurnId: null,
-        messages: replaceMessage(this.snapshot.messages, message.turnId, (item) => ({
-          ...item,
-          state: message.outcome === "cancelled" ? "cancelled" : "complete"
-        }))
+        messages: replaceMessage(this.snapshot.messages, message.turnId, (item) =>
+          settleMessage(item, message.outcome === "cancelled" ? "cancelled" : "complete")
+        )
       });
       return;
     }
     if (message.turnId && message.turnId === this.snapshot.activeTurnId) {
+      this.abortPendingToolCalls(message.turnId);
       this.setSnapshot({
         status: "ready",
         activeTurnId: null,
         error: message.code,
-        messages: replaceMessage(this.snapshot.messages, message.turnId, (item) => ({
-          ...item,
-          state: "error"
-        }))
+        errorMessage: message.message,
+        messages: replaceMessage(this.snapshot.messages, message.turnId, (item) =>
+          settleMessage(item, "error")
+        )
       });
       return;
     }
     this.fail(message.code);
   };
 
-  private setSnapshot(update: Partial<AiRuntimeSnapshot>) {
+  private activeAssistantMessage(turnId: string) {
+    if (this.snapshot.status !== "running" || turnId !== this.snapshot.activeTurnId) {
+      this.fail("runtime_turn_mismatch");
+      return null;
+    }
+    const message = this.snapshot.messages.find((item) => item.id === turnId);
+    if (!message || message.role !== "assistant") {
+      this.fail("runtime_turn_message_missing");
+      return null;
+    }
+    return message;
+  }
+
+  private setConversationState(conversation: {
+    conversationId: string;
+    messages: readonly AiTranscriptMessage[];
+    history: readonly AiRuntimeConversationHistoryMessage[];
+  }) {
+    this.abortPendingToolCalls();
+    this.observedToolCallIds.clear();
+    this.observedContentBlockIds.clear();
+    this.toolCallsThisTurn = 0;
+    this.conversation = {
+      conversationId: conversation.conversationId,
+      history: conversation.history.map((message) => ({ ...message }))
+    };
+    this.setSnapshot({
+      conversationId: conversation.conversationId,
+      activeTurnId: null,
+      messages: [...conversation.messages],
+      error: null,
+      errorMessage: null,
+      usage: null
+    });
+  }
+
+  private handleContentStart(
+    turnId: string,
+    blockId: string,
+    kind: "text" | "reasoning"
+  ) {
+    const message = this.activeAssistantMessage(turnId);
+    if (!message) return;
+    if (this.observedContentBlockIds.has(blockId)) {
+      this.fail("runtime_content_block_duplicate");
+      return;
+    }
+    this.observedContentBlockIds.add(blockId);
+    const part: AiTranscriptContentPart = {
+      id: blockId,
+      type: kind,
+      text: "",
+      state: "streaming",
+      startedAt: Date.now(),
+      completedAt: null
+    };
+    this.setSnapshot({
+      messages: replaceMessage(this.snapshot.messages, turnId, (item) => ({
+        ...item,
+        parts: [...item.parts, part]
+      }))
+    }, true);
+  }
+
+  private handleContentDelta(turnId: string, blockId: string, delta: string) {
+    const message = this.activeAssistantMessage(turnId);
+    if (!message) return;
+    const part = message.parts.find((item) => item.id === blockId);
+    if (
+      !part ||
+      part.type === "tool" ||
+      part.state !== "streaming" ||
+      contentLength(message) + delta.length > MAX_TRANSCRIPT_MESSAGE_LENGTH
+    ) {
+      this.fail(part ? "runtime_output_too_large_or_closed" : "runtime_content_block_missing");
+      return;
+    }
+    this.setSnapshot({
+      messages: replaceMessage(this.snapshot.messages, turnId, (item) =>
+        replacePart(item, blockId, (current) => current.type === "tool"
+          ? current
+          : { ...current, text: current.text + delta })
+      )
+    }, true);
+  }
+
+  private handleContentEnd(turnId: string, blockId: string) {
+    const message = this.activeAssistantMessage(turnId);
+    if (!message) return;
+    const part = message.parts.find((item) => item.id === blockId);
+    if (!part || part.type === "tool" || part.state !== "streaming") {
+      this.fail("runtime_content_block_missing_or_closed");
+      return;
+    }
+    const completedAt = Date.now();
+    this.setSnapshot({
+      messages: replaceMessage(this.snapshot.messages, turnId, (item) =>
+        replacePart(item, blockId, (current) => current.type === "tool"
+          ? current
+          : { ...current, state: "complete", completedAt })
+      )
+    }, true);
+  }
+
+  private handleToolCall(message: AiRuntimeToolCall) {
+    if (
+      this.snapshot.status !== "running" ||
+      message.turnId !== this.snapshot.activeTurnId ||
+      !this.port ||
+      !this.sessionId
+    ) {
+      this.fail("runtime_tool_call_outside_turn");
+      return;
+    }
+    if (this.observedToolCallIds.has(message.callId)) {
+      this.fail("runtime_tool_call_duplicate");
+      return;
+    }
+    this.observedToolCallIds.add(message.callId);
+    const presentation = toolPresentation(message);
+    const part: AiTranscriptToolPart = {
+      id: `tool-${message.callId}`,
+      type: "tool",
+      tool: message.tool,
+      ...presentation,
+      state: "running",
+      outcome: null,
+      errorCode: null,
+      startedAt: Date.now(),
+      completedAt: null
+    };
+    this.setSnapshot({
+      messages: replaceMessage(this.snapshot.messages, message.turnId, (item) => ({
+        ...item,
+        parts: [...item.parts, part]
+      }))
+    }, true);
+    this.toolCallsThisTurn += 1;
+    if (this.toolCallsThisTurn > AI_WORKSPACE_TOOL_LIMITS.maxToolCallsPerTurn) {
+      this.postToolError(message, "workspace_tool_budget_exceeded", "The tool-call budget was exhausted.");
+      return;
+    }
+    if (this.pendingToolCalls.size >= AI_WORKSPACE_TOOL_LIMITS.maxPendingToolCalls) {
+      this.postToolError(
+        message,
+        "workspace_tool_concurrency_exceeded",
+        "Too many Workspace tool calls are already running."
+      );
+      return;
+    }
+    if (
+      !this.workspacePort ||
+      !this.workspacePort.capabilities.tools.includes(message.tool)
+    ) {
+      this.postToolError(
+        message,
+        "workspace_tool_not_available",
+        "The requested Workspace tool is not available in this session."
+      );
+      return;
+    }
+    const controller = new AbortController();
+    this.pendingToolCalls.set(message.callId, { turnId: message.turnId, controller });
+    const request = {
+      tool: message.tool,
+      arguments: message.arguments
+    } as AiWorkspaceToolRequest;
+    void Promise.resolve().then(
+      () => this.workspacePort!.execute(request, controller.signal)
+    ).then((response) => {
+      const pending = this.pendingToolCalls.get(message.callId);
+      if (!pending || pending.controller !== controller) return;
+      this.pendingToolCalls.delete(message.callId);
+      if (
+        controller.signal.aborted ||
+        this.disposed ||
+        this.snapshot.status !== "running" ||
+        this.snapshot.activeTurnId !== message.turnId
+      ) return;
+      const safeResponse = isAiWorkspaceToolExecution(message.tool, response)
+        ? response
+        : {
+            outcome: "error" as const,
+            error: {
+              code: "workspace_tool_internal_error" as const,
+              message: "The Workspace tool returned an invalid result."
+            }
+          };
+      this.postToolResponse(message, safeResponse);
+    }, () => {
+      const pending = this.pendingToolCalls.get(message.callId);
+      if (!pending || pending.controller !== controller) return;
+      this.pendingToolCalls.delete(message.callId);
+      if (controller.signal.aborted) return;
+      this.postToolError(
+        message,
+        "workspace_tool_internal_error",
+        "The Workspace tool could not complete safely."
+      );
+    });
+  }
+
+  private postToolError(
+    message: AiRuntimeToolCall,
+    code: AiWorkspaceToolErrorCode,
+    text: string
+  ) {
+    this.postToolResponse(message, {
+      outcome: "error",
+      error: { code, message: text }
+    });
+  }
+
+  private postToolResponse(
+    message: AiRuntimeToolCall,
+    response: AiWorkspaceToolExecution
+  ) {
+    const outcome = response.outcome === "success"
+      ? ("status" in response.result
+          ? response.result.status
+          : "success")
+      : null;
+    this.finishToolPart(
+      message.turnId,
+      message.callId,
+      response.outcome === "success" ? "complete" : "error",
+      outcome,
+      response.outcome === "error" ? response.error.code : null
+    );
+    if (!this.port || !this.sessionId) return;
+    const result: AiHostToRuntimeMessage = {
+      type: "toss.ai.host.tool_result",
+      sessionId: this.sessionId,
+      turnId: message.turnId,
+      callId: message.callId,
+      tool: message.tool,
+      response
+    };
+    this.port.postMessage(result);
+  }
+
+  private finishToolPart(
+    turnId: string,
+    callId: string,
+    state: "complete" | "error" | "cancelled",
+    outcome: AiTranscriptToolOutcome | null,
+    errorCode: AiWorkspaceToolErrorCode | null
+  ) {
+    const partId = `tool-${callId}`;
+    const message = this.snapshot.messages.find((item) => item.id === turnId);
+    const part = message?.parts.find((item) => item.id === partId);
+    if (!message || !part || part.type !== "tool" || part.state !== "running") return;
+    const completedAt = Date.now();
+    this.setSnapshot({
+      messages: replaceMessage(this.snapshot.messages, turnId, (item) =>
+        replacePart(item, partId, (current) => current.type !== "tool"
+          ? current
+          : { ...current, state, outcome, errorCode, completedAt })
+      )
+    }, true);
+  }
+
+  private abortPendingToolCalls(turnId?: string) {
+    for (const [callId, pending] of this.pendingToolCalls) {
+      if (turnId && pending.turnId !== turnId) continue;
+      this.pendingToolCalls.delete(callId);
+      pending.controller.abort();
+    }
+  }
+
+  private setSnapshot(update: Partial<AiRuntimeSnapshot>, deferNotification = false) {
     this.snapshot = { ...this.snapshot, ...update };
+    if (deferNotification) {
+      this.scheduleNotification();
+      return;
+    }
+    this.notifyNow();
+  }
+
+  private scheduleNotification() {
+    if (this.notificationHandle !== null) return;
+    if (typeof window.requestAnimationFrame === "function") {
+      this.notificationUsesAnimationFrame = true;
+      this.notificationHandle = window.requestAnimationFrame(() => {
+        this.notificationHandle = null;
+        this.notificationUsesAnimationFrame = false;
+        for (const listener of this.listeners) listener();
+      });
+      return;
+    }
+    this.notificationUsesAnimationFrame = false;
+    this.notificationHandle = window.setTimeout(() => {
+      this.notificationHandle = null;
+      for (const listener of this.listeners) listener();
+    }, 16);
+  }
+
+  private notifyNow() {
+    this.cancelScheduledNotification();
     for (const listener of this.listeners) listener();
+  }
+
+  private cancelScheduledNotification() {
+    if (this.notificationHandle === null) return;
+    if (this.notificationUsesAnimationFrame && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(this.notificationHandle);
+    } else {
+      window.clearTimeout(this.notificationHandle);
+    }
+    this.notificationHandle = null;
+    this.notificationUsesAnimationFrame = false;
   }
 
   private fail(code: string) {
     const activeTurnId = this.snapshot.activeTurnId;
+    this.abortPendingToolCalls();
     this.closePort();
     this.setSnapshot({
       status: "error",
       activeTurnId: null,
       error: code,
+      errorMessage: null,
       messages: activeTurnId
-        ? replaceMessage(this.snapshot.messages, activeTurnId, (message) => ({
-            ...message,
-            state: "error"
-          }))
+        ? replaceMessage(this.snapshot.messages, activeTurnId, (message) =>
+            settleMessage(message, "error")
+          )
         : this.snapshot.messages
     });
   }
@@ -273,6 +848,7 @@ export class AiRuntimeClient {
   }
 
   private closePort() {
+    this.abortPendingToolCalls();
     this.clearHandshakeTimer();
     this.port?.removeEventListener("message", this.handleMessage);
     this.port?.close();

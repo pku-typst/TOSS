@@ -43,10 +43,12 @@ code_paths:
 
 This page is the current working design and implementation record for the
 Community browser AI assistant. It records the baseline agreed during design
-discussion, the infrastructure slice now present on `dev`, and the remaining
-choices. Sections marked as implemented are current contracts; the agent,
-provider, tool, and review sections remain target design until their delivery
-slices land. Durable rationale may later be promoted into an ADR.
+discussion, the implemented infrastructure/provider/read/review slices now
+present on `dev`, and the remaining choices. Sections marked as implemented are
+current contracts; isolated candidate compile feedback is implemented, while
+selection, current-preview diagnostics, general verification, and broader edit
+behavior remain target design until their delivery slices land. Durable
+rationale may later be promoted into an ADR.
 
 ## Agreed baseline
 
@@ -54,8 +56,10 @@ slices land. Durable rationale may later be promoted into an ADR.
 | --- | --- |
 | Runtime | The provider connection and agent loop run in a browser AI Runtime isolated as a unique opaque-origin iframe. TOSS Core does not proxy or execute model requests. |
 | User-provided AI | BYOK includes cloud API credentials, short-lived tokens, user-controlled gateways, OpenAI-compatible endpoints, and local services such as Ollama, LM Studio, or vLLM. |
-| Connections | TOSS ships no branded provider preset. A user defines each connection's name, API protocol, endpoint, model, and optional credential. The host application may persist sanitized non-secret profiles in account-scoped Local Storage for later reuse. |
+| Connections | TOSS ships no branded provider preset. A user defines each connection's name, API protocol, endpoint, model, reasoning capability, exact Provider request parameters, context window, maximum output tokens, and optional credential. The host application may persist sanitized non-secret profiles in account-scoped Local Storage for later reuse. |
 | Credentials | The user enters a credential into the sandboxed Runtime surface, and it exists only in that Runtime instance's memory. The host application, TOSS Core, and project never receive it. Reload, tab close, logout, account change, or endpoint change clears it. |
+| Conversations | A project owns zero or more local browser conversations and one active-conversation pointer. Conversations never cross an account or project boundary. Switching conversations resets the Runtime Agent context but keeps the current in-memory credential. |
+| Conversation persistence | For signed-in accounts, the host persists a bounded, sanitized transcript projection in IndexedDB. It never persists credentials, reasoning, system prompts, raw tool results, source excerpts, or patches. Anonymous conversations remain component-memory only. TOSS Core does not store them. |
 | Integration boundary | A one-time bootstrap transfers a versioned, capability-scoped `MessageChannel` carrying agent turns, typed tool calls, tool results, cancellation, and safe view events. It never exposes a generic authenticated fetch operation. |
 | Network confinement | A fixed bootstrap validates the selected credential-free endpoint and tightens Runtime CSP to that exact endpoint origin before loading provider code or accepting a credential. |
 | Deployment topology | The Community default serves the Runtime artifact from the application URL origin and forces it into an opaque security principal. A real second deployment origin is a deferred compatibility or higher-assurance mode, not a first-release prerequisite. |
@@ -68,8 +72,8 @@ slices land. Durable rationale may later be promoted into an ADR.
 
 ## Implementation status
 
-The first infrastructure slice is implemented, but it intentionally accepts no
-credential and makes no provider request. It contains:
+The infrastructure, provider, bounded Workspace-read, and first reviewed-edit
+slices are implemented. They contain:
 
 - the `ai_assistant` distribution/build/deployment gate, included by Community
   but disabled by default;
@@ -78,7 +82,7 @@ credential and makes no provider request. It contains:
 - one mutually exclusive auxiliary-panel state for Assistant, Settings, and
   Revisions;
 - a separately built `/_ai-runtime/bootstrap.html` artifact with a fixed,
-  versioned protocol and deterministic fake provider;
+  versioned protocol and deterministic fake provider for tests;
 - Runtime-owned English and Simplified Chinese UI catalogs selected through a
   bounded locale value in the channel handshake, without exposing host storage
   or importing the host catalog into the opaque principal;
@@ -90,13 +94,63 @@ credential and makes no provider request. It contains:
 - an AI-excluded build check proving there is no Assistant chunk or Runtime
   artifact; and
 - a real Chromium smoke covering the HTTP boundary, DOM and storage isolation,
-  fake streaming/cancellation, panel preservation, and session invalidation on
-  Runtime navigation.
+  a local OpenAI-compatible SSE endpoint through the real pi adapter,
+  an executed local Typst 0.15 documentation query, multi-turn history,
+  credential binding and clearing, panel preservation, and session invalidation
+  on Runtime navigation; the same harness can optionally
+  exercise a user-supplied external endpoint without placing its credential in
+  command arguments or repository files;
+- strict schema-v1, account-scoped Local Storage profiles containing only a
+  connection name, protocol, normalized endpoint, model ID, reasoning
+  capability declaration, bounded Provider request JSON, context window, and
+  maximum output tokens; anonymous
+  sessions keep the same metadata in component memory only;
+- project-bound multiple conversations with create, select, rename, and delete
+  controls; authenticated conversations use a bounded account/project-scoped
+  IndexedDB store, while anonymous conversations remain in memory;
+- a sanitized durable projection containing visible user/assistant text and
+  allowlisted tool presentation summaries, explicitly excluding reasoning,
+  credentials, system prompts, raw tool results, source excerpts, and patches;
+- Runtime-owned optional credential entry after the exact endpoint policy and
+  selected protocol module are installed, with the credential retained only by
+  the current Runtime `Agent` closure;
+- exact `0.80.7` dependencies on `@earendil-works/pi-agent-core` and
+  `@earendil-works/pi-ai`, a stateful streaming multi-turn `Agent`, cancellation,
+  bounded provider requests, and generic model construction without a provider
+  catalog or preset; and
+- lazy protocol adapters for OpenAI-compatible Chat Completions, OpenAI
+  Responses, and Anthropic Messages, plus a full-base-URL fetch fence that
+  forces omitted browser credentials, rejected redirects, and no referrer;
+- a Workspace-owned, bounded project-state snapshot attached to every user
+  turn and incorporated into the Runtime system prompt, covering project/view
+  identity, active document, access, file counts, synchronization state,
+  compilation summary, and pending review without eagerly sending source;
+- protocol-v1 content lifecycles for separate text and reasoning blocks,
+  bounded conversation initialization and switching, plus a
+  host-side transcript projection made of sanitized text, reasoning, and tool
+  activity parts rather than a second copy of the agent message model;
+- user-declared model context/output limits, a `transformContext` budget pass
+  before every provider request, explicit context/call/time budget failures,
+  and a sanitized live usage projection that distinguishes provider-reported
+  tokens from estimates;
+- a connection-level reasoning capability declaration plus exact, bounded JSON
+  request overrides; pi does not synthesize a universal reasoning field, and
+  an empty object leaves Provider defaults authoritative;
+- `list_project_files`, `read_project_file`, and `search_project_text` tools
+  backed by a generation/revision-fenced Workspace-owned port, with current
+  Yjs text for the active live document and bounded line-numbered output; and
+- writable-live-only `apply_patch` and `write_file` tools. The former validates
+  one contextual single-file unified-diff proposal; the latter is a bounded
+  fallback that requires a complete, untruncated read of the exact snapshot and
+  accepts the complete replacement text. Both feed one shared unpublished
+  candidate pipeline, isolated compilation, explicit review, and final
+  freshness-checked Yjs transaction.
 
-`pi-agent-core`, provider adapters, connection profiles, credentials, Workspace
-tools, edit review, and compilation feedback are subsequent slices. Firefox
-and WebKit validation is also still required before enabling the feature by
-default.
+The current slice does not yet expose active selection, current-preview
+diagnostics, a general compile-current-World tool, inactive-document editing,
+file creation/deletion/rename, or multi-file edits. Connection testing without inference, model discovery,
+redaction-focused browser tests, Firefox, and WebKit validation also remain
+before enabling the feature by default.
 
 ## Goals
 
@@ -240,13 +294,30 @@ The target semantic surface is deliberately narrow:
 
 | Direction | Messages |
 | --- | --- |
-| Host to Runtime | initialize locale and tool definitions, update locale, start a user turn, return a tool result, cancel a turn, clear the session |
-| Runtime to host | ready and connection state, assistant deltas, typed tool call, turn completion, sanitized usage and error state |
+| Host to Runtime | initialize locale, tool definitions, and a bounded conversation; update locale; switch conversation; start a user turn with its conversation ID and a bounded Workspace-state snapshot; return a tool result; cancel a turn; clear the session |
+| Runtime to host | ready and connection state, typed content start/delta/end events, typed tool call, turn completion, sanitized usage and error state |
 
-The implemented fake slice is smaller: initialize with a bounded locale,
-update locale, start turn, cancel turn, clear session, ready, assistant delta,
-turn completion, and sanitized error. Tool messages are added only with the
-first Workspace tool slice.
+Protocol version 1 initializes with a bounded locale, non-secret connection
+profile including user-declared context and output limits, tool definitions,
+conversation ID, and restored visible history. It
+can replace the inactive conversation without recreating the Runtime, reports
+`credential_required` or `ready`, starts and cancels turns, clears the session,
+and returns only stable sanitized errors. Every start-turn message repeats the
+conversation ID, and the Runtime rejects a mismatch. Each turn carries an exact
+Workspace-state snapshot validated on both sides. The Runtime emits distinct
+`text` and `reasoning` blocks through
+`content_start`, ordered `content_delta`, and `content_end` messages. The host
+rejects duplicate, missing, or out-of-order block transitions instead of
+guessing at malformed provider output.
+
+Tool lifecycle events remain separate from model content. The host view stores
+only the tool name, a small allowlisted input summary, state, outcome, and
+timestamps for presentation; patches, source results, credentials, and raw
+protocol messages do not enter the view transcript. While a Runtime is alive,
+the canonical model/tool history remains inside its `pi-agent-core` Agent. For
+reload or conversation switching, the host supplies only a bounded sequence of
+completed visible user/final-answer pairs; it does not reconstruct private
+reasoning or the prior tool protocol.
 
 The tool definitions already required by the model form the RPC interface
 description. Both sides validate the same versioned schemas. The Runtime
@@ -276,11 +347,15 @@ therefore has two stages:
    exact origin;
 5. only after that policy is active does it dynamically load the full Runtime
    and selected provider adapter;
-6. after the complete module graph is resident, it installs another
-   intersecting policy with `script-src 'none'` and `worker-src 'none'`, so no
-   later script, module, or worker can be loaded after a credential exists;
-7. only then does the full Runtime present its credential input; and
-8. changing the base URL destroys and recreates the iframe, clearing the old
+6. for a Typst project, it loads and validates the bundled API, BM25, recipe,
+   and provenance modules while the nonce-authorized bootstrap graph can still
+   grow;
+7. after the complete project-specific module graph is resident, it installs
+   another intersecting policy with `script-src 'none'` and `worker-src 'none'`,
+   so no later script, module, or worker can be loaded after a credential
+   exists;
+8. only then does the full Runtime present its credential input; and
+9. changing the base URL destroys and recreates the iframe, clearing the old
    heap, port, agent session, and credential before another connection starts.
 
 CSP delivered in the response is the immutable upper bound; the meta policy
@@ -434,7 +509,9 @@ The panel has three stable regions:
 
 ```text
 +------------------------------------------------+
-| Assistant       connection / model     +    x  |
+| Assistant       connection / model          x  |
++------------------------------------------------+
+| conversation                       + rename del |
 +------------------------------------------------+
 | user and assistant messages                    |
 | compact tool activity                          |
@@ -445,16 +522,26 @@ The panel has three stable regions:
 +------------------------------------------------+
 ```
 
-The header switches the active connection or model, opens connection
-management, starts a new conversation, and closes the panel. Changing a model
-does not erase the conversation; the transcript records a subdued model-change
-boundary.
+The header opens connection management and closes the panel. A compact row
+below it selects, creates, renames, or deletes a project conversation. These
+controls are disabled during a running turn and during the one-time Runtime
+handshake. Changing the active connection recreates the Runtime and clears its
+credential; changing only the conversation reuses the Runtime and credential
+while resetting the Agent context.
 
 The message surface uses the product's flat professional editor language.
 Tool calls are compact human-readable activity rows such as `Read main.typ`,
-`Searched 8 files`, or `Waiting for compilation`. Raw tool JSON and raw model
-reasoning are not the default presentation. File references are interactive
-and focus the corresponding Workspace document and location.
+`Searched 8 files`, or `Waiting for compilation`. Consecutive reasoning and
+tool parts are grouped into one collapsible **Agent activity** section. It opens
+while work is active and collapses after completion unless the user has chosen
+a state. Reasoning is labeled as model-provided, rendered as untrusted plain
+text, and kept visually separate from the final Markdown answer; raw tool JSON
+is never shown. File references expose only validated path/range summaries.
+
+Assistant text is rendered incrementally as Markdown with fenced code and
+tables. The host batches high-frequency view updates to an animation frame and
+uses a separate coarse live region so streaming does not announce every token.
+Copy applies only to the final answer, not reasoning or tool data.
 
 The composer supports a multiline prompt, Enter to send, Shift+Enter for a
 newline, and a Stop action while the run is active. It shows explicit context
@@ -465,6 +552,48 @@ eagerly copy the whole project into the model request.
 Streaming follows the bottom only while the user remains at the bottom. A user
 reading earlier content receives a `Jump to latest` affordance instead of
 being pulled down by every delta.
+
+## Conversation lifecycle and persistence
+
+Conversation is a host-owned feature entity, not a `pi-agent-core` entity and
+not a Core aggregate. Its identity is scoped by `(accountId, projectId)`, and a
+project has an ordered collection plus one active-conversation pointer. The
+current implementation keeps at most 50 conversations per project, 200
+presentation messages per conversation, and 2 MiB of serialized conversation
+data. The first prompt supplies an automatic bounded title; the user may rename
+or delete it. Deleting the last conversation immediately creates an empty
+replacement.
+
+For an authenticated account, the `AiConversationStore` persists schema-v1
+records in the host origin's `toss-ai-conversations` IndexedDB database. The
+stored projection contains visible user text, visible assistant answer text,
+allowlisted tool name/path/query/range summaries, terminal state, and
+timestamps. It excludes all reasoning blocks, credentials, system prompts,
+provider request/response envelopes, raw tool inputs and results, returned
+source excerpts, and edit patches. A final answer can itself quote project
+content, so this is local browser data rather than a secret-free audit log; a
+person or script with access to the browser profile can inspect it. Core never
+receives or backs up this database. Anonymous conversations are kept only in
+component memory and disappear when the project page is replaced.
+
+Writes are serialized, streaming updates are debounced, and terminal updates
+flush immediately. Scope cleanup captures the old account/project before a new
+scope becomes active, so a delayed write cannot land in another project. Quota,
+corruption, or IndexedDB failures fail down to the in-memory collection rather
+than blocking chat. Loading validates and bounds every record instead of
+trusting browser storage.
+
+The Runtime receives at most the newest 24 messages (12 completed visible
+user/assistant pairs), capped at 32,768 characters per message and 48,000
+characters total. Interrupted, cancelled, failed, tool-only, and empty answers
+remain visible when useful but are not restored into model context. A
+conversation switch is rejected while a turn or handshake is active. Otherwise
+the Runtime resets `Agent` messages, installs the selected bounded history, and
+changes the provider session key from
+`connectionId:oldConversationId` to `connectionId:newConversationId`; the
+credential stays in the same Runtime heap. A page reload restores the local
+transcript but creates a new Runtime, so the user must enter the credential
+again.
 
 ## Contextual entry points
 
@@ -478,17 +607,20 @@ These actions open the panel and populate a draft with visible context. They do
 not send a model request before the user can inspect or amend the prompt.
 
 Revision mode and read-only access still permit explanation. They do not
-register a mutation tool. Anonymous and shared-project connection behavior
-remains an open policy question.
+register a mutation tool. Anonymous sessions use memory-only connections and
+conversations; broader eligibility policy for shared projects remains open.
 
 ## AI connections
 
 The first-run panel shows one `Add AI connection` action. Connection creation
 uses one progressively disclosed dialog rather than a wizard. There is no
 provider gallery or branded quick-start choice. The form contains a connection
-name, a supported API protocol, an endpoint, a model, and an optional
-credential. Protocol-specific advanced fields appear only when that protocol
-requires them.
+name, a supported API protocol, an endpoint, a model, a reasoning-capability
+declaration, an exact Provider request-parameter JSON object, a context window,
+a maximum output-token count, and an optional credential. Context and output
+limits are explicit common fields because a generic endpoint and model ID do
+not provide trustworthy model metadata. The JSON object carries
+Provider/model-specific options without pretending they share one schema.
 
 Common behavior is:
 
@@ -498,8 +630,16 @@ Common behavior is:
    destination base URL;
 3. test connectivity and authentication without intentionally starting a paid
    inference request;
-4. discover models when supported or accept a manual model ID;
-5. choose a default model and save.
+4. discover models when supported or accept a manual model ID, declare whether
+   it emits reasoning, enter documented Provider request parameters, and set
+   the context window and maximum output;
+5. review the normalized profile and save.
+
+The current connection-management slice implements profile creation, selection,
+editing, removal, the Runtime credential step, and a manually entered model
+ID. A saved profile becomes active without claiming that authentication or
+model availability was tested. Connectivity testing and model discovery in
+steps 3 and 4 remain planned work.
 
 Connectivity errors must distinguish unreachable endpoints, browser or CORS
 blocking, rejected credentials, unsupported model discovery, and invalid
@@ -507,8 +647,10 @@ responses. TOSS never silently redirects a failed connection through a proxy.
 
 Non-secret connection metadata is retained in account-scoped Local Storage so
 a future application instance can restore the connection name, protocol,
-endpoint, and model. Session Storage is not used for connection profiles: it
-adds another persistence path without satisfying next-session reuse.
+endpoint, model, reasoning-capability declaration, Provider request parameters,
+context window, and maximum output. Session Storage is not used for connection
+profiles: it adds another persistence path without satisfying next-session
+reuse.
 
 The stored value uses a bounded, versioned schema such as:
 
@@ -522,7 +664,18 @@ StoredAiConnectionsV1
     protocol: supported protocol identifier
     endpoint: normalized credential-free base URL
     model: string
+    reasoning: boolean
+    requestOverrides: bounded JSON object
+    contextWindow: integer tokens
+    maxOutputTokens: integer tokens
 ```
+
+This is the unreleased feature's first connection schema; development drafts
+do not create a compatibility chain. The Runtime rejects impossible token pairs
+that leave no bounded input and safety allowance. The request object must be a
+bounded JSON object. It cannot override model identity, messages, system
+instructions, tools, tool choice, streaming fields, token-limit fields, or
+headers, and recursively rejects credential-like and prototype-mutating keys.
 
 The Local Storage key is scoped by the authenticated account ID. Logging out
 retains that account's non-secret profiles for its next login, clears all
@@ -533,9 +686,10 @@ with browser-profile access.
 
 A stored endpoint must be a base URL without URL user information, query
 parameters, or a fragment. Credentials, signed URLs, arbitrary headers, and
-protocol options classified as secrets are not profile metadata. Every stored
-profile is parsed, size-bounded, normalized, and validated again on load rather
-than treated as trusted state.
+protocol options classified as secrets are not profile metadata. Provider
+request overrides are non-secret configuration only. Every stored profile is
+parsed, size-bounded, normalized, and validated again on load rather than
+treated as trusted state.
 
 A credential exists only in the JavaScript heap of the current Runtime iframe.
 It is never exposed to host JavaScript or written to Local Storage, Session
@@ -557,8 +711,8 @@ connection destination and reusing an existing secret.
 
 The same dialog lists, edits, tests, and removes connections. The first release
 does not duplicate connection management in Profile. Anonymous-session
-behavior remains an open decision. Credentials are not shared between tabs or
-accounts.
+connection metadata stays in component memory and is not restored after the
+page is replaced. Credentials are not shared between tabs or accounts.
 
 ## Agent and tool loop
 
@@ -566,17 +720,14 @@ One user request may run several internal turns:
 
 ```text
 user asks for a fix
-  -> model requests diagnostics
-  -> tool returns diagnostics
   -> model reads relevant files
   -> tool returns bounded snapshots
-  -> model requests an edit
+  -> model submits a candidate edit
+  -> isolated candidate compiler returns bounded errors/diagnostics
+  -> model repairs and resubmits until the candidate passes
   -> browser pauses for review
   -> user accepts or rejects
   -> tool reports the decision
-  -> model waits for exact compile feedback
-  -> tool returns success or remaining diagnostics
-  -> model may inspect and propose again
   -> model produces the user-facing result
 ```
 
@@ -591,19 +742,131 @@ turn each tool-only model message into a separate assistant bubble. Review
 waiting, stale input, user rejection, compilation, and retry are still visible
 as meaningful activity.
 
+Before each user turn, the Workspace owner supplies a schema-versioned snapshot
+of the current project name and type, live or revision view, entry and active
+paths, read/edit access, Workspace/document readiness, text/asset counts,
+compile state and diagnostic counts, and pending-review state. The Runtime
+places that JSON inside a delimited system-prompt context block and explicitly
+treats every value as untrusted project data rather than instructions. This
+gives the model basic orientation without sending source, selections, full file
+lists, or diagnostics. If exact or newer data matters, the model must call a
+bounded Workspace tool.
+
+The stable system prompt states that the Runtime is a browser Workspace
+assistant, requests responses in the user's language, describes the granted
+tool and mutation constraints, and asks the model to acknowledge uncertainty.
+All model-visible system instructions, tool descriptions, and parameter
+descriptions come from one locale-independent English definition. Runtime and
+host presentation labels may still follow the selected UI locale; changing
+that locale cannot alter the prompt or Provider tool schemas.
+For Typst projects the prompt also directs the model to query the bundled,
+version-pinned reference before guessing syntax, signatures, parameter types,
+or fixes for compiler diagnostics. The reference is retrieved only when the
+model calls its tool; it is not injected into every turn.
+It is refreshed from the turn snapshot before `Agent.prompt`; the snapshot is
+then frozen for that turn while tool results remain authoritative for changing
+state. `pi-agent-core` is the sole owner of the live canonical model/tool loop.
+The host owns only the presentation transcript and the bounded visible-history
+projection used to restore a conversation; it does not implement a second
+agent loop. TOSS deliberately does not combine pi with a second agent runtime
+such as AI SDK.
+
+Reasoning behavior is explicit connection metadata, not a hidden Runtime
+default. The boolean declares only that the model emits reasoning content; it
+maps to pi's model capability so response blocks and multi-turn history are
+handled correctly. It does not add a request field. The Agent thinking level
+stays `off`, preventing pi from synthesizing a supposedly universal effort
+parameter.
+
+The bounded `requestOverrides` JSON object is merged into every generated
+Provider payload inside the isolated Runtime, after pi has built the canonical
+request. Nested objects are merged and arrays are replaced. Consequently users
+can enter the exact shape documented by their model, such as OpenAI Responses
+`reasoning`, OpenAI-compatible `reasoning_effort`, Anthropic `thinking`, or NIM
+`chat_template_kwargs`/`nvext`, without TOSS translating between them. `{}`
+leaves Provider defaults untouched. Invalid or unsupported fields surface as a
+Provider error; TOSS never retries with guessed semantics.
+
+Before every provider request, the Agent's `transformContext` hook reserves the
+user-configured maximum output plus a fixed safety allowance. It first removes
+complete older conversation turns from the provider view, then compacts older
+completed tool payloads while preserving the current user request and latest
+tool batch. The canonical Agent transcript is not mutated. The transform is
+recalculated from that raw transcript on every request so previously omitted
+history cannot reappear merely because a later response contains a usage
+block. If the current request, system prompt, tool schemas, and latest tool
+result still cannot fit, the run ends with
+`ai_agent_context_budget_exceeded`; it never sends an over-budget request or
+silently reduces the configured maximum output.
+
+Provider usage is accepted from the final message of each internal model call.
+The Runtime normalizes and sends only token counts: input, output, reasoning,
+cache read/write, total, provider-call count, latest context size, and number
+of compacted messages. It sends no prompt, source, patch, response body, price,
+or credential. The host shows both latest context occupancy and cumulative
+token traffic for the current user turn. `provider reported`, `partial usage`,
+and `estimated` are distinct states because compatible endpoints are not
+guaranteed to return streaming usage. OpenAI-compatible requests ask for the
+standard streamed usage block; absence of that block is not treated as a
+fabricated zero-token report.
+
 ## Initial tool surface
 
-The exact names and schemas remain to be settled, but the first tool set should
-cover these narrow operations:
+The Runtime exposes one local knowledge tool for Typst projects:
+
+- `query_typst_docs`, which searches the bundled Typst 0.15.0 API and a small
+  set of compile-verified usage recipes.
+
+This tool is owned and executed by the isolated Runtime. It does not cross the
+Workspace bridge, receive project content, access the Provider credential, or
+perform a network request. The API and BM25 data are generated as separate
+Runtime chunks. A Typst Runtime loads and validates those chunks during
+bootstrap, before the final `script-src 'none'` policy is installed, and keeps
+the decoded index in its private heap. LaTeX projects do not pay that cost.
+Queries therefore require no later module load or network request, and the
+Runtime's Provider-only `fetch` policy and locked CSP need no additional
+destination. Search input and output are bounded; exact names, API signatures,
+parameter types, enum values, official documentation routes, and ranked recipes
+are returned as structured data. The model uses English API names or keywords
+for lookup while continuing to answer in the user's language.
+
+The reference asset is pinned to the same Typst language version as the
+typst.ts compiler fork. Build validation checks its upstream revision,
+checksums, normalized entry count, metadata signature, and the fork's declared
+Typst dependency. A version mismatch fails the build rather than silently
+giving the Agent newer or older advice. API signatures alone do not explain
+all language conventions, so compile-verified recipes cover the narrow cases
+most likely to produce plausible but invalid edits, initially document
+metadata, content versus strings, set/show rules, arrays/dictionaries, and
+imports/includes. Candidate compilation remains authoritative; documentation
+lookup is guidance, not an acceptance oracle.
+
+The Workspace-owned tool slice fixes these names and bounded schemas:
+
+- `list_project_files`;
+- `read_project_file`; and
+- `search_project_text`; and
+- `apply_patch`, only for writable live views; and
+- `write_file`, only for writable live views and fully read small files.
+
+Workspace tools are advertised from the Host in the versioned Runtime handshake, registered
+as `pi-agent-core` tools only when granted, and executed through a
+generation/revision-fenced Workspace application port. The active live document uses
+the current collaboration/editor projection rather than a stale project copy.
+Each tool call is correlated by session, turn, and call ID; cancellation crosses
+the Runtime boundary, and both sides enforce call-count and concurrency budgets.
+
+The broader first tool set should cover these narrow operations:
 
 | Intent | Behavior |
 | --- | --- |
 | List project files | Return bounded path, kind, and identity metadata. |
-| Read a text file | Return bounded text and an immutable snapshot reference. |
-| Search project text | Return bounded path/range excerpts without arbitrary filesystem access. |
-| Read active selection | Return the active document identity, range, text, and snapshot reference. |
+| Read a text file | Return bounded, line-numbered text and an immutable snapshot reference. |
+| Search project text | Return bounded path/range excerpts with line numbers, without arbitrary filesystem access. |
+| Read active selection | Return the active document identity, line-numbered range, text, and snapshot reference. |
 | Read diagnostics | Return diagnostics for an exact compiler World and target. |
-| Propose one file edit | Validate an edit against its base snapshot and enter human review. |
+| Propose one file patch | Validate a contextual single-file unified-diff proposal, compile an isolated candidate World, return failures for repair, and enter review only after it passes. |
+| Propose one full-file replacement | Require a complete read of the exact snapshot, derive a canonical review diff from bounded replacement text, and use the same compile/review path as a patch. |
 | Verify current project | Await the current browser compiler result for an exact generation and World. |
 
 There is no generic filesystem, fetch, shell, JavaScript, database, Git, or
@@ -611,6 +874,84 @@ backend-impersonation tool. Tool outputs are structured, size-bounded, and
 safe to render. Expected failures use stable typed reasons such as permission
 denied, snapshot stale, generation expired, user rejected, compile superseded,
 runtime failed, or output too large.
+
+Text presented to the model follows the conventional numbered-code view. A
+read result includes a one-based line range and a display string such as:
+
+```text
+snapshot: doc_7f...@sv_31...
+path: main.typ
+lines: 37-40
+37 | #let title = "Example"
+38 |
+39 | = Introduction
+40 | Existing text.
+```
+
+The `N | ` prefix is presentation metadata, not file content. Tool descriptions
+and the system capability prompt explicitly tell the model not to copy those
+prefixes into an edit. Search and selection results use the same convention so
+the model sees one location vocabulary across tools.
+
+The preferred write-side tool accepts a contextual single-file unified-diff
+proposal rather than replacement text or an editor command. Its essential input is:
+
+```text
+path: normalized project path
+base_snapshot: immutable snapshot returned by a read tool
+patch: |
+  --- a/main.typ
+  +++ b/main.typ
+  @@ -39,2 +39,2 @@
+   = Introduction
+  -Existing text.
+  +Revised text.
+```
+
+The current slice accepts exactly the active existing text file per patch. The two
+diff paths must both match `path`; create, delete, rename, binary, mode-change,
+multi-file, context-free, and overlapping hunks are rejected. The old-file
+start is a one-based unified-diff coordinate and must point at the exact hunk
+body in the immutable snapshot. Context and removed lines must also match that
+snapshot exactly: there is no fuzzy application and no automatic rebase. Hunk
+line counts and new-file coordinates are redundant model output, so the host
+derives and canonicalizes them from the validated body before compilation and
+review. The host then builds the candidate document from the base snapshot,
+applies output and changed-line limits, compiles the resulting unpublished
+World, and only then enters review.
+Failed compilation returns bounded structured diagnostics to the same agent
+turn without creating an accept action. Line numbers help the model construct and
+explain the patch, while the snapshot reference, document identity, Workspace
+generation, and final collaboration-aware freshness check provide concurrency
+safety.
+
+`write_file` is a deliberate fallback for a small whole-file rewrite or for a
+model that repeatedly fails to construct the patch format. Its input is:
+
+```text
+path: normalized active project path
+base_snapshot: snapshot from one complete read_project_file result
+content: complete desired file text without numbered display prefixes
+```
+
+The Workspace port records a full-read receipt only when one read starts at
+line one, reaches the actual final line, and reports neither `has_more` nor
+`content_truncated`. Partial reads cannot authorize replacement even though
+they return a snapshot ID. Consequently, the initial implementation is bounded
+by the read surface: at most 400 logical lines and 65,536 content characters.
+It rejects empty, unchanged, NUL/lone-CR, or over-limit replacement input, and
+does not rewrite a current file whose line endings are already mixed. Incoming
+LF/CRLF line endings are normalized to the current file's uniform convention
+and an existing final newline is preserved when the model omits it, so a model
+cannot create incidental whole-file EOL churn.
+
+The host computes a focused canonical unified diff from the old and replacement
+texts. The model never supplies the review diff for `write_file`. Review marks
+the operation as a full-file replacement and warns the user to check for
+omitted content. The complete candidate then enters exactly the same compiler,
+freshness, review-coordination, and collaboration transaction path used by
+`apply_patch`; the two tools do not duplicate those lifecycle rules. Neither
+tool creates, deletes, renames, or writes an inactive or binary file.
 
 ## Workspace application port
 
@@ -642,20 +983,23 @@ edit carries at least:
 - immutable document identity and normalized path;
 - a base snapshot reference, including the collaboration state needed for an
   exact freshness check;
-- validated text changes;
-- a candidate document used only for diff presentation.
+- the host-canonicalized unified diff and its parsed, validated text changes;
+- a candidate document used only for preflight and diff presentation;
+- a passing bounded compile result; and
+- the exact immutable compiler-World revision used for that result.
 
-The Assistant panel shows only a proposal summary. `Review changes` places the
-central Editor into a diff surface with the current and proposed content and
-explicit Reject and Accept actions. A narrow chat panel is not the code-review
-surface.
+The central Editor becomes the diff surface and presents explicit Reject and
+Accept actions while the originating `pi-agent-core` tool call remains pending.
+The narrow chat panel is not the code-review surface.
 
-Any local or remote change to the base document makes the open proposal stale.
-Accept is disabled immediately. On acceptance, the Workspace owner performs a
-final synchronous freshness and permission check, then applies the accepted
-change as one collaboration-aware transaction. Compilation follows through
-the existing compiler lifecycle. The agent receives the resulting document
-and World references, not an optimistic success invented by the AI feature.
+Any local or remote change to the base document or another compiler input makes the open proposal stale.
+The patch is never silently rebased onto that newer text. Accept is disabled
+immediately. On acceptance, the Workspace owner performs a final synchronous
+freshness and permission check, then applies the already-reviewed candidate as
+one collaboration-aware transaction. Normal live preview compilation follows
+through the existing compiler lifecycle. The agent receives the accepted
+document snapshot plus the pre-accept verification result, not an optimistic
+success invented by the AI feature.
 
 Reject and stale are tool feedback. The model may explain, reread, or propose a
 replacement. Stopping a run cancels the pending tool call and exits review.
@@ -666,11 +1010,39 @@ wide write permission are outside the first release.
 
 ## Compile feedback
 
-Verification does not create another compiler. A `verify current project`
-tool asks the existing compilation owner to await a settled result for the
-exact Workspace generation, immutable compile input World, and compile target.
-It returns current success, bounded diagnostics, runtime failure, or
-supersession.
+Candidate verification deliberately does create a separate, lazily started
+compiler worker. Reusing the live preview worker would let candidate requests
+supersede queued preview work and would replace its active World/incremental
+renderer state with unaccepted source. Typst candidate checks therefore use a
+distinct World scope and full diagnostics-only compilation without exporting a
+PDF/vector artifact or entering the persistent preview renderer; LaTeX uses a
+distinct runtime queue for the same reason.
+Browser HTTP/module/package caches remain reusable, but compiler linear memory,
+incremental state, and request queues do not. The candidate runtime is disposed
+after 60 seconds idle.
+
+A lightweight parse-only pass now precedes Typst candidate compilation. It uses
+the existing official `typst-syntax` WASM parser, reports the first actionable
+`Error` location without flooding the agent with recovery cascades, and
+immediately returns obvious syntax failures without starting the candidate compiler. Parser bootstrap failure is
+fail-open to the authoritative compile rather than blocking an otherwise valid
+edit.
+
+The parse-only pass is not the acceptance gate. Typst's parser is
+error-recovering, and syntax alone cannot detect import, evaluation, resource,
+font, or layout failures. Candidates that pass syntax parsing still require the
+isolated diagnostics-only compile, which preserves those checks while avoiding
+artifact serialization. Compiler initialization uses the browser font-builder
+hook directly so the application can retain its strict CSP; it does not enable
+the upstream loader's optional eval-based Node fallback.
+
+The port binds each passing result to the exact immutable base CompileWorld and
+target. A change to any compiler input while compiling or reviewing makes the
+result stale. Compilation failures return bounded errors and structured
+locations through the originating `apply_patch` or `write_file` call, allowing `pi-agent-core` to
+repair and retry before the user sees an acceptance surface. A future `verify
+current project` tool may still await the existing preview compilation owner;
+that is distinct from pre-accept candidate verification.
 
 This lets an agent repeat read, review, apply, and verify while keeping browser
 Typst or LaTeX compilation authoritative. The AI feature never polls the
@@ -683,18 +1055,23 @@ Preview component and never interprets a canvas as compiler state.
 | Project identity, access, documents, and generation | Existing Workspace session |
 | Collaborative active text | Yjs and CodeMirror |
 | Compile inputs, lifecycle, diagnostics, and output | Existing compiler actors and reducers |
-| Model/tool loop, canonical agent messages, streaming, and cancellation | `pi-agent-core` Agent inside the opaque-origin AI Runtime |
-| Assistant transcript view projection | Feature-scoped host client memory populated by sanitized Runtime events |
+| Live model/tool loop, canonical in-Runtime agent messages, streaming, and cancellation | `pi-agent-core` Agent inside the opaque-origin AI Runtime |
+| Per-turn project-state snapshot | Existing Workspace owner, exposed through the narrow AI application port |
+| Conversation identity, active pointer, and sanitized transcript projection | AI feature domain in the host, account/project-scoped IndexedDB for authenticated users and memory for anonymous users |
+| Bounded visible history supplied after reload/switch | AI feature projection derived from completed user/final-answer pairs |
 | AI connection metadata | Versioned, account-scoped Local Storage profile store |
 | AI connection credential and endpoint binding | Memory only inside the current opaque-origin Runtime iframe |
+| Per-turn token usage and context projection | Runtime Agent, sanitized over protocol v1 and held in the host external-store snapshot |
 | Outstanding proposal and review decision | Feature-scoped review controller keyed by Workspace generation |
 | Panel visibility, draft prompt, expanded rows, and scroll position | Focused React presentation state |
 
 `AiRuntimeClient` and its Runtime session are keyed by access identity, project,
 and Workspace generation. The client projects validated Runtime events into
 React through an external-store subscription rather than copying every streamed
-token through a chain of component props. High-frequency editor and compiler
-data remains with its engine owner.
+token through a chain of component props. Content deltas are coalesced to an
+animation frame, while terminal, error, cancellation, review, and connection
+events flush immediately. High-frequency editor and compiler data remains with
+its engine owner.
 
 The agent library already owns its internal lifecycle. A feature-scoped actor
 or reducer is justified only for TOSS-specific invalid transitions such as
@@ -713,6 +1090,11 @@ must not mirror `Agent.state.isStreaming` or create a second model/tool loop.
   before reuse.
 - Persisted connection profiles contain only validated non-secret metadata and
   are treated as untrusted input every time they are loaded.
+- Authenticated conversation history is local project data in host IndexedDB.
+  It is account/project scoped, size-bounded, validated on load, and excludes
+  credentials, reasoning, system prompts, raw tool results, source excerpts,
+  and patches. Visible final answers may still contain project content. Core
+  does not receive, synchronize, or back it up.
 - The host and Runtime establish a dedicated `MessageChannel` through exact
   frame-window, parent-origin, one-time nonce, and build-version validation.
   Opaque `event.origin` is never mistaken for an authenticated child identity.
@@ -760,7 +1142,7 @@ must not mirror `Agent.state.isStreaming` or create a second model/tool loop.
   falls back to a Core proxy.
 - Read-only and historical project modes do not expose mutation tools.
 
-Memory-only storage limits at-rest and post-reload exposure. Opaque-principal
+Credential memory-only storage limits at-rest and post-reload exposure. Opaque-principal
 isolation also prevents ordinary host code from directly reading the
 credential, but it is not a secure vault: hostile Runtime code can access the
 secret, hostile host code can imitate the small credential UI or attempt quota
@@ -801,8 +1183,11 @@ substituting for the required cross-browser suite:
 - the application's `frame-src 'self'` blocked the child from navigating its
   own frame to an external origin.
 
-Firefox and WebKit behavior, Local Network Access prompts, provider streaming,
-and production response-header composition remain implementation gates.
+Firefox and WebKit behavior, Local Network Access prompts, the remaining wire
+protocols, and production response-header composition remain implementation
+gates. Chromium streaming and retained multi-turn context have also been
+validated against a user-configured NVIDIA OpenAI-compatible inference
+endpoint; that smoke is compatibility evidence, not a shipped provider preset.
 
 ### Why a second origin is not the baseline
 
@@ -889,7 +1274,8 @@ The proposed first release contains:
 - the same-release Runtime artifact, explicit reserved routes, opaque iframe
   sandbox, fixed bootstrap, and two-stage endpoint CSP;
 - local AI connection creation, testing, selection, and removal;
-- one current local conversation per project;
+- multiple project-bound local conversations with an active pointer, bounded
+  authenticated-browser persistence, and memory-only anonymous behavior;
 - streaming messages and repeated read-only tool calls;
 - visible active-file, selection, diagnostic, revision, and `@file` context;
 - contextual selection and diagnostic entry points;
@@ -917,12 +1303,17 @@ Vitest should cover:
 - Local Storage profile versioning, corruption handling, account isolation,
   endpoint sanitization, full-base-URL binding, and memory-only credential
   lifetime and clearing;
+- IndexedDB conversation schema validation, account/project isolation, size and
+  count bounds, sanitized persistence, interrupted-turn projection, serialized
+  writes, and memory fallback;
 - bootstrap endpoint normalization and rejection, exact-origin CSP policy
   construction, and the rule that full Runtime code loads only after policy
   installation and no new code loads after credential entry;
 - exact build-version matching, frame-window and parent-origin checks, nonce
   validation, one-use port transfer, message validation, duplicate and stale
   IDs, size limits, cancellation, and Runtime replacement;
+- conversation bootstrap/switch validation, history bounds, Runtime context
+  reset, provider-session separation, and credential-required state retention;
 - endpoint changes, redirect rejection, credential-omitting fetch defaults,
   and the absence of a generic authenticated fetch message;
 - repeated tool turns, parallel reads, sequential writes, and cancellation;
@@ -946,6 +1337,11 @@ Playwright should cover:
 - wide, drawer, and single-panel Assistant layouts;
 - selection and diagnostic contextual entry;
 - a multi-turn read, proposal, review, apply, and verify workflow;
+- an actual `query_typst_docs` call whose Typst 0.15 result returns to the
+  provider after the Runtime applies its locked CSP;
+- creation and switching of multiple conversations without credential re-entry,
+  restoration after reload, project isolation, and absence of credentials or
+  reasoning in host browser persistence;
 - collaboration changes from a second browser making a proposal stale;
 - read-only and revision-mode absence of write controls;
 - keyboard and focus behavior;
@@ -963,25 +1359,29 @@ policy applies to all of them.
 
 The following details are intentionally unsettled:
 
-1. the initial wire-protocol adapters and which of them pass real browser CORS
-   and streaming tests against user-configured endpoints;
-2. the connection metadata schema and protocol-specific advanced fields;
-3. whether anonymous sessions may persist a non-secret connection profile or
-   remain memory-only;
-4. the exact agent tool names, JSON schemas, output limits, and error codes;
-5. prompt construction, project-data boundaries, context pruning, and
-   transcript compaction;
-6. default run budgets for model turns, tool calls, elapsed time, context, and
-   repeated edit-review cycles;
+1. which additional wire-protocol adapters pass real browser CORS and
+   streaming tests against user-configured endpoints; OpenAI-compatible Chat
+   Completions has passed the Chromium smoke;
+2. whether later UI affordances should help author common Provider JSON shapes
+   without turning those helpers into a false cross-provider schema;
+3. whether anonymous sessions should ever gain opt-in persistence for
+   non-secret connection profiles beyond the current memory-only behavior;
+4. the names, schemas, output limits, and error codes beyond the implemented
+   `list_project_files`, `read_project_file`, `search_project_text`,
+   `apply_patch`, and `write_file` tools;
+5. future semantic summarization beyond the implemented deterministic
+   `transformContext` windowing and tool-payload compaction;
+6. default run budgets for model calls, tool calls, elapsed time, and repeated
+   edit-review cycles; model context and maximum output are user-configured;
 7. whether a rejected proposal ends the run or normally lets the model offer a
    non-editing alternative;
-8. the diff implementation and how proposed ranges are represented across
-   CodeMirror and Yjs;
+8. whether the current unified-diff review surface later adopts a CodeMirror
+   merge presentation without changing the accepted patch contract;
 9. inactive-document edit behavior in the first release;
-10. AI availability and connection-metadata behavior for anonymous and shared
-    projects;
+10. future AI availability rules for shared projects;
 11. model switching semantics inside an existing conversation;
-12. conversation retention, reset confirmation, and future history UI;
+12. retention duration, bulk clear/export controls, and whether local
+    conversation history should support an explicit per-project disable switch;
 13. whether trusting the fixed Runtime artifact plus navigation-triggered
     revocation is sufficient for credentials, or provider execution needs an
     additional non-navigable boundary;
@@ -990,8 +1390,8 @@ The following details are intentionally unsettled:
 15. tested opaque-origin CORS, mixed-content, and private-network behavior for
     cloud, gateway, and local endpoints, including any required Permissions
     Policy delegation;
-16. cost and token-usage presentation without introducing telemetry of prompt
-    or project content;
+16. future price/cost presentation; sanitized token-usage presentation is
+    implemented without telemetry of prompt or project content;
 17. final names, icons, localized copy, and keyboard shortcuts;
 18. whether the authentication cookie can safely use a narrower `/v1` path so
     it is absent even from the Runtime entry navigation;
@@ -1004,17 +1404,21 @@ The following details are intentionally unsettled:
 2. **Implemented:** add the feature gate, generic auxiliary-panel extension,
    versioned host protocol client, separately built artifact, fixed bootstrap,
    explicit Core routes, and fake opaque-origin Runtime.
-3. Add endpoint-bound CSP, secure connection management, `pi-agent-core`,
-   selected provider adapters, and read-only multi-turn chat.
-4. Add bounded Workspace read, search, selection, and diagnostic tools.
-5. Add single-file review, stale detection, and collaboration-aware apply.
-6. Add exact compile feedback and bounded repair loops.
+3. **Implemented:** add endpoint-bound CSP, secure connection management,
+   `pi-agent-core`, selected provider adapters, and read-only multi-turn chat.
+4. **Implemented:** add bounded Workspace list/read/search tools with
+   line-numbered results.
+5. **Implemented for the active live document:** add isolated pre-accept
+   candidate compilation, bounded repair feedback, single-file review, stale
+   detection, and collaboration-aware apply. Inactive-document editing remains.
+6. Add selection/current-diagnostic context and a general exact-World
+   verification tool.
 7. Complete cross-browser CSP, opaque-origin CORS/private-network validation,
    accessibility, responsive behavior, artifact provenance, and cross-session
    security tests before enabling the feature in a deployment.
 
 Each slice must preserve an AI-excluded build and may not introduce a server
-fallback or worker dependency.
+fallback or server-side worker dependency.
 
 ## Related
 

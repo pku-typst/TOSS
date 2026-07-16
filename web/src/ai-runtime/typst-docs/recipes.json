@@ -1,0 +1,64 @@
+[
+  {
+    "id": "document-metadata",
+    "title": "Document metadata",
+    "summary": "Set machine-readable title, authors, description, keywords, and creation date with a top-level document set rule.",
+    "keywords": ["metadata", "title", "author", "authors", "description", "keywords", "date", "pdf"],
+    "example": "#set document(\n  title: [Collaborative Typesetting Study],\n  author: \"TOSS Community Team\",\n  date: datetime(year: 2026, month: 7, day: 15),\n  keywords: (\"TOSS\", \"Typst\", \"collaboration\"),\n)\n\n#title()",
+    "notes": [
+      "Place the set rule at the document top level before document content.",
+      "document.title is content; document.author and document.keywords accept a string or an array of strings.",
+      "The title element renders the configured title; setting metadata alone does not visibly render it."
+    ],
+    "sourceRoute": "/reference/model/document/"
+  },
+  {
+    "id": "content-and-strings",
+    "title": "Content and strings",
+    "summary": "Keep markup content distinct from plain strings and construct the type required by each API.",
+    "keywords": ["content", "string", "str", "type", "expected", "found", "conversion"],
+    "example": "#let name = \"Ada Lovelace\"\n#let label = [Author: #name]\n#let uppercase-name = upper(name)\n#label — #uppercase-name",
+    "notes": [
+      "Square brackets create content; quoted values create strings.",
+      "Do not replace a required string or array-of-strings parameter with content merely because it renders similarly.",
+      "Typst 0.15 has no general str(content) conversion; retain the original string when both representations are needed."
+    ],
+    "sourceRoute": "/reference/foundations/content/"
+  },
+  {
+    "id": "set-and-show-rules",
+    "title": "Set and show rules",
+    "summary": "Use set rules for element properties and show rules for transformations; place rules before the content they affect.",
+    "keywords": ["set", "show", "rule", "style", "heading", "before", "element"],
+    "example": "#set text(size: 11pt)\n#show heading.where(level: 1): set text(fill: blue)\n\n= Styled heading",
+    "notes": [
+      "Named arguments use a colon, not an equals sign.",
+      "A set rule only affects following content in its scope."
+    ],
+    "sourceRoute": "/reference/styling/"
+  },
+  {
+    "id": "arrays-and-dictionaries",
+    "title": "Arrays and dictionaries",
+    "summary": "Use parenthesized comma-separated values for arrays and named entries for dictionaries.",
+    "keywords": ["array", "dictionary", "tuple", "list", "values", "single", "comma"],
+    "example": "#let authors = (\"Ada\", \"Grace\")\n#let one-author = (\"Ada\",)\n#let metadata = (title: \"Report\", year: 2026)",
+    "notes": [
+      "A one-element array needs a trailing comma.",
+      "Dictionary entries use name: value syntax."
+    ],
+    "sourceRoute": "/reference/foundations/array/"
+  },
+  {
+    "id": "imports-and-includes",
+    "title": "Imports and includes",
+    "summary": "Import definitions when names are needed and include a file when its produced content should appear in the document.",
+    "keywords": ["import", "include", "module", "file", "path", "definitions"],
+    "example": "#import \"theme.typ\": accent, callout\n#include \"sections/method.typ\"",
+    "notes": [
+      "Relative paths resolve from the file containing the import or include.",
+      "Use import for definitions and include for document content."
+    ],
+    "sourceRoute": "/reference/scripting/"
+  }
+]

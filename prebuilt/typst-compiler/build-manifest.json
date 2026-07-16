@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source_revision": "b1e700986082cce2bd3dd0db8b27af9f4418883b",
+  "source_revision": "b9c354ffda394880e7942888c832412fd4fa9156",
   "package_name": "@myriaddreamin/typst-ts-web-compiler",
   "package_version": "0.8.0-rc3",
   "generator": {
@@ -37,20 +37,20 @@
       "size_bytes": 1114
     },
     "pkg/typst_ts_web_compiler_bg.wasm": {
-      "sha256": "deeca2faa81e52225f080dddd33e5ddb9c6f8f11cc6bf869f96ea36ea456e030",
-      "size_bytes": 30154301
+      "sha256": "c3c2a7825b5a22f4cba4edc6d689b354fd7d635c3e092b0b2e08f10338119097",
+      "size_bytes": 30150899
     },
     "pkg/typst_ts_web_compiler_bg.wasm.d.ts": {
-      "sha256": "4109bf752f59b3092a24630a625058167c91d01ce22a413f9b62254769b6eb2b",
-      "size_bytes": 5254
+      "sha256": "755aaf7886c9f36253328ccda07a027c0b089e4df296aa482144eaac09371459",
+      "size_bytes": 5573
     },
     "pkg/typst_ts_web_compiler.d.ts": {
-      "sha256": "e7a79d9048883710492a4cd3877576ec7162873a42718000182b806bd0221736",
-      "size_bytes": 10260
+      "sha256": "729d92f9d01efa53e6866ad26c579b0bd5e681856801e73d80b776fb60cf0027",
+      "size_bytes": 10579
     },
     "pkg/typst_ts_web_compiler.mjs": {
-      "sha256": "4d6a602499b64a088e12a6b9cabdb9dcdb41af4b02ceec303f117f0d93545231",
-      "size_bytes": 63410
+      "sha256": "2f438cd5b2d09eb6eca305272b9975e25cd9e340bfe2c08480f98938458080c4",
+      "size_bytes": 65136
     },
     "pkg/wasm-pack-shim.d.mts": {
       "sha256": "4d44c3c2046805e1902352ced20571bba547ea88d670785dd4d4b03f3f11fca2",

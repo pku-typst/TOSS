@@ -36,6 +36,10 @@ export async function compileLatexClientSide(
   };
 }
 
+export function compileLatexCandidateClientSide(options: CompileOptions) {
+  return compileLatexClientSide(options);
+}
+
 export function subscribeLatexRuntimeStatus(
   listener: (status: LatexRuntimeStatus) => void
 ) {

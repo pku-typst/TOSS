@@ -10,6 +10,8 @@ import {
   lockedRuntimePolicy,
   runtimeConnectSource
 } from "@/features/ai/runtimePolicy";
+import { installBoundAiRuntimeFetch } from "@/ai-runtime/networkPolicy";
+import { loadAiProviderStream } from "@/ai-runtime/providerAdapter";
 
 let initialized = false;
 
@@ -47,10 +49,17 @@ async function initialize(event: MessageEvent<unknown>) {
   try {
     const network = runtimeConnectSource(event.data.connection, expectedOrigin);
     installRuntimeMetaPolicy(earlyRuntimePolicy(network.source));
-    const runtime = await import("@/ai-runtime/runtime");
+    if (network.endpoint) installBoundAiRuntimeFetch(network.endpoint);
+    const [runtime, providerStream] = await Promise.all([
+      import("@/ai-runtime/runtime"),
+      event.data.connection.kind === "endpoint"
+        ? loadAiProviderStream(event.data.connection.protocol)
+        : Promise.resolve(null)
+    ]);
     runtime.prepareRuntimeSurface(bootstrapNonce(), event.data.locale);
+    await runtime.prepareRuntimeResources(event.data.workspace);
     installRuntimeMetaPolicy(lockedRuntimePolicy(network.source));
-    runtime.startRuntime(port, event.data, network.endpoint);
+    runtime.startRuntime(port, event.data, network.endpoint, providerStream);
   } catch (error) {
     reportBootstrapFailure(
       port,

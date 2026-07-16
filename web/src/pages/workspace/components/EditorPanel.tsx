@@ -2,7 +2,7 @@ import { EditorPane } from "@/components/EditorPane";
 import { UiBadge, UiButton } from "@/components/ui";
 import { UnsupportedFilePane } from "@/pages/workspace/components/UnsupportedFilePane";
 import { MonitorSmartphone, UsersRound } from "lucide-react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Translator } from "@/lib/i18n";
 
 type RemoteCursor = {
@@ -52,6 +52,7 @@ export function EditorPanel({
   reconnectCountdownText,
   onReconnectNow,
   activePathExistsInTree,
+  editorOverride,
   panelStyle,
   t
 }: {
@@ -87,6 +88,7 @@ export function EditorPanel({
   reconnectCountdownText: string;
   onReconnectNow: () => void;
   activePathExistsInTree: boolean;
+  editorOverride: ReactNode;
   panelStyle: CSSProperties;
   t: Translator;
 }) {
@@ -143,7 +145,9 @@ export function EditorPanel({
         </nve-toolbar>
       </div>
       <div className="panel-content flush editor-panel-content">
-        {isActiveEditableTextDoc ? (
+        {isActiveEditableTextDoc && editorOverride ? (
+          editorOverride
+        ) : isActiveEditableTextDoc ? (
           <div className="editor-surface">
             <EditorPane
               editorInstanceKey={`${activePath}:${isRevisionMode ? "revision" : "live"}:${currentEditorLanguage}`}
