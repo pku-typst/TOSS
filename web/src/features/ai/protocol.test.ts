@@ -6,6 +6,7 @@ import {
   isAiRuntimeBootstrapInit,
   isAiRuntimeToHostMessage
 } from "@/features/ai/protocol";
+import { DEFAULT_RUNTIME_DESIGN_THEME } from "@/design/runtimeTheme";
 
 describe("AI Runtime protocol validation", () => {
   const workspaceContext = {
@@ -30,6 +31,7 @@ describe("AI Runtime protocol validation", () => {
     nonce: "nonce-1",
     parentOrigin: "https://toss.example.test",
     locale: "en",
+    theme: DEFAULT_RUNTIME_DESIGN_THEME,
     preferences: {
       providerRequestTimeoutMs: 120_000,
       maxProviderCallsPerTurn: 12,
@@ -59,6 +61,10 @@ describe("AI Runtime protocol validation", () => {
     expect(isAiRuntimeBootstrapInit({ ...bootstrap, protocolVersion: 2 })).toBe(false);
     expect(isAiRuntimeBootstrapInit({ ...bootstrap, buildId: "stale-build" })).toBe(false);
     expect(isAiRuntimeBootstrapInit({ ...bootstrap, locale: "fr" })).toBe(false);
+    expect(isAiRuntimeBootstrapInit({
+      ...bootstrap,
+      theme: { ...bootstrap.theme, brand: "red; display: none" }
+    })).toBe(false);
   });
 
   it("validates the bootstrap acknowledgement separately from readiness", () => {

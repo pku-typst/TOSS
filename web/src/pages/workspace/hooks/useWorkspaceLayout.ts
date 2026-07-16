@@ -168,6 +168,21 @@ export function useWorkspaceLayout() {
     },
     [singlePanelMode]
   );
+  const openPanel = useCallback(
+    (panel: WorkspacePanelView) => {
+      if (singlePanelMode) {
+        selectCompactPanel(panel);
+        return;
+      }
+      if (panel === "editor") return;
+      if (panel === "files" || panel === "preview") {
+        setVisiblePanels((current) => ({ ...current, [panel]: true }));
+        return;
+      }
+      setAuxiliaryPanel(panel);
+    },
+    [singlePanelMode]
+  );
 
   const beginHorizontalResize = useCallback(
     (onDelta: (deltaX: number) => void) =>
@@ -211,6 +226,7 @@ export function useWorkspaceLayout() {
     effectiveAuxiliaryPanel,
     effectiveShowEditorPanel,
     togglePanel,
+    openPanel,
     beginHorizontalResize
   };
 }

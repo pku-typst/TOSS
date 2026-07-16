@@ -19,30 +19,18 @@ export type AiRuntimeStatusMessage =
   | "invalidHostMessage";
 
 type AiRuntimeMessages = {
-  label: string;
   status: Record<AiRuntimeStatusMessage, string>;
   credential: {
     formLabel: string;
-    destinationLabel: string;
-    protocolLabel: string;
-    modelLabel: string;
-    tokenBudgetLabel: string;
-    reasoningLabel: string;
-    reasoningDeclared: string;
-    reasoningNotDeclared: string;
-    requestOverridesLabel: string;
-    requestOverridesConfigured: string;
-    requestOverridesDefault: string;
     inputLabel: string;
     inputHint: string;
-    activate: string;
+    connect: string;
   };
   managed: {
     credentialHint: string;
     retry: string;
     refresh: string;
-    replaceCredential: string;
-    clearCredential: string;
+    changeCredential: string;
   };
   tools: {
     list: { label: string };
@@ -125,45 +113,33 @@ const modelMessages = {
 
 const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
   en: {
-    label: "Isolated browser Runtime",
     status: {
-      handshaking: "Completing secure handshake…",
-      credentialRequired: "Enter an optional credential for the bound destination",
-      discoveringModels: "Checking available managed models…",
-      modelRequired: "Choose an available managed model",
-      catalogFailed: "The managed model catalog could not be loaded",
-      readyFake: "Ready · deterministic fake provider",
-      readyConnection: "Ready · credential held only in this Runtime",
-      readyAfterCancellation: "Ready · previous turn cancelled",
-      runningFake: "Running deterministic fake provider…",
-      streamingFake: "Streaming deterministic fake response…",
-      runningConnection: "Waiting for the selected model…",
-      streamingConnection: "Streaming the selected model response…",
+      handshaking: "Connecting…",
+      credentialRequired: "Connect to continue",
+      discoveringModels: "Checking available models…",
+      modelRequired: "Choose a model",
+      catalogFailed: "Models could not be loaded",
+      readyFake: "Ready",
+      readyConnection: "Ready",
+      readyAfterCancellation: "Ready",
+      runningFake: "Working…",
+      streamingFake: "Responding…",
+      runningConnection: "Waiting for the model…",
+      streamingConnection: "Responding…",
       providerFailed: "The selected model request failed",
-      invalidHostMessage: "Rejected an invalid host message"
+      invalidHostMessage: "The assistant received an invalid application message"
     },
     credential: {
-      formLabel: "Activate AI connection",
-      destinationLabel: "Bound destination",
-      protocolLabel: "API protocol",
-      modelLabel: "Model",
-      tokenBudgetLabel: "Context / max output",
-      reasoningLabel: "Reasoning model",
-      reasoningDeclared: "Declared",
-      reasoningNotDeclared: "Not declared",
-      requestOverridesLabel: "Provider parameters",
-      requestOverridesConfigured: "Configured",
-      requestOverridesDefault: "Provider defaults",
-      inputLabel: "Credential (optional)",
-      inputHint: "Kept only in this Runtime memory. Leave blank for an unauthenticated endpoint.",
-      activate: "Use connection"
+      formLabel: "Connect the assistant",
+      inputLabel: "API key or token (optional)",
+      inputHint: "Kept in memory and cleared when you reload. Leave blank if the endpoint does not require authentication.",
+      connect: "Connect"
     },
     managed: {
-      credentialHint: "Required for this managed provider and kept only in this Runtime memory.",
+      credentialHint: "Kept in memory and cleared when you reload.",
       retry: "Retry",
       refresh: "Refresh models",
-      replaceCredential: "Replace key",
-      clearCredential: "Clear key"
+      changeCredential: "Change API key"
     },
     tools: {
       list: {
@@ -194,13 +170,13 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
       mismatch: "The Workspace tool result did not match its request."
     },
     fakeResponse: [
-      "The isolated Runtime received this turn. ",
+      "The assistant received this turn. ",
       "The deterministic fake provider completed without network access."
     ],
     errors: {
       turnInProgress: "Another agent turn is already active.",
-      invalidHostMessage: "The host sent an invalid Runtime message.",
-      notConfigured: "Activate the AI connection before starting a turn.",
+      invalidHostMessage: "The assistant received an invalid application message.",
+      notConfigured: "Connect the assistant before starting a turn.",
       providerFailed: "The selected model request failed. Check the endpoint, browser CORS policy, credential, protocol, model ID, and provider parameters.",
       contextBudgetExceeded: "The current request cannot fit in this connection's context window. Increase the context window, reduce the maximum output, or start a new conversation.",
       providerCallBudgetExceeded: "The agent reached its model-call budget for this request.",
@@ -208,45 +184,33 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
     }
   },
   "zh-CN": {
-    label: "隔离的浏览器 Runtime",
     status: {
-      handshaking: "正在完成安全握手……",
-      credentialRequired: "请为已绑定的目标输入可选凭据",
-      discoveringModels: "正在检查可用的托管模型……",
-      modelRequired: "请选择一个可用的托管模型",
-      catalogFailed: "无法加载托管模型目录",
-      readyFake: "就绪 · 确定性模拟 Provider",
-      readyConnection: "就绪 · 凭据仅保存在当前 Runtime 内存中",
-      readyAfterCancellation: "就绪 · 上一轮已取消",
-      runningFake: "正在运行确定性模拟 Provider……",
-      streamingFake: "正在流式返回模拟响应……",
-      runningConnection: "正在等待所选模型……",
-      streamingConnection: "正在流式返回所选模型响应……",
+      handshaking: "正在连接……",
+      credentialRequired: "连接后继续",
+      discoveringModels: "正在检查可用模型……",
+      modelRequired: "请选择模型",
+      catalogFailed: "无法加载模型",
+      readyFake: "就绪",
+      readyConnection: "就绪",
+      readyAfterCancellation: "就绪",
+      runningFake: "正在处理……",
+      streamingFake: "正在回答……",
+      runningConnection: "正在等待模型……",
+      streamingConnection: "正在回答……",
       providerFailed: "所选模型请求失败",
-      invalidHostMessage: "已拒绝无效的宿主消息"
+      invalidHostMessage: "助手收到了无效的应用消息"
     },
     credential: {
-      formLabel: "启用 AI 连接",
-      destinationLabel: "绑定目标",
-      protocolLabel: "API 协议",
-      modelLabel: "模型",
-      tokenBudgetLabel: "上下文 / 最大输出",
-      reasoningLabel: "推理模型",
-      reasoningDeclared: "已声明",
-      reasoningNotDeclared: "未声明",
-      requestOverridesLabel: "Provider 参数",
-      requestOverridesConfigured: "已配置",
-      requestOverridesDefault: "使用 Provider 默认值",
-      inputLabel: "凭据（可选）",
-      inputHint: "仅保存在当前 Runtime 内存中；无需认证的端点可以留空。",
-      activate: "使用此连接"
+      formLabel: "连接助手",
+      inputLabel: "API key 或 Token（可选）",
+      inputHint: "仅保存在内存中，刷新页面后清除。端点无需认证时可留空。",
+      connect: "连接"
     },
     managed: {
-      credentialHint: "托管 Provider 要求提供密钥；密钥仅保存在当前 Runtime 内存中。",
+      credentialHint: "仅保存在内存中，刷新页面后清除。",
       retry: "重试",
       refresh: "刷新模型",
-      replaceCredential: "更换密钥",
-      clearCredential: "清除密钥"
+      changeCredential: "更换 API key"
     },
     tools: {
       list: {
@@ -277,13 +241,13 @@ const messages: Record<AiRuntimeLocale, AiRuntimeMessages> = {
       mismatch: "Workspace 工具结果与对应请求不匹配。"
     },
     fakeResponse: [
-      "隔离 Runtime 已收到本轮消息。",
+      "助手已收到本轮消息。",
       "确定性模拟 Provider 已在不访问网络的情况下完成响应。"
     ],
     errors: {
       turnInProgress: "另一轮 Agent 调用仍在进行中。",
-      invalidHostMessage: "宿主发送了无效的 Runtime 消息。",
-      notConfigured: "请先启用 AI 连接，再开始对话。",
+      invalidHostMessage: "助手收到了无效的应用消息。",
+      notConfigured: "请先连接助手，再开始对话。",
       providerFailed: "所选模型请求失败。请检查端点、浏览器 CORS 策略、凭据、协议、模型 ID 和 Provider 参数。",
       contextBudgetExceeded: "当前请求无法放入此连接的上下文窗口。请增大上下文窗口、减小最大输出，或新建对话。",
       providerCallBudgetExceeded: "Agent 已达到本次请求的模型调用预算。",

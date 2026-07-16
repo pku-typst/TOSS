@@ -88,7 +88,7 @@ async function initialize(event: MessageEvent<unknown>) {
           )
         : Promise.resolve(null)
     ]);
-    runtime.prepareRuntimeSurface(bootstrapNonce(), event.data.locale);
+    runtime.prepareRuntimeSurface(bootstrapNonce(), event.data.locale, event.data.theme);
     await runtime.prepareRuntimeResources(event.data.workspace);
     installRuntimeMetaPolicy(lockedRuntimePolicy(network.source));
     runtime.startRuntime(port, event.data, policy, network.endpoint, providerStream);

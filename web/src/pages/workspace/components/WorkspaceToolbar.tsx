@@ -184,7 +184,7 @@ export function WorkspaceToolbar({
         {collapsePanelsIntoMenu ? (
           <div className="workspace-view-menu-wrap">
             <nve-button
-              className="icon-toggle"
+              className="workspace-toolbar-toggle"
               role="button"
               container="flat"
               aria-label={t("workspace.view")}
@@ -326,7 +326,7 @@ export function WorkspaceToolbar({
         ) : (
           <>
             <UiButton
-              className={`icon-toggle ${showFilesPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showFilesPanel ? "active" : ""}`}
               aria-label={t("workspace.files")}
               title={t("workspace.files")}
               onClick={() => onTogglePanel("files")}
@@ -335,7 +335,7 @@ export function WorkspaceToolbar({
               <span>{t("workspace.files")}</span>
             </UiButton>
             <UiButton
-              className={`icon-toggle ${showPreviewPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showPreviewPanel ? "active" : ""}`}
               aria-label={t("workspace.preview")}
               title={t("workspace.preview")}
               onClick={() => onTogglePanel("preview")}
@@ -346,7 +346,7 @@ export function WorkspaceToolbar({
             {optionalAuxiliaryPanels.map((control) => (
               <UiButton
                 key={control.panel}
-                className={`icon-toggle ${control.active ? "active" : ""}`}
+                className={`workspace-toolbar-toggle ${control.active ? "active" : ""}`}
                 aria-label={control.label}
                 title={control.label}
                 onClick={() => onTogglePanel(control.panel)}
@@ -356,7 +356,7 @@ export function WorkspaceToolbar({
               </UiButton>
             ))}
             <UiButton
-              className={`icon-toggle ${showProjectSettingsPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showProjectSettingsPanel ? "active" : ""}`}
               aria-label={t("workspace.settings")}
               title={t("workspace.settings")}
               onClick={() => onTogglePanel("settings")}
@@ -365,7 +365,7 @@ export function WorkspaceToolbar({
               <span>{t("workspace.settings")}</span>
             </UiButton>
             <UiButton
-              className={`icon-toggle ${showRevisionPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showRevisionPanel ? "active" : ""}`}
               aria-label={t("workspace.revisions")}
               title={t("workspace.revisions")}
               onClick={() => onTogglePanel("revisions")}

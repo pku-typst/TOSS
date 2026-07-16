@@ -186,7 +186,7 @@ export function WorkspaceOverlays({
           </div>
         )}
         <AuthForm config={authConfig} t={t} compact onSignedIn={onSignedIn} />
-        {guestAuthError && <div className="error">{guestAuthError}</div>}
+        {guestAuthError && <div className="workspace-error">{guestAuthError}</div>}
       </UiDialog>
     </>
   );

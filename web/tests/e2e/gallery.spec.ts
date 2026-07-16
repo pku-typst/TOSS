@@ -44,7 +44,7 @@ test("creates independent projects and manages personal templates from the Galle
   await page.goto("/signin");
   await page.getByPlaceholder("Email").fill(account.email);
   await page.getByPlaceholder("Password").fill(account.password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByPlaceholder("Password").press("Enter");
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
 
   let galleryRequests = 0;

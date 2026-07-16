@@ -160,6 +160,22 @@ its button. Durable job aggregates remain in the task-center query and are not
 copied into the Workspace projection, compiler actors, preview reducer, or Yjs
 documents.
 
+## Presentation ownership
+
+The browser has one semantic token layer and one primitive layer. Global CSS
+owns only document defaults, the application shell, startup skeletons, and
+route loading. Page, component, Workspace-area, and optional-feature styles are
+co-located with the module that owns their markup and responsive behavior.
+This keeps route styling independent of visit order and lets disabled optional
+features disappear from the build graph together with their styles.
+
+Feature styles consume TOSS semantic tokens rather than NVIDIA Elements
+reference values. Direct palette values remain local only when color carries
+content, such as provider identity, syntax, collaborator presence, a document
+paper surface, or a product illustration. Shared headings, cards, empty states,
+form controls, and feedback components come from the UI primitive layer; broad
+classes such as `.error`, `.loading`, or `.muted` are not cross-page contracts.
+
 ## Browser persistence
 
 - Yjs IndexedDB persistence is keyed by member, project, immutable document ID,

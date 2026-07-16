@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import "@/pages/projects.css";
 import { useNavigate } from "react-router-dom";
 import { Archive, ArrowRight, Copy, Download, LayoutTemplate, Pencil, Plus } from "lucide-react";
 import { ProviderBrandMark } from "@/components/ProviderBrandMark";
-import { UiBadge, UiButton, UiCard, UiDialog, UiIconButton, UiInput, UiSelect } from "@/components/ui";
+import {
+  UiBadge,
+  UiButton,
+  UiCard,
+  UiDialog,
+  UiEmptyState,
+  UiIconButton,
+  UiInput,
+  UiPageHeading,
+  UiSectionHeading,
+  UiSelect
+} from "@/components/ui";
 import {
   copyProject,
   createProject,
@@ -394,44 +406,48 @@ export function ProjectsPage({
 
   return (
     <section className="app-page" nve-layout="column gap:lg pad:md @md|pad:xl">
-      <h1 nve-text="heading xl">{t("projects.title")}</h1>
-      <UiCard className="projects-create-card">
-        <div className="projects-create-header">
-          <h2 nve-text="heading sm">{t("projects.createTitle")}</h2>
-          <div nve-layout="row gap:xs align:vertical-center align:wrap">
-            {externalGitProviders.length > 0 && (
-              <UiButton
-                variant="ghost"
-                onClick={() => setImportDialogOpen(true)}
-                data-provider-brand={
-                  externalGitProviders.length === 1
-                    ? externalGitProviders[0]?.brand
-                    : undefined
-                }
-              >
-                {externalGitProviders.length === 1 && externalGitProviders[0] ? (
-                  <ProviderBrandMark
-                    brand={externalGitProviders[0].brand}
-                    size={24}
-                    className="projects-import-provider-mark"
-                  />
-                ) : (
-                  <Download size={16} aria-hidden />
-                )}
-                {t("externalGit.importFrom", {
-                  provider:
+      <UiPageHeading title={t("projects.title")} />
+      <UiCard className="projects-create-card" accented>
+        <UiSectionHeading
+          className="projects-create-heading"
+          headingLevel={2}
+          title={t("projects.createTitle")}
+          actions={
+            <div nve-layout="row gap:xs align:vertical-center align:wrap">
+              {externalGitProviders.length > 0 && (
+                <UiButton
+                  variant="ghost"
+                  onClick={() => setImportDialogOpen(true)}
+                  data-provider-brand={
                     externalGitProviders.length === 1
-                      ? externalGitProviders[0]?.display_name ?? t("externalGit.providerGeneric")
-                      : t("externalGit.providerGeneric")
-                })}
+                      ? externalGitProviders[0]?.brand
+                      : undefined
+                  }
+                >
+                  {externalGitProviders.length === 1 && externalGitProviders[0] ? (
+                    <ProviderBrandMark
+                      brand={externalGitProviders[0].brand}
+                      size={24}
+                      className="projects-import-provider-mark"
+                    />
+                  ) : (
+                    <Download size={16} aria-hidden />
+                  )}
+                  {t("externalGit.importFrom", {
+                    provider:
+                      externalGitProviders.length === 1
+                        ? externalGitProviders[0]?.display_name ?? t("externalGit.providerGeneric")
+                        : t("externalGit.providerGeneric")
+                  })}
+                </UiButton>
+              )}
+              <UiButton variant="ghost" onClick={() => navigate("/gallery")}>
+                <LayoutTemplate size={16} aria-hidden />
+                {t("projects.browseTemplates")}
               </UiButton>
-            )}
-            <UiButton variant="ghost" onClick={() => navigate("/gallery")}>
-              <LayoutTemplate size={16} aria-hidden />
-              {t("projects.browseTemplates")}
-            </UiButton>
-          </div>
-        </div>
+            </div>
+          }
+        />
         <div nve-layout="grid gap:sm align:vertical-stretch">
           <div
             nve-layout={`span:12 @md|span:${
@@ -532,11 +548,11 @@ export function ProjectsPage({
               t={t}
             />
           ))}
-          {filteredProjects.length === 0 && <div className="projects-empty">{t("projects.empty")}</div>}
+          {filteredProjects.length === 0 && <UiEmptyState description={t("projects.empty")} />}
         </div>
       </UiCard>
       <UiCard className="projects-organizations-card">
-        <h2 nve-text="heading sm">{t("projects.organizations")}</h2>
+        <UiSectionHeading headingLevel={2} title={t("projects.organizations")} />
         <div nve-layout="row gap:xs align:vertical-center align:wrap">
           {organizations.length > 0 ? (
             organizations.map((org) => (
@@ -545,7 +561,7 @@ export function ProjectsPage({
               </UiBadge>
             ))
           ) : (
-            <span className="muted">{t("projects.noOrganizations")}</span>
+            <span nve-text="body muted">{t("projects.noOrganizations")}</span>
           )}
         </div>
       </UiCard>
@@ -591,7 +607,11 @@ export function ProjectsPage({
           placeholder={t("projects.namePlaceholder")}
         />
       </UiDialog>
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <nve-alert status="danger" role="alert">
+          <span>{error}</span>
+        </nve-alert>
+      )}
       {externalGitProviders.length > 0 && (
         <ExternalGitImportDialog
           open={importDialogOpen}

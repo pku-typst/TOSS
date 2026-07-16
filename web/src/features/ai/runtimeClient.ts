@@ -28,6 +28,7 @@ import {
   DEFAULT_AI_RUNTIME_PREFERENCES,
   type AiRuntimePreferences
 } from "@/features/ai/runtimePreferences";
+import { readRuntimeDesignTheme } from "@/design/runtimeTheme";
 
 export type AiRuntimeStatus =
   | "idle"
@@ -284,6 +285,7 @@ export class AiRuntimeClient {
       nonce,
       parentOrigin: window.location.origin,
       locale: this.locale,
+      theme: readRuntimeDesignTheme(),
       preferences: { ...this.preferences },
       connection,
       conversation: this.conversation,

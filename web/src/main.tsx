@@ -13,6 +13,7 @@ import "@nvidia-elements/styles/layout.css";
 import "@nvidia-elements/styles/labs/layout-viewport.css";
 import "@/elements";
 import "@/design-tokens.css";
+import "@/design-system.css";
 import "@/styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

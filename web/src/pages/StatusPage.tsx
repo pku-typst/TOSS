@@ -1,4 +1,6 @@
 import { Ban, CircleAlert, FileQuestion, FolderX } from "lucide-react";
+import "@/pages/public-pages.css";
+import "@/pages/status.css";
 import { UiButton } from "@/components/ui";
 
 type StatusKind = "not-found" | "forbidden" | "project" | "startup";

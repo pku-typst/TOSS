@@ -40,6 +40,25 @@ if (included.includes("ai_assistant")) {
       "AI Runtime artifact does not match the main web build manifest; rebuild the complete web bundle"
     );
   }
+  const unresolvedBuildGlobals = new Map();
+  const assetsDir = path.join(outputDir, "assets");
+  for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".js")) continue;
+    const source = fs.readFileSync(path.join(assetsDir, entry.name), "utf8");
+    for (const match of source.matchAll(
+      /__TOSS_(?:BUILD_[A-Z0-9_]+|AI_RUNTIME_BUILD_ID)__/g
+    )) {
+      const files = unresolvedBuildGlobals.get(match[0]) ?? [];
+      files.push(entry.name);
+      unresolvedBuildGlobals.set(match[0], files);
+    }
+  }
+  if (unresolvedBuildGlobals.size > 0) {
+    const details = [...unresolvedBuildGlobals]
+      .map(([token, files]) => `${token} in ${[...new Set(files)].join(", ")}`)
+      .join("; ");
+    throw new Error(`AI Runtime contains unresolved build globals: ${details}`);
+  }
 } else {
   const webManifest = JSON.parse(fs.readFileSync(webManifestPath, "utf8"));
   if (webManifest.ai_runtime !== null) {

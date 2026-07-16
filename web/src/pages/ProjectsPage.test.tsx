@@ -44,6 +44,7 @@ vi.mock("@/components/ui", () => ({
         {actions}
       </div>
     ) : null,
+  UiEmptyState: ({ description }: { description?: ReactNode }) => <div>{description}</div>,
   UiIconButton: ({
     children,
     tooltip: _tooltip,
@@ -62,6 +63,19 @@ vi.mock("@/components/ui", () => ({
       <input {...props} />
       {error && <span role="alert">{error}</span>}
     </label>
+  ),
+  UiPageHeading: ({ title }: { title: ReactNode }) => <h1>{title}</h1>,
+  UiSectionHeading: ({
+    title,
+    actions
+  }: {
+    title: ReactNode;
+    actions?: ReactNode;
+  }) => (
+    <div>
+      <h2>{title}</h2>
+      {actions}
+    </div>
   ),
   UiSelect: ({
     label,

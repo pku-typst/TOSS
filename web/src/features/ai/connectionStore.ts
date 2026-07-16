@@ -56,6 +56,12 @@ export function emptyStoredAiConnections(): StoredAiConnections {
   return { schema: AI_CONNECTION_STORE_SCHEMA, connections: [] };
 }
 
+export function activeStoredAiConnection(stored: StoredAiConnections) {
+  return stored.connections.find(
+    (connection) => connection.id === stored.activeConnectionId
+  ) ?? null;
+}
+
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();

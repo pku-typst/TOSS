@@ -62,6 +62,16 @@ describe("useWorkspaceLayout", () => {
 
     act(() => result.current.togglePanel("feature:ai_assistant"));
     expect(result.current.effectiveAuxiliaryPanel).toBeNull();
+
+    act(() => result.current.openPanel("feature:ai_assistant"));
+    act(() => result.current.openPanel("settings"));
+    expect(result.current).toMatchObject({
+      effectiveShowSettingsPanel: true,
+      effectiveAuxiliaryPanel: "settings"
+    });
+
+    act(() => result.current.openPanel("settings"));
+    expect(result.current.effectiveAuxiliaryPanel).toBe("settings");
   });
 
   it("updates responsive behavior only from viewport breakpoint snapshots", () => {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "@/pages/workspace/preview.css";
 import {
   CloudCog,
   Download,

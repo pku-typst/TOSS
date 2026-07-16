@@ -112,6 +112,7 @@ describe("AiRuntimeClient", () => {
     expect(observed.bootstrap?.connection).toEqual({ kind: "fake" });
     expect(observed.bootstrap?.workspace).toBeNull();
     expect(observed.bootstrap?.locale).toBe("en");
+    expect(observed.bootstrap?.theme).toMatchObject({ colorScheme: "light" });
     expect(observed.bootstrap?.conversation).toEqual({
       conversationId: client.getSnapshot().conversationId,
       history: []

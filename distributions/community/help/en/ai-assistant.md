@@ -1,6 +1,6 @@
 ## Add your own AI connection
 
-If the deployment enables the optional Assistant, open **Assistant** from the Workspace toolbar and add a connection. TOSS does not select a provider for you. Enter:
+If the deployment enables the optional Assistant, open **Settings**, select **Assistant**, and add a connection. TOSS does not select a provider for you. Enter:
 
 - a local name for the connection;
 - one supported API protocol: OpenAI-compatible Chat Completions, OpenAI Responses, or Anthropic Messages;
@@ -15,20 +15,20 @@ The endpoint must use HTTPS, except that HTTP is allowed for `localhost` and `12
 
 Signed-in accounts retain this non-secret connection metadata, including the reasoning-capability declaration, Provider request parameters, and two token limits, in account-scoped browser storage. Anonymous sessions can use a connection for the current page session, but its metadata is not saved.
 
-The **Agent settings** button also lets you set the Provider request timeout,
+The same **Assistant** settings section contains the Provider request timeout,
 maximum model calls per turn, and maximum turn duration within displayed safety
-bounds. Signed-in accounts retain these non-secret preferences in
-account-scoped browser storage; anonymous preferences stay in memory. They
-never include the credential. Setting changes apply between turns and do not
-recreate the isolated Runtime.
+bounds. Signed-in accounts retain these non-secret preferences in account-scoped
+browser storage; anonymous preferences stay in memory. They never include the
+credential. Setting changes apply between turns. The Assistant panel itself is
+reserved for conversations, temporary credentials, and current model selection.
 
 ## Enter a credential safely
 
-After saving the non-secret profile, the isolated Runtime shows the exact bound destination, protocol, and model. Enter an API key or short-lived token there, or leave the field empty for an unauthenticated local endpoint.
+After saving the non-secret profile, the Assistant asks for an API key or short-lived token. Leave the field empty if the selected endpoint does not require authentication.
 
-The credential is held only in that opaque, sandboxed Runtime's memory. TOSS Core, the host application, the project, Local Storage, and Session Storage do not receive it. Reloading the page, replacing the Runtime, switching the connection, logging out, or changing account clears the in-memory credential.
+The credential stays only in memory inside a sandboxed, opaque-origin browser frame. The rest of TOSS—including Core, the application UI, the project, Local Storage, and Session Storage—cannot read it. Reloading the page, switching the connection, logging out, or changing account clears it.
 
-The Runtime permits requests only below the configured base URL, omits browser credentials, rejects redirects, and loads only the selected protocol implementation before accepting your credential.
+That sandbox permits model requests only below the configured base URL, omits browser credentials, rejects redirects, and loads only the selected protocol implementation before accepting your credential.
 
 ## Provider and browser requirements
 
@@ -49,8 +49,8 @@ exact or newer project data.
 For Typst projects, the assistant also has a local `query_typst_docs` tool. It
 searches a bundled Typst 0.15.0 API index and a small set of compile-verified
 recipes for topics such as document metadata, content versus strings, set/show
-rules, arrays, and imports. A Typst Runtime loads and validates the reference
-during its isolated startup, then searches it from private memory; it is not
+rules, arrays, and imports. The assistant loads and validates the reference
+before connecting, then searches it from private memory; it is not
 added to every conversation turn and does not contact `typst.app` or any
 backend. Model-facing queries and returned reference text are English, while
 the assistant still answers in your language. Compilation and human review
@@ -63,7 +63,7 @@ The assistant can use three bounded, read-only Workspace tools during its multi-
 - read a bounded range from one project text document; and
 - search literal text across project text documents.
 
-Reads use the current Workspace view. The active live document comes from the latest collaboration/editor projection, while revision mode reads the selected immutable revision. Source returned to the model is prefixed as `line | code`; that prefix is display metadata and is not part of the file. Switching the Workspace generation or selected revision replaces the isolated Runtime so an older tool call cannot return into the new view. The selected project's local conversation remains available, but a replacement Runtime requires the credential again.
+Reads use the current Workspace view. The active live document comes from the latest collaboration/editor projection, while revision mode reads the selected immutable revision. Source returned to the model is prefixed as `line | code`; that prefix is display metadata and is not part of the file. Switching the Workspace generation or selected revision reconnects the assistant to the new view so an older tool call cannot return into it. The selected project's local conversation remains available, but the credential must be entered again.
 
 In a writable live project, the assistant can also submit `apply_patch` for the current active text document. It must use the exact snapshot returned by a read and provide one contextual, single-file unified-diff proposal. Paths, old-file starts, context, and removed lines must match that snapshot exactly. Workspace derives the redundant hunk counts and new-file coordinates from the validated body; this does not enable fuzzy matching or automatic rebasing. Before review, Workspace builds an unpublished candidate World and compiles it in a dedicated, lazily started browser worker. A failed candidate is not shown for acceptance: bounded diagnostics return to the agent so it can revise the patch. A passing candidate opens the central Editor with the canonical diff, a compile-passed indicator, and **Reject** and **Accept changes** actions. Nothing changes before acceptance. Accept performs one final exact-content, compiler-World, and permission check, then writes through the existing collaborative document transaction. Any local or remote source change makes the proposal stale. Revision and read-only views do not expose this tool.
 
@@ -73,10 +73,11 @@ The candidate compiler is isolated from live preview state. Typst first performs
 
 ## Conversation and activity
 
-Use the conversation selector above the transcript to create, switch, rename,
-or delete conversations within the current project. Switching conversations
-resets the model context but keeps the credential already entered into the
-current Runtime. A running turn must finish or be stopped before switching.
+Use the selector above the transcript to switch conversations within the current
+project, **+** to create one, and the Assistant menu to rename or delete the
+current conversation. Switching conversations resets the model context but
+keeps the credential currently held in memory. A running turn must finish or be
+stopped before switching.
 
 For signed-in accounts, TOSS stores a bounded conversation projection in this
 browser's IndexedDB, scoped by account and project. It contains visible user
@@ -149,4 +150,4 @@ analytics service, and it does not infer price from them.
 
 ## Data flow
 
-Your prompt and conversation context go directly from the Runtime to the selected endpoint. When the model calls a Workspace tool, the bounded result—including requested project source excerpts—is returned to the Runtime and becomes part of the next provider request. Sanitized response content, bounded activity state, and token counts return to the host for display. The selected provider applies its own billing, retention, and privacy terms. TOSS Core does not proxy the credential or store the AI transcript or token usage; only the bounded local browser projection described above is retained.
+Your browser sends the prompt and conversation context directly to the selected endpoint. When the model calls a Workspace tool, the bounded result—including requested project source excerpts—returns to the same in-browser connection and becomes part of the next provider request. TOSS displays only sanitized response content, bounded activity state, and token counts. The selected provider applies its own billing, retention, and privacy terms. TOSS Core does not proxy the credential or store the AI transcript or token usage; only the bounded local browser projection described above is retained.

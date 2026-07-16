@@ -1,0 +1,204 @@
+/* Administration settings, organizations, and identity mappings. */
+
+.admin-page {
+  width: min(1080px, 100%);
+}
+
+.admin-content {
+  width: 100%;
+  display: grid;
+  gap: 16px;
+}
+
+.admin-fields-grid {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.admin-fields-grid-two,
+.admin-oidc-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-settings-section {
+  min-width: 0;
+  padding: 14px;
+  display: grid;
+  gap: 14px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-panel);
+  background: var(--toss-surface-subtle);
+}
+
+.admin-settings-heading .ui-section-heading-icon {
+  width: var(--toss-icon-size-md);
+  height: var(--toss-icon-size-md);
+  border: 0;
+  background: transparent;
+}
+
+.admin-signin-methods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-signin-methods .ui-checkbox {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface);
+}
+
+.admin-oidc-section {
+  box-shadow: inset 2px 0 0 var(--toss-brand-primary);
+}
+
+.admin-oidc-discovery {
+  grid-column: 1 / -1;
+}
+
+.admin-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.admin-loading {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--toss-text-muted);
+  font-size: 12px;
+}
+
+.admin-organization-create {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.admin-mapping-form {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.45fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.admin-mapping-list {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-mapping-item {
+  min-width: 0;
+  min-height: 48px;
+  padding: 7px 8px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface-subtle);
+  box-shadow: inset 2px 0 0 var(--toss-brand-primary);
+}
+
+.admin-mapping-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--toss-text-emphasis);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-mapping-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--toss-brand-subtle);
+  color: var(--toss-brand-strong);
+}
+
+.admin-remove-mapping:hover {
+  --color: var(--toss-danger);
+  --background: var(--toss-danger-surface);
+}
+
+.admin-mapping-empty {
+  min-height: 120px;
+}
+
+.admin-spin {
+  animation: admin-spin 0.85s linear infinite;
+}
+
+@keyframes admin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-spin {
+    animation: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-fields-grid-two,
+  .admin-oidc-grid,
+  .admin-signin-methods,
+  .admin-organization-create,
+  .admin-mapping-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-oidc-discovery {
+    grid-column: auto;
+  }
+
+  .admin-organization-create .ui-button,
+  .admin-mapping-form .ui-button {
+    width: 100%;
+  }
+
+  .admin-mapping-item {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+  }
+
+  .admin-mapping-item > .ui-tooltip {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+.admin-managed-field {
+  display: grid;
+  gap: var(--toss-space-xs);
+}
+
+.admin-managed-field small {
+  color: var(--toss-text-muted);
+  font-size: var(--toss-font-size-label);
+}

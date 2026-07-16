@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import "@/pages/processing/styles.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Download, ListTodo, LoaderCircle, X } from "lucide-react";
-import { UiBadge, UiButton, UiIconButton } from "@/components/ui";
+import { UiBadge, UiButton, UiEmptyState, UiIconButton } from "@/components/ui";
 import {
   cancelProcessingJob,
   downloadProcessingArtifact,
@@ -214,7 +215,7 @@ export function ProcessingTaskCenter({
             </header>
             <div className="processing-task-body" aria-live="polite">
               {jobsQuery.isPending ? (
-                <div className="processing-task-empty">
+                <div className="processing-task-loading">
                   <LoaderCircle className="spin" size={22} aria-hidden />
                   <span>{t("common.loading")}</span>
                 </div>
@@ -227,11 +228,13 @@ export function ProcessingTaskCenter({
                   </UiButton>
                 </nve-alert>
               ) : jobs.length === 0 ? (
-                <div className="processing-task-empty">
-                  <ListTodo size={28} aria-hidden />
-                  <strong>{t("processing.empty")}</strong>
-                  <span>{t("processing.emptyHint")}</span>
-                </div>
+                <UiEmptyState
+                  className="processing-task-empty"
+                  icon={<ListTodo size={28} />}
+                  iconFrame
+                  title={t("processing.empty")}
+                  description={t("processing.emptyHint")}
+                />
               ) : (
                 <div className="processing-task-list">
                   {jobs.map((job) => (

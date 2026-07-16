@@ -1,0 +1,230 @@
+/* Template gallery browsing, cards, and creation dialogs. */
+
+.gallery-page {
+  width: min(1280px, 100%);
+}
+
+.gallery-card h2,
+.gallery-card p {
+  margin: 0;
+}
+
+.gallery-toolbar {
+  background: var(--toss-surface-subtle);
+}
+
+.gallery-search-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--toss-space-md);
+}
+
+.gallery-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gallery-search-row .gallery-category-select {
+  width: min(240px, 32%);
+  flex: 0 0 min(240px, 32%);
+}
+
+.gallery-source-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--toss-space-sm);
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: var(--toss-space-lg);
+}
+
+.gallery-card {
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.gallery-card:hover {
+  box-shadow: var(--toss-shadow-floating);
+  transform: translateY(-1px);
+}
+
+.gallery-card .ui-card-layout {
+  height: 100%;
+  gap: 0;
+  padding: 0;
+}
+
+.gallery-card-visual {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+  background: var(--toss-canvas);
+}
+
+.gallery-thumbnail {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery-thumbnail-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--toss-card-accent);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--toss-card-accent) 12%, transparent), transparent 54%),
+    var(--toss-surface-subtle);
+}
+
+.gallery-card-markers {
+  position: absolute;
+  top: var(--toss-space-sm);
+  right: var(--toss-space-sm);
+  display: flex;
+  gap: var(--toss-space-xs);
+}
+
+.gallery-source-marker,
+.gallery-featured-marker {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: var(--toss-border-width) solid rgb(255 255 255 / 58%);
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgb(24 29 25 / 88%);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  backdrop-filter: blur(5px);
+}
+
+.gallery-source-marker-builtin {
+  color: var(--toss-brand-contrast);
+  background: var(--toss-brand-primary);
+}
+
+.gallery-source-marker-personal {
+  background: #0071c5;
+}
+
+.gallery-source-marker-shared {
+  background: #5d1682;
+}
+
+.gallery-featured-marker {
+  color: #1c1c1c;
+  background: #fac200;
+}
+
+.gallery-card-body {
+  display: grid;
+  align-content: start;
+  gap: var(--toss-space-sm);
+  flex: 1 1 auto;
+  min-height: 170px;
+  padding: var(--toss-space-lg);
+}
+
+.gallery-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--toss-space-sm);
+}
+
+.gallery-card-heading h2 {
+  color: var(--toss-text-emphasis);
+  font-size: var(--toss-font-size-subheading);
+  line-height: var(--toss-line-height-body);
+}
+
+.gallery-card-body p {
+  margin: 0;
+  color: var(--toss-text);
+  font-size: var(--toss-font-size-body);
+  line-height: var(--toss-line-height-body);
+}
+
+.gallery-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--toss-space-sm);
+  margin-top: auto;
+  color: var(--toss-text-muted);
+  font-size: var(--toss-font-size-label);
+}
+
+.gallery-card-meta span + span::before {
+  content: "·";
+  margin-inline-end: var(--toss-space-sm);
+}
+
+.gallery-card-actions {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: var(--toss-space-sm);
+  padding: var(--toss-space-sm) var(--toss-space-lg);
+  border-top: var(--toss-border-width) solid var(--toss-border-subtle);
+  background: var(--toss-surface-subtle);
+}
+
+.gallery-card-actions-spacer {
+  flex: 1 1 auto;
+}
+
+.gallery-state {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--toss-space-sm);
+  padding: var(--toss-space-2xl);
+  border: var(--toss-border-width) dashed var(--toss-border);
+  border-radius: var(--toss-radius-card);
+  color: var(--toss-text-muted);
+  text-align: center;
+  background: var(--toss-surface-subtle);
+}
+
+.gallery-dialog-empty {
+  padding: var(--toss-space-md);
+  border-radius: var(--toss-radius-control);
+  color: var(--toss-text-muted);
+  background: var(--toss-surface-subtle);
+}
+
+@media (max-width: 980px) {
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .gallery-search-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gallery-search-row .gallery-category-select {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .gallery-grid {
+    grid-template-columns: 1fr;
+  }
+}

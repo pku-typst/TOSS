@@ -1,4 +1,5 @@
 import { HistoryPanel } from "@/components/HistoryPanel";
+import "@/pages/workspace/revisions.css";
 import { UiButton, UiDialog, UiIconButton, UiInput } from "@/components/ui";
 import { Camera, History, LoaderCircle } from "lucide-react";
 import { useState } from "react";

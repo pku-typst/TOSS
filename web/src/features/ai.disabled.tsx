@@ -1,5 +1,6 @@
 import type { Translator, UiLocale } from "@/lib/i18n";
 import type { WorkspaceOptionalPanelDescriptor } from "@/pages/workspace/types";
+import type { WorkspaceOptionalSettingsSectionDescriptor } from "@/pages/workspace/types";
 import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
 import type { AiWorkspaceContextSnapshot } from "@/features/ai/toolContract";
 import type { AuthConfig } from "@/lib/api/types";
@@ -35,8 +36,19 @@ export function AiAssistantPanel(_props: {
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
   aiAssistantConfig: AuthConfig["ai_assistant"];
+  onOpenSettings: () => void;
   t: Translator;
 }) {
+  return null;
+}
+
+export function aiAssistantSettingsSection(_props: {
+  enabled: boolean;
+  accountId: string | null;
+  locale: UiLocale;
+  aiAssistantConfig: AuthConfig["ai_assistant"];
+  t: Translator;
+}): WorkspaceOptionalSettingsSectionDescriptor | null {
   return null;
 }
 

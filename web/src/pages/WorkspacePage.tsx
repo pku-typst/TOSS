@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import "@/pages/workspace/styles.css";
 import { createPortal } from "react-dom";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { UiButton } from "@/components/ui";
@@ -16,6 +17,7 @@ import {
   AssistantEditReviewCoordinator,
   AssistantEditReviewPane,
   aiAssistantWorkspacePanel,
+  aiAssistantSettingsSection,
   compileWorkspaceCandidate,
   compileWorldWithCandidateDocument,
   createAiWorkspacePort,
@@ -79,6 +81,7 @@ import {
   PREVIEW_MAX_ZOOM
 } from "@/pages/workspace/utils";
 import type { Translator, UiLocale } from "@/lib/i18n";
+import type { WorkspaceSettingsSectionId } from "@/pages/workspace/types";
 
 type WorkspacePageProps = {
   projects: Project[];
@@ -205,8 +208,11 @@ function ResolvedWorkspacePage({
     effectiveAuxiliaryPanel,
     effectiveShowEditorPanel,
     togglePanel,
+    openPanel,
     beginHorizontalResize
   } = useWorkspaceLayout();
+  const [preferredSettingsSection, setPreferredSettingsSection] =
+    useState<WorkspaceSettingsSectionId | null>(null);
   const assistantPanelActive =
     aiAssistantEnabled && effectiveAuxiliaryPanel === AI_ASSISTANT_PANEL_ID;
   const [assistantPanelMounted, setAssistantPanelMounted] = useState(false);
@@ -218,6 +224,22 @@ function ResolvedWorkspacePage({
     assistantPanelActive,
     t
   );
+  const assistantSettingsSection = aiAssistantSettingsSection({
+    enabled: aiAssistantEnabled,
+    accountId: authUser?.user_id ?? null,
+    locale,
+    aiAssistantConfig: authConfig?.ai_assistant ?? null,
+    t
+  });
+  const openAssistantSettings = useCallback(() => {
+    setPreferredSettingsSection(AI_ASSISTANT_PANEL_ID);
+    openPanel("settings");
+  }, [openPanel]);
+  useEffect(() => {
+    if (effectiveShowSettingsPanel && preferredSettingsSection) {
+      setPreferredSettingsSection(null);
+    }
+  }, [effectiveShowSettingsPanel, preferredSettingsSection]);
   const {
     previewZoom,
     setPreviewZoom,
@@ -1337,6 +1359,7 @@ function ResolvedWorkspacePage({
                 locale={locale}
                 workspacePort={aiWorkspacePort}
                 aiAssistantConfig={authConfig?.ai_assistant ?? null}
+                onOpenSettings={openAssistantSettings}
                 t={t}
               />
             </div>
@@ -1360,6 +1383,7 @@ function ResolvedWorkspacePage({
                   <h2>{t("workspace.settings")}</h2>
                 </div>
                 <div className="panel-content settings-body">
+                  {assistantSettingsSection?.content}
                   <div className="settings-card">
                     <p>{t("share.settingsLoginRequired")}</p>
                     <UiButton
@@ -1389,6 +1413,8 @@ function ResolvedWorkspacePage({
                 projection={workspaceProjection}
                 sessionActor={sessionActor}
                 refreshProjects={refreshProjects}
+                optionalSections={assistantSettingsSection ? [assistantSettingsSection] : []}
+                preferredSection={preferredSettingsSection}
                 t={t}
               />
             )}

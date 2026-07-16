@@ -1,0 +1,65 @@
+/* Audited provider identity colors and reusable provider marks. */
+
+[data-provider-brand] {
+  --provider-brand-color: var(--toss-brand-strong);
+  --provider-brand-surface: color-mix(
+    in oklab,
+    var(--provider-brand-color) 9%,
+    var(--toss-surface)
+  );
+  --provider-brand-border: color-mix(
+    in oklab,
+    var(--provider-brand-color) 42%,
+    var(--toss-border-subtle)
+  );
+}
+
+[data-provider-brand="github"] {
+  --provider-brand-color: #24292f;
+}
+
+[data-provider-brand="gitlab"] {
+  --provider-brand-color: #e24329;
+}
+
+[data-provider-brand="codeberg"] {
+  --provider-brand-color: #2185d0;
+}
+
+[data-provider-brand="gitea"] {
+  --provider-brand-color: #609926;
+}
+
+[data-provider-brand="forgejo"] {
+  --provider-brand-color: #ff6600;
+}
+
+.provider-brand-mark {
+  width: var(--provider-brand-mark-size);
+  height: var(--provider-brand-mark-size);
+  min-width: var(--provider-brand-mark-size);
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border: var(--toss-border-width) solid var(--provider-brand-border);
+  border-radius: var(--toss-radius-control);
+  color: var(--provider-brand-color);
+  background: #fff;
+}
+
+.provider-brand-mark img {
+  display: block;
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+}
+
+.provider-brand-mark[data-provider-brand="gitea"] img {
+  width: 78%;
+  height: 78%;
+}
+
+.provider-brand-mark[data-provider-brand="identity"] {
+  background: var(--provider-brand-surface);
+}

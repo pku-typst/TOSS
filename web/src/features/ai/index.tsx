@@ -1,12 +1,17 @@
 import { lazy, Suspense } from "react";
 import { Sparkles } from "lucide-react";
+import "@/features/ai/styles.css";
 import { AI_ASSISTANT_PANEL_ID } from "@/features/ai/protocol";
 import type { Translator, UiLocale } from "@/lib/i18n";
-import type { WorkspaceOptionalPanelDescriptor } from "@/pages/workspace/types";
+import type {
+  WorkspaceOptionalPanelDescriptor,
+  WorkspaceOptionalSettingsSectionDescriptor
+} from "@/pages/workspace/types";
 import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
 import type { AuthConfig } from "@/lib/api/types";
 
 const AssistantPanel = lazy(() => import("@/features/ai/AssistantPanel"));
+const AiSettingsSection = lazy(() => import("@/features/ai/AiSettingsSection"));
 
 export function aiAssistantWorkspacePanel(
   enabled: boolean,
@@ -29,6 +34,7 @@ export function AiAssistantPanel({
   locale,
   workspacePort,
   aiAssistantConfig,
+  onOpenSettings,
   t
 }: {
   width: number;
@@ -37,6 +43,7 @@ export function AiAssistantPanel({
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
   aiAssistantConfig: AuthConfig["ai_assistant"];
+  onOpenSettings: () => void;
   t: Translator;
 }) {
   return (
@@ -55,10 +62,42 @@ export function AiAssistantPanel({
         locale={locale}
         workspacePort={workspacePort}
         aiAssistantConfig={aiAssistantConfig}
+        onOpenSettings={onOpenSettings}
         t={t}
       />
     </Suspense>
   );
+}
+
+export function aiAssistantSettingsSection({
+  enabled,
+  accountId,
+  locale,
+  aiAssistantConfig,
+  t
+}: {
+  enabled: boolean;
+  accountId: string | null;
+  locale: UiLocale;
+  aiAssistantConfig: AuthConfig["ai_assistant"];
+  t: Translator;
+}): WorkspaceOptionalSettingsSectionDescriptor | null {
+  if (!enabled || !aiAssistantConfig) return null;
+  return {
+    section: AI_ASSISTANT_PANEL_ID,
+    label: t("settings.sectionAssistant"),
+    icon: <Sparkles size={15} aria-hidden />,
+    content: (
+      <Suspense fallback={<p>{t("common.loading")}</p>}>
+        <AiSettingsSection
+          accountId={accountId}
+          locale={locale}
+          aiAssistantConfig={aiAssistantConfig}
+          t={t}
+        />
+      </Suspense>
+    )
+  };
 }
 
 export { AI_ASSISTANT_PANEL_ID };

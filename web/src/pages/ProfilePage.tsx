@@ -5,6 +5,7 @@ import {
   useQueryClient
 } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import "@/pages/profile.css";
 import { useLocation } from "react-router-dom";
 import {
   Activity,
@@ -25,11 +26,15 @@ import {
 import { ProviderBrandMark } from "@/components/ProviderBrandMark";
 import {
   UiButton,
+  UiBadge,
   UiCard,
   UiDialog,
+  UiEmptyState,
   UiHelpTooltip,
   UiIconButton,
   UiInput,
+  UiPageHeading,
+  UiSectionHeading,
   UiSelect,
   UiTooltip
 } from "@/components/ui";
@@ -258,25 +263,20 @@ export function ProfilePage({
 
   return (
     <section className="app-page profile-page" nve-layout="column gap:lg pad:md @md|pad:xl">
-      <header className="profile-page-header">
-        <span className="profile-page-icon" aria-hidden>
-          <ShieldCheck size={24} />
-        </span>
-        <h1 nve-text="heading xl">{t("profile.title")}</h1>
-      </header>
+      <UiPageHeading
+        icon={<ShieldCheck size={24} />}
+        title={t("profile.title")}
+      />
 
       <div className="profile-content">
         {externalGitProviders.length > 0 ? (
-          <UiCard className="profile-provider-card">
-            <div className="profile-card-header">
-              <span className="profile-card-icon" aria-hidden>
-                <Link2 size={18} />
-              </span>
-              <div>
-                <h2>{t("profile.externalGitTitle")}</h2>
-                <p>{t("profile.externalGitDescription")}</p>
-              </div>
-            </div>
+          <UiCard className="profile-provider-card" accented>
+            <UiSectionHeading
+              headingLevel={2}
+              icon={<Link2 size={18} />}
+              title={t("profile.externalGitTitle")}
+              description={t("profile.externalGitDescription")}
+            />
             <div className="profile-provider-list">
               {accountLinkProviderId ? (
                 <div className="profile-provider-link-notice" role="status">
@@ -311,14 +311,9 @@ export function ProfilePage({
                           : provider.base_url}
                       </small>
                     </span>
-                    <span
-                      className={`profile-provider-state ${
-                        connection?.connected
-                          ? "is-connected"
-                          : connection?.bound
-                            ? "is-warning"
-                            : "is-disconnected"
-                      }`}
+                    <UiBadge
+                      className="profile-provider-state"
+                      tone={connection?.connected ? "success" : connection?.bound ? "warning" : "neutral"}
                     >
                       {query?.isFetching
                         ? t("common.loading")
@@ -327,7 +322,7 @@ export function ProfilePage({
                           : connection?.bound
                             ? t("profile.externalGitReconnectRequired")
                             : t("profile.externalGitNotConnected")}
-                    </span>
+                    </UiBadge>
                     <span className="profile-provider-actions">
                       {authorizationUrl && !connection?.connected ? (
                         <UiButton
@@ -368,16 +363,13 @@ export function ProfilePage({
           </UiCard>
         ) : null}
 
-        <UiCard className="profile-token-create-card">
-          <div className="profile-card-header">
-            <span className="profile-card-icon" aria-hidden>
-              <KeyRound size={18} />
-            </span>
-            <div>
-              <h2>{t("profile.createTitle")}</h2>
-            </div>
-            <UiHelpTooltip content={t("profile.tokensHint")} />
-          </div>
+        <UiCard className="profile-token-create-card" accented>
+          <UiSectionHeading
+            headingLevel={2}
+            icon={<KeyRound size={18} />}
+            title={t("profile.createTitle")}
+            actions={<UiHelpTooltip content={t("profile.tokensHint")} />}
+          />
 
           <div className="profile-token-form">
             <UiInput
@@ -422,15 +414,13 @@ export function ProfilePage({
 
         {newToken ? (
           <UiCard className="profile-new-token-card">
-            <div className="profile-new-token-heading">
-              <span className="profile-warning-icon" aria-hidden>
-                <TriangleAlert size={18} />
-              </span>
-              <div>
-                <h2>{t("profile.newTokenShownOnce")}</h2>
-                <p>{t("profile.newTokenWarning")}</p>
-              </div>
-            </div>
+            <UiSectionHeading
+              className="profile-new-token-heading"
+              headingLevel={2}
+              icon={<TriangleAlert size={18} />}
+              title={t("profile.newTokenShownOnce")}
+              description={t("profile.newTokenWarning")}
+            />
             <div className="profile-token-reveal-row">
               <code className="token-reveal">{newToken.token}</code>
               <UiButton size="sm" variant={copiedToken ? "secondary" : "primary"} onClick={copyNewToken}>
@@ -457,24 +447,25 @@ export function ProfilePage({
         ) : null}
 
         {error ? (
-          <div className="profile-error" role="alert">
-            <TriangleAlert size={15} aria-hidden />
+          <nve-alert status="danger" role="alert">
             <span>{error}</span>
-          </div>
+          </nve-alert>
         ) : null}
 
         <UiCard className="profile-token-list-card">
-          <div className="profile-card-header">
-            <span className="profile-card-icon" aria-hidden>
-              <ShieldCheck size={18} />
-            </span>
-            <div>
-              <h2>{t("profile.tokenList")}</h2>
-            </div>
-            <span className="profile-token-count" aria-label={t("profile.tokenCount", { count: tokens.length })}>
-              {tokens.length}
-            </span>
-          </div>
+          <UiSectionHeading
+            headingLevel={2}
+            icon={<ShieldCheck size={18} />}
+            title={t("profile.tokenList")}
+            actions={
+              <UiBadge
+                tone="neutral"
+                aria-label={t("profile.tokenCount", { count: tokens.length })}
+              >
+                {tokens.length}
+              </UiBadge>
+            }
+          />
 
           <div className="profile-token-list">
             {tokens.map((token) => {
@@ -553,12 +544,12 @@ export function ProfilePage({
             })}
 
             {tokens.length === 0 ? (
-              <div className="profile-token-empty">
-                <span className="profile-token-empty-icon" aria-hidden>
-                  <KeyRound size={22} />
-                </span>
-                <strong>{t("profile.noTokens")}</strong>
-              </div>
+              <UiEmptyState
+                className="profile-token-empty"
+                icon={<KeyRound size={22} />}
+                iconFrame
+                description={t("profile.noTokens")}
+              />
             ) : null}
           </div>
         </UiCard>

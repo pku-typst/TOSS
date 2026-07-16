@@ -1,4 +1,4 @@
-import { BUILD_AI_CONNECTION_POLICY } from "@/lib/buildCapabilities";
+import { BUILD_AI_CONNECTION_POLICY } from "@/features/ai/buildPolicy";
 import {
   isAiRuntimeModelTokenBudget,
   type AiRuntimeProviderProtocol

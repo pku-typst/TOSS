@@ -20,6 +20,10 @@ import type {
   WorkspaceSessionActor,
   WorkspaceSessionContext,
 } from "@/pages/workspace/workspaceSessionActor";
+import type {
+  WorkspaceOptionalSettingsSectionDescriptor,
+  WorkspaceSettingsSectionId,
+} from "@/pages/workspace/types";
 
 type WorkspaceSettingsContainerProps = {
   width: number;
@@ -38,6 +42,8 @@ type WorkspaceSettingsContainerProps = {
   projection: WorkspaceSessionContext;
   sessionActor: WorkspaceSessionActor;
   refreshProjects: () => Promise<void>;
+  optionalSections?: readonly WorkspaceOptionalSettingsSectionDescriptor[];
+  preferredSection?: WorkspaceSettingsSectionId | null;
   t: Translator;
 };
 
@@ -56,6 +62,8 @@ export function WorkspaceSettingsContainer({
   projection,
   sessionActor,
   refreshProjects,
+  optionalSections,
+  preferredSection,
   t,
 }: WorkspaceSettingsContainerProps) {
   const replaceShareLinks = (
@@ -214,6 +222,8 @@ export function WorkspaceSettingsContainer({
       }
       formatRoleLabel={(role) => formatRoleLabel(role, t)}
       formatAccessSource={(source) => formatAccessSource(source, t)}
+      optionalSections={optionalSections}
+      preferredSection={preferredSection}
       t={t}
     />
   );

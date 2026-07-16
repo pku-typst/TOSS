@@ -15,7 +15,6 @@ import type {
   AiRuntimeManagedModelProfile,
   AiRuntimeServerPolicy
 } from "@/features/ai/runtimeConfig";
-import { hasAiProviderRequestOverrides } from "@/features/ai/providerRequest";
 import {
   discoverManagedModelProfiles,
   ManagedCatalogError
@@ -35,8 +34,20 @@ import {
   aiSystemPrompt,
   type AiRuntimeStatusMessage
 } from "@/ai-runtime/i18n";
+import runtimeSurfaceCss from "@/ai-runtime/runtimeSurface.css?inline";
+import {
+  applyRuntimeDesignTheme,
+  DEFAULT_RUNTIME_DESIGN_THEME,
+  type RuntimeDesignTheme
+} from "@/design/runtimeTheme";
 
 const MAX_DELTA_LENGTH = 4_096;
+const VISIBLE_SURFACE_STATUSES = new Set<AiRuntimeStatusMessage>([
+  "handshaking",
+  "discoveringModels",
+  "modelRequired",
+  "catalogFailed"
+]);
 type EndpointConnection = Extract<AiRuntimeBootstrapInit["connection"], { kind: "endpoint" }>;
 type ManagedPolicy = Extract<AiRuntimeServerPolicy, { kind: "managed_catalog" }>;
 
@@ -47,22 +58,11 @@ export async function prepareRuntimeResources(
 }
 
 let runtimeRoot: HTMLElement | null = null;
-let runtimeLabel: HTMLElement | null = null;
 let runtimeStatus: HTMLElement | null = null;
 let runtimeLocale: AiRuntimeLocale = "en";
 let runtimeStatusMessage: AiRuntimeStatusMessage = "handshaking";
 let credentialSurface: {
   container: HTMLDivElement;
-  destinationLabel: HTMLElement;
-  protocolLabel: HTMLElement;
-  modelLabel: HTMLElement;
-  tokenBudgetLabel: HTMLElement;
-  reasoningLabel: HTMLElement;
-  reasoningValue: HTMLElement;
-  reasoning: boolean;
-  requestOverridesLabel: HTMLElement;
-  requestOverridesValue: HTMLElement;
-  requestOverridesConfigured: boolean;
   credentialLabel: HTMLElement;
   credentialLabelText: { en: string; "zh-CN": string } | null;
   hint: HTMLElement;
@@ -71,47 +71,34 @@ let credentialSurface: {
 } | null = null;
 let managedControlSurface: {
   container: HTMLDivElement;
-  primary: HTMLButtonElement;
-  refresh: HTMLButtonElement;
-  replace: HTMLButtonElement;
-  clear: HTMLButtonElement;
+  action: HTMLButtonElement;
+  changeCredential: HTMLButtonElement;
   failed: boolean;
 } | null = null;
 
 function renderRuntimeSurface() {
   const messages = aiRuntimeMessages(runtimeLocale);
   document.documentElement.lang = runtimeLocale;
-  if (runtimeLabel) runtimeLabel.textContent = messages.label;
-  if (runtimeStatus) runtimeStatus.textContent = messages.status[runtimeStatusMessage];
+  if (runtimeStatus) {
+    runtimeStatus.textContent = messages.status[runtimeStatusMessage];
+    runtimeStatus.hidden = credentialSurface !== null ||
+      !VISIBLE_SURFACE_STATUSES.has(runtimeStatusMessage);
+  }
   if (credentialSurface) {
     credentialSurface.container.setAttribute("aria-label", messages.credential.formLabel);
-    credentialSurface.destinationLabel.textContent = messages.credential.destinationLabel;
-    credentialSurface.protocolLabel.textContent = messages.credential.protocolLabel;
-    credentialSurface.modelLabel.textContent = messages.credential.modelLabel;
-    credentialSurface.tokenBudgetLabel.textContent = messages.credential.tokenBudgetLabel;
-    credentialSurface.reasoningLabel.textContent = messages.credential.reasoningLabel;
-    credentialSurface.reasoningValue.textContent = credentialSurface.reasoning
-      ? messages.credential.reasoningDeclared
-      : messages.credential.reasoningNotDeclared;
-    credentialSurface.requestOverridesLabel.textContent = messages.credential.requestOverridesLabel;
-    credentialSurface.requestOverridesValue.textContent = credentialSurface.requestOverridesConfigured
-      ? messages.credential.requestOverridesConfigured
-      : messages.credential.requestOverridesDefault;
     credentialSurface.credentialLabel.textContent = credentialSurface.credentialLabelText
       ? credentialSurface.credentialLabelText[runtimeLocale]
       : messages.credential.inputLabel;
     credentialSurface.hint.textContent = credentialSurface.hintText
       ? credentialSurface.hintText[runtimeLocale]
       : messages.credential.inputHint;
-    credentialSurface.submit.textContent = messages.credential.activate;
+    credentialSurface.submit.textContent = messages.credential.connect;
   }
   if (managedControlSurface) {
-    managedControlSurface.primary.textContent = messages.managed.retry;
-    managedControlSurface.refresh.textContent = messages.managed.refresh;
-    managedControlSurface.replace.textContent = messages.managed.replaceCredential;
-    managedControlSurface.clear.textContent = messages.managed.clearCredential;
-    managedControlSurface.primary.hidden = !managedControlSurface.failed;
-    managedControlSurface.refresh.hidden = managedControlSurface.failed;
+    managedControlSurface.action.textContent = managedControlSurface.failed
+      ? messages.managed.retry
+      : messages.managed.refresh;
+    managedControlSurface.changeCredential.textContent = messages.managed.changeCredential;
   }
 }
 
@@ -125,36 +112,23 @@ function setRuntimeLocale(locale: AiRuntimeLocale) {
   renderRuntimeSurface();
 }
 
-export function prepareRuntimeSurface(nonce: string, locale: AiRuntimeLocale) {
+export function prepareRuntimeSurface(
+  nonce: string,
+  locale: AiRuntimeLocale,
+  theme: RuntimeDesignTheme = DEFAULT_RUNTIME_DESIGN_THEME
+) {
+  applyRuntimeDesignTheme(theme);
   const style = document.createElement("style");
   style.nonce = nonce;
-  style.textContent = `
-    :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; --runtime-text: #252a34; --runtime-border: #d7dce3; --runtime-canvas: #ffffff; --runtime-control: #f5f7f9; }
-    body { margin: 0; min-width: 0; background: transparent; color: var(--runtime-text); }
-    #ai-runtime-root { box-sizing: border-box; display: grid; gap: 7px; padding: 10px 12px; }
-    .runtime-label { margin: 0; font-size: 12px; font-weight: 650; }
-    .runtime-status, .credential-hint { margin: 0; font-size: 11px; opacity: 0.72; line-height: 1.35; }
-    .credential-form { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid var(--runtime-border); }
-    .connection-details { display: grid; gap: 4px; margin: 0; }
-    .connection-details div { display: grid; grid-template-columns: minmax(92px, auto) minmax(0, 1fr); gap: 8px; }
-    .connection-details dt { font-size: 10px; opacity: 0.68; }
-    .connection-details dd { min-width: 0; margin: 0; font-size: 10px; overflow-wrap: anywhere; }
-    .credential-field { display: grid; gap: 4px; font-size: 11px; }
-    .credential-field input { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid var(--runtime-border); border-radius: 4px; background: var(--runtime-canvas); color: var(--runtime-text); }
-    .credential-form button { justify-self: end; padding: 6px 10px; border: 1px solid var(--runtime-border); border-radius: 4px; background: var(--runtime-control); color: var(--runtime-text); font: inherit; cursor: pointer; }
-    .managed-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; padding-top: 4px; border-top: 1px solid var(--runtime-border); }
-    .managed-controls button { padding: 5px 8px; border: 1px solid var(--runtime-border); border-radius: 4px; background: var(--runtime-control); color: var(--runtime-text); font: inherit; cursor: pointer; }
-  `;
+  style.textContent = runtimeSurfaceCss;
   document.head.append(style);
 
   runtimeRoot = document.getElementById("ai-runtime-root");
   if (!runtimeRoot) throw new Error("ai_runtime_root_missing");
   runtimeRoot.replaceChildren();
-  runtimeLabel = document.createElement("p");
-  runtimeLabel.className = "runtime-label";
   runtimeStatus = document.createElement("p");
   runtimeStatus.className = "runtime-status";
-  runtimeRoot.append(runtimeLabel, runtimeStatus);
+  runtimeRoot.append(runtimeStatus);
   setRuntimeLocale(locale);
 }
 
@@ -168,10 +142,8 @@ function removeRuntimeControls() {
 function renderManagedControlSurface(
   failed: boolean,
   actions: {
-    retry: () => void;
     refresh: () => void;
-    replace: () => void;
-    clear: () => void;
+    changeCredential: () => void;
   }
 ) {
   if (!runtimeRoot) return;
@@ -185,17 +157,16 @@ function renderManagedControlSurface(
     container.append(element);
     return element;
   };
-  const primary = button(actions.retry);
-  const refresh = button(actions.refresh);
-  const replace = button(actions.replace);
-  const clear = button(actions.clear);
-  managedControlSurface = { container, primary, refresh, replace, clear, failed };
+  const action = button(actions.refresh);
+  action.dataset.action = "refresh-models";
+  const changeCredential = button(actions.changeCredential);
+  changeCredential.dataset.action = "change-credential";
+  managedControlSurface = { container, action, changeCredential, failed };
   runtimeRoot.append(container);
   renderRuntimeSurface();
 }
 
 function renderCredentialSurface(
-  connection: EndpointConnection,
   onActivate: (credential: string) => void,
   text?: {
     label: { en: string; "zh-CN": string };
@@ -207,34 +178,6 @@ function renderCredentialSurface(
   const container = document.createElement("div");
   container.className = "credential-form";
   container.setAttribute("role", "group");
-  const details = document.createElement("dl");
-  details.className = "connection-details";
-  const detail = (value: string) => {
-    const row = document.createElement("div");
-    const term = document.createElement("dt");
-    const description = document.createElement("dd");
-    description.textContent = value;
-    row.append(term, description);
-    details.append(row);
-    return { label: term, value: description };
-  };
-  const destination = detail(connection.baseUrl);
-  const protocol = detail(connection.protocol);
-  const model = detail(connection.model);
-  const tokenBudget = detail(
-    `${connection.contextWindow.toLocaleString(runtimeLocale)} / ${
-      connection.maxOutputTokens.toLocaleString(runtimeLocale)
-    }`
-  );
-  const reasoning = detail(
-    connection.reasoning
-      ? aiRuntimeMessages(runtimeLocale).credential.reasoningDeclared
-      : aiRuntimeMessages(runtimeLocale).credential.reasoningNotDeclared
-  );
-  const requestOverridesConfigured = hasAiProviderRequestOverrides(connection.requestOverrides);
-  const requestOverrides = detail(requestOverridesConfigured
-    ? aiRuntimeMessages(runtimeLocale).credential.requestOverridesConfigured
-    : aiRuntimeMessages(runtimeLocale).credential.requestOverridesDefault);
   const field = document.createElement("label");
   field.className = "credential-field";
   const credentialLabel = document.createElement("span");
@@ -249,7 +192,7 @@ function renderCredentialSurface(
   hint.className = "credential-hint";
   const submit = document.createElement("button");
   submit.type = "button";
-  container.append(details, field, hint, submit);
+  container.append(field, hint, submit);
   let activated = false;
   const activate = () => {
     if (activated) return;
@@ -268,16 +211,6 @@ function renderCredentialSurface(
   });
   credentialSurface = {
     container,
-    destinationLabel: destination.label,
-    protocolLabel: protocol.label,
-    modelLabel: model.label,
-    tokenBudgetLabel: tokenBudget.label,
-    reasoningLabel: reasoning.label,
-    reasoningValue: reasoning.value,
-    reasoning: connection.reasoning,
-    requestOverridesLabel: requestOverrides.label,
-    requestOverridesValue: requestOverrides.value,
-    requestOverridesConfigured,
     credentialLabel,
     credentialLabelText: text?.label ?? null,
     hint,
@@ -463,13 +396,9 @@ export function startRuntime(
     if (!managedPolicy) return;
     agentSession?.dispose();
     agentSession = null;
-    const profile = managedProfile(selectedModelProfileId) ??
-      managedProfile(managedPolicy.defaultModelProfileId) ??
-      managedPolicy.modelProfiles[0];
     setRuntimeStatus("credentialRequired");
     postConnectionState("credential_required");
     renderCredentialSurface(
-      managedEndpointConnection(managedPolicy, profile),
       (value) => {
         if (!value) {
           requestManagedCredential();
@@ -489,7 +418,7 @@ export function startRuntime(
     );
   }
 
-  function clearManagedCredential() {
+  function changeManagedCredential() {
     if (activeTurnId) {
       fail("runtime_credential_change_during_turn", aiRuntimeMessages(runtimeLocale).errors.turnInProgress);
       return;
@@ -521,10 +450,8 @@ export function startRuntime(
       postManagedCatalog();
       postConnectionState("ready");
       renderManagedControlSurface(false, {
-        retry: () => void refreshManagedCatalog(),
         refresh: () => void refreshManagedCatalog(),
-        replace: clearManagedCredential,
-        clear: clearManagedCredential
+        changeCredential: changeManagedCredential
       });
       return true;
     } catch {
@@ -575,10 +502,8 @@ export function startRuntime(
       setRuntimeStatus("modelRequired");
       postConnectionState("model_required");
       renderManagedControlSurface(false, {
-        retry: () => void refreshManagedCatalog(),
         refresh: () => void refreshManagedCatalog(),
-        replace: clearManagedCredential,
-        clear: clearManagedCredential
+        changeCredential: changeManagedCredential
       });
     } catch (error) {
       if (requestEpoch !== credentialEpoch || credential !== activeCredential) return;
@@ -596,10 +521,8 @@ export function startRuntime(
       setRuntimeStatus("catalogFailed");
       postConnectionState("model_required");
       renderManagedControlSurface(true, {
-        retry: () => void refreshManagedCatalog(),
         refresh: () => void refreshManagedCatalog(),
-        replace: clearManagedCredential,
-        clear: clearManagedCredential
+        changeCredential: changeManagedCredential
       });
     }
   }
@@ -850,7 +773,7 @@ export function startRuntime(
   }
   setRuntimeStatus("credentialRequired");
   postConnectionState("credential_required");
-  renderCredentialSurface(connection, (credential) => {
+  renderCredentialSurface((credential) => {
     try {
       createAgentSession(connection, credential);
       setRuntimeStatus("readyConnection");

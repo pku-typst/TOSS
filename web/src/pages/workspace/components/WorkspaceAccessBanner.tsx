@@ -27,7 +27,7 @@ export function WorkspaceAccessBanner({
 }) {
   if (isAnonymousShare) {
     return (
-      <div className="workspace-access-banner with-action ui-message-with-action" role="status">
+      <div className="workspace-access-banner with-action workspace-message-with-action" role="status">
         <span className="message-text">
           {project?.is_template
             ? t("share.templateSavePrompt", { name: project.name })
@@ -42,7 +42,7 @@ export function WorkspaceAccessBanner({
 
   if (isShareLinkContext && isAuthenticated) {
     return (
-      <div className="workspace-access-banner with-action ui-message-with-action" role="status">
+      <div className="workspace-access-banner with-action workspace-message-with-action" role="status">
         <span className="message-text">
           {saveStatus === "saved" ? t("share.savedToProjects") : t("share.saveToProjectsPrompt")}
         </span>
@@ -51,14 +51,14 @@ export function WorkspaceAccessBanner({
             {saveStatus === "saving" ? t("share.savingToProjects") : t("share.saveToProjects")}
           </UiButton>
         )}
-        {saveError && <span className="error">{saveError}</span>}
+        {saveError && <span className="workspace-error">{saveError}</span>}
       </div>
     );
   }
 
   if (project?.is_template) {
     return (
-      <div className="workspace-access-banner with-action template-banner ui-message-with-action" role="status">
+      <div className="workspace-access-banner with-action template-banner workspace-message-with-action" role="status">
         <span className="message-text">{`${t("settings.templateEnabled")} · ${t("projects.copyDialogHint")} ${project.name}`}</span>
         <UiButton size="sm" onClick={onCopyTemplate}>
           {t("projects.copyAction")}

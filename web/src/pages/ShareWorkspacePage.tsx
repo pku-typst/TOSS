@@ -167,7 +167,11 @@ export function ShareWorkspacePage({
       <section className="app-page" nve-layout="column gap:lg pad:md @md|pad:xl">
         <UiCard>
           <h1 nve-text="heading lg">{t("share.joinFailed")}</h1>
-          {error && <div className="error">{error}</div>}
+          {error && (
+            <nve-alert status="danger" role="alert">
+              <span>{error}</span>
+            </nve-alert>
+          )}
         </UiCard>
       </section>
     );
@@ -193,7 +197,11 @@ export function ShareWorkspacePage({
           <h1 nve-text="heading lg">
             {saveStatus === "saving" ? t("share.joining") : t("share.saveToProjectsPrompt")}
           </h1>
-          {saveError && <div className="error">{saveError}</div>}
+          {saveError && (
+            <nve-alert status="danger" role="alert">
+              <span>{saveError}</span>
+            </nve-alert>
+          )}
           {saveStatus !== "saving" && (
             <UiButton
               variant="primary"

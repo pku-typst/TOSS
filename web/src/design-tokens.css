@@ -15,6 +15,9 @@
   --toss-shell: var(--nve-sys-layer-shell-background);
   --toss-surface: var(--nve-sys-layer-container-background);
   --toss-surface-subtle: var(--nve-sys-layer-container-accent-background);
+  --toss-surface-raised: var(--nve-sys-layer-overlay-background);
+  --toss-surface-field: var(--nve-sys-interaction-field-background);
+  --toss-surface-disabled: var(--nve-sys-interaction-disabled-background);
   --toss-surface-preview: var(--nve-ref-color-neutral-500);
   --toss-surface-hover: var(--toss-brand-subtle);
   --toss-surface-selected: var(--toss-brand-muted);
@@ -23,6 +26,9 @@
   --toss-text: var(--nve-sys-text-color);
   --toss-text-muted: var(--nve-sys-text-muted-color);
   --toss-text-emphasis: var(--nve-sys-text-emphasis-color);
+  --toss-text-placeholder: var(--nve-sys-text-placeholder-color);
+  --toss-text-disabled: var(--nve-sys-interaction-disabled-color);
+  --toss-text-on-color: var(--nve-sys-text-white-color);
   --toss-border-subtle: var(--nve-ref-border-color-muted);
   --toss-border: var(--nve-ref-border-color);
   --toss-border-strong: var(--nve-ref-border-color-emphasis);
@@ -34,13 +40,60 @@
   --toss-warning: var(--nve-sys-support-warning-emphasis-color);
   --toss-warning-surface: var(--nve-ref-color-yellow-nova-200);
   --toss-warning-border: var(--nve-ref-color-yellow-nova-700);
+  --toss-success: var(--nve-sys-support-success-emphasis-color);
+  --toss-success-surface: var(--nve-sys-support-success-muted-color);
+  --toss-success-border: var(--nve-ref-color-green-grass-700);
+
+  /* Portable typography and density. Isolated surfaces receive resolved values
+     for this layer instead of depending on NVIDIA Elements internals. */
+  --toss-font-family: var(--nve-ref-font-family);
+  --toss-font-family-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --toss-font-size-caption: var(--nve-ref-font-size-50);
+  --toss-font-size-micro: var(--nve-ref-font-size-75);
+  --toss-font-size-label: var(--nve-ref-font-size-100);
+  --toss-font-size-body: var(--nve-ref-font-size-200);
+  --toss-font-size-heading: var(--nve-ref-font-size-300);
+  --toss-font-size-subheading: var(--nve-ref-font-size-400);
+  --toss-line-height-tight: var(--nve-ref-font-line-height-tight);
+  --toss-line-height-compact: var(--nve-ref-font-line-height-400);
+  --toss-line-height-body: var(--nve-ref-font-line-height-500);
+  --toss-line-height-heading: var(--nve-ref-font-line-height-600);
+  --toss-font-weight-regular: var(--nve-ref-font-weight-regular);
+  --toss-font-weight-medium: var(--nve-ref-font-weight-medium);
+  --toss-font-weight-semibold: var(--nve-ref-font-weight-semibold);
+  --toss-font-weight-bold: var(--nve-ref-font-weight-bold);
+
+  --toss-space-2xs: var(--nve-ref-space-xxxs);
+  --toss-space-xs: var(--nve-ref-space-xxs);
+  --toss-space-sm: var(--nve-ref-space-xs);
+  --toss-space-md: var(--nve-ref-space-sm);
+  --toss-space-lg: var(--nve-ref-space-md);
+  --toss-space-xl: var(--nve-ref-space-lg);
+  --toss-space-2xl: var(--nve-ref-space-xl);
+
+  --toss-control-height-sm: var(--nve-ref-size-700);
+  --toss-control-height-md: var(--nve-ref-size-800);
+  --toss-control-height-lg: var(--nve-ref-size-900);
+  --toss-control-padding-inline-sm: var(--nve-ref-size-200);
+  --toss-icon-size-sm: var(--nve-ref-size-400);
+  --toss-icon-size-md: var(--nve-ref-size-500);
+  --toss-disabled-opacity: 0.45;
 
   /* Shape, elevation, and motion */
+  --toss-border-width: var(--nve-ref-border-width-sm);
+  --toss-border-width-emphasis: var(--nve-ref-border-width-md);
+  --toss-border-width-accent: var(--nve-ref-border-width-lg);
   --toss-radius-control: var(--nve-ref-border-radius-xs);
   --toss-radius-panel: var(--nve-ref-border-radius-sm);
   --toss-radius-card: var(--nve-ref-border-radius-md);
+  --toss-radius-pill: var(--nve-ref-border-radius-xxl);
+  --toss-focus-color: var(--toss-brand-primary);
+  --toss-focus-ring: 0 0 0 var(--nve-ref-border-width-md)
+    color-mix(in oklab, var(--toss-focus-color) 24%, transparent);
   --toss-shadow-surface: var(--nve-ref-shadow-100);
   --toss-shadow-floating: var(--nve-ref-shadow-300);
+  --toss-shadow-overlay: var(--nve-ref-shadow-400);
+  --toss-document-paper: var(--nve-ref-color-white);
   --toss-transition-fast: var(--nve-ref-animation-duration-150) var(--nve-ref-animation-easing-100);
 
   /* Product semantic overrides for the NVIDIA Elements implementation layer. */
@@ -56,4 +109,8 @@
   --nve-sys-support-accent-emphasis-color: var(--toss-brand-ink);
   --nve-sys-text-link-hover-color: var(--toss-brand-strong);
   --nve-sys-text-link-emphasis-color: var(--toss-brand-strong);
+}
+
+html[nve-theme~="inter"] {
+  --nve-ref-font-family: "Inter", "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", sans-serif !important;
 }

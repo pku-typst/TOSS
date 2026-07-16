@@ -1,7 +1,9 @@
 import {
   type FormEvent,
   type KeyboardEvent,
+  useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -12,46 +14,40 @@ import {
   Brain,
   Check,
   ChevronDown,
+  CircleHelp,
   Copy,
-  FileText,
+  Ellipsis,
   LoaderCircle,
   Pencil,
   Plus,
-  Settings2,
   SlidersHorizontal,
   Trash2,
   Wrench,
   X
 } from "lucide-react";
-import { UiButton, UiCheckbox, UiDialog, UiInput, UiSelect } from "@/components/ui";
+import {
+  UiButton,
+  UiDialog,
+  UiEmptyState,
+  UiIconButton,
+  UiInput,
+  UiSelect,
+  UiTextarea
+} from "@/components/ui";
 import { AssistantMarkdown } from "@/features/ai/AssistantMarkdown";
 import {
-  createStoredAiConnection,
-  defaultAiConnectionDraft,
-  AI_CONNECTION_STORE_SCHEMA,
-  loadStoredAiConnections,
-  MAX_AI_CONNECTIONS,
-  saveStoredAiConnections,
-  toRuntimeConnection,
-  type AiConnectionDraft,
-  type StoredAiConnection,
-  type StoredAiConnections
+  activeStoredAiConnection,
+  toRuntimeConnection
 } from "@/features/ai/connectionStore";
+import { useAiAccountConfiguration } from "@/features/ai/accountConfiguration";
 import {
   conversationHistory,
   storedMessagesToTranscript,
   type AiConversation
 } from "@/features/ai/conversationStore";
 import {
-  formatAiProviderRequestOverrides,
-  hasAiProviderRequestOverrides
-} from "@/features/ai/providerRequest";
-import {
   AI_RUNTIME_ENTRY_PATH,
-  AI_RUNTIME_MODEL_TOKEN_LIMITS,
-  AI_RUNTIME_PROVIDER_PROTOCOLS,
-  type AiRuntimeTokenUsage,
-  type AiRuntimeProviderProtocol
+  type AiRuntimeTokenUsage
 } from "@/features/ai/protocol";
 import {
   AiRuntimeClient,
@@ -63,27 +59,22 @@ import {
 } from "@/features/ai/runtimeClient";
 import { useAiConversations } from "@/features/ai/useAiConversations";
 import type {
-  AiWorkspaceContextSnapshot,
   AiWorkspaceToolPort
 } from "@/features/ai/toolContract";
 import type { Translator, UiLocale } from "@/lib/i18n";
 import type { AuthConfig } from "@/lib/api/types";
-import { BUILD_AI_CONNECTION_POLICY } from "@/lib/buildCapabilities";
+import { BUILD_AI_CONNECTION_POLICY } from "@/features/ai/buildPolicy";
 import {
-  defaultAiAccountSettings,
-  loadAiAccountSettings,
-  saveAiAccountSettings,
-  type AiAccountSettings
-} from "@/features/ai/accountSettingsStore";
-import { isAiRuntimePreferences } from "@/features/ai/runtimePreferences";
+  filterManagedModelProfiles,
+  localizedAiText,
+  shouldShowManagedModelSearch
+} from "@/features/ai/managedModelSelection";
 
 type AiAssistantClientConfig = NonNullable<AuthConfig["ai_assistant"]>;
 type ManagedAiAssistantClientConfig = Extract<
   AiAssistantClientConfig,
   { kind: "managed_catalog" }
 >;
-
-const MANAGED_MODEL_SEARCH_THRESHOLD = 8;
 
 type AiActivityPart = AiTranscriptToolPart | (AiTranscriptContentPart & { type: "reasoning" });
 type AiTextPart = AiTranscriptContentPart & { type: "text" };
@@ -106,33 +97,6 @@ function statusLabel(status: AiRuntimeStatus, t: Translator) {
   return t("ai.status.starting");
 }
 
-function protocolLabel(protocol: AiRuntimeProviderProtocol, t: Translator) {
-  if (protocol === "openai-completions") return t("ai.protocol.openaiCompletions");
-  if (protocol === "openai-responses") return t("ai.protocol.openaiResponses");
-  return t("ai.protocol.anthropicMessages");
-}
-
-function reasoningCapabilityLabel(reasoning: boolean, t: Translator) {
-  return t(reasoning ? "ai.reasoning.declared" : "ai.reasoning.notDeclared");
-}
-
-function secureConnectionId() {
-  const bytes = new Uint8Array(16);
-  window.crypto.getRandomValues(bytes);
-  return `connection-${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
-
-function activeConnection(stored: StoredAiConnections) {
-  return stored.connections.find((connection) => connection.id === stored.activeConnectionId) ?? null;
-}
-
-function localizedText(
-  value: { en: string; "zh-CN": string },
-  locale: UiLocale
-) {
-  return value[locale];
-}
-
 function managedProfile(
   config: ManagedAiAssistantClientConfig,
   profileId: string
@@ -140,22 +104,7 @@ function managedProfile(
   return config.model_profiles.find((profile) => profile.id === profileId) ?? null;
 }
 
-export function filterManagedModelProfiles(
-  profiles: ManagedAiAssistantClientConfig["model_profiles"],
-  query: string,
-  locale: UiLocale
-) {
-  const normalizedQuery = query.trim().toLocaleLowerCase(locale);
-  if (!normalizedQuery) return profiles;
-  return profiles.filter((profile) => (
-    profile.model.toLocaleLowerCase(locale).includes(normalizedQuery) ||
-    localizedText(profile.label, locale).toLocaleLowerCase(locale).includes(normalizedQuery)
-  ));
-}
-
-export function shouldShowManagedModelSearch(profileCount: number) {
-  return profileCount > MANAGED_MODEL_SEARCH_THRESHOLD;
-}
+export { filterManagedModelProfiles, shouldShowManagedModelSearch };
 
 function renderGroups(parts: readonly AiTranscriptPart[]) {
   const groups: AiRenderGroup[] = [];
@@ -234,18 +183,6 @@ function toolStateLabel(part: AiTranscriptToolPart, t: Translator) {
   if (part.outcome === "stale") return t("ai.tool.stale");
   if (part.outcome === "compile_failed") return t("ai.tool.compileFailed");
   return t("ai.tool.complete");
-}
-
-function compilationLabel(context: AiWorkspaceContextSnapshot, t: Translator) {
-  if (context.workspace_state === "syncing") return t("ai.context.syncing");
-  if (context.workspace_state === "offline") return t("ai.context.offline");
-  if (context.compilation.state === "running") return t("ai.context.compiling");
-  if (context.compilation.state === "failed") {
-    return t("ai.context.compileFailed", { count: context.compilation.errors });
-  }
-  if (context.compilation.state === "succeeded") return t("ai.context.compilePassed");
-  if (context.compilation.state === "unavailable") return t("ai.context.compileUnavailable");
-  return t("ai.context.compileIdle");
 }
 
 function ToolActivity({ part, t }: { part: AiTranscriptToolPart; t: Translator }) {
@@ -341,15 +278,14 @@ function TranscriptMessage({ message, t }: { message: AiTranscriptMessage; t: Tr
       <header className="ai-message-header">
         <strong>{message.role === "user" ? t("ai.role.user") : t("ai.role.assistant")}</strong>
         {message.role === "assistant" && copyText && message.state === "complete" && (
-          <button
-            type="button"
+          <UiIconButton
             className="ai-message-action"
-            title={t("ai.message.copy")}
-            aria-label={t("ai.message.copy")}
+            tooltip={t("ai.message.copy")}
+            label={t("ai.message.copy")}
             onClick={() => void navigator.clipboard?.writeText(copyText)}
           >
             <Copy size={13} aria-hidden />
-          </button>
+          </UiIconButton>
         )}
       </header>
       {message.role === "user" ? (
@@ -394,30 +330,6 @@ function TranscriptMessage({ message, t }: { message: AiTranscriptMessage; t: Tr
   );
 }
 
-function WorkspaceContextBar({
-  context,
-  t
-}: {
-  context: AiWorkspaceContextSnapshot;
-  t: Translator;
-}) {
-  return (
-    <div className="ai-workspace-context" title={t("ai.context.entry", {
-      path: context.entry_file_path
-    })}>
-      <span className="ai-workspace-context-path">
-        <FileText size={13} aria-hidden />
-        <strong>{context.active_path}</strong>
-      </span>
-      <span className={`ai-workspace-context-status is-${context.compilation.state}`}>
-        {context.project_type === "typst" ? "Typst" : "LaTeX"}
-        <span aria-hidden>·</span>
-        {compilationLabel(context, t)}
-      </span>
-    </div>
-  );
-}
-
 function formatTokenCount(value: number, locale: UiLocale) {
   return new Intl.NumberFormat(locale, {
     notation: "compact",
@@ -436,11 +348,12 @@ function TokenUsageBar({
 }) {
   const promptTokens = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
   const percentage = Math.min(100, (usage.contextTokens / usage.contextWindow) * 100);
-  const source = usage.contextSource === "estimated" || usage.reportedCalls === 0
-    ? t("ai.usage.estimated")
+  const sourceKind = usage.contextSource === "estimated" || usage.reportedCalls === 0
+    ? "estimated"
     : usage.reportedCalls < usage.providerCalls
-      ? t("ai.usage.partial")
-      : t("ai.usage.reported");
+      ? "partial"
+      : "reported";
+  const source = t(`ai.usage.${sourceKind}`);
   const details = t("ai.usage.details", {
     input: usage.inputTokens.toLocaleString(locale),
     output: usage.outputTokens.toLocaleString(locale),
@@ -449,25 +362,39 @@ function TokenUsageBar({
     reasoning: usage.reasoningTokens.toLocaleString(locale),
     maxOutput: usage.maxOutputTokens.toLocaleString(locale)
   });
+  const context = t("ai.usage.context", {
+    used: formatTokenCount(usage.contextTokens, locale),
+    limit: formatTokenCount(usage.contextWindow, locale)
+  });
+  const turn = t("ai.usage.turn", {
+    input: formatTokenCount(promptTokens, locale),
+    output: formatTokenCount(usage.outputTokens, locale)
+  });
+  const tooltip = [
+    context,
+    turn,
+    t("ai.usage.calls", { count: usage.providerCalls }),
+    source,
+    usage.compactedMessages > 0
+      ? t("ai.usage.compacted", { count: usage.compactedMessages })
+      : null,
+    details
+  ].filter((value): value is string => value !== null).join(" · ");
   return (
-    <div className="ai-token-usage" data-source={usage.contextSource} title={details}>
+    <div
+      className="ai-token-usage"
+      data-source={usage.contextSource}
+      title={tooltip}
+      aria-label={tooltip}
+    >
       <span className="ai-token-usage-meter" aria-hidden>
         <span style={{ width: `${percentage}%` }} />
       </span>
-      <span>{t("ai.usage.context", {
-        used: formatTokenCount(usage.contextTokens, locale),
-        limit: formatTokenCount(usage.contextWindow, locale)
-      })}</span>
+      <span>{context}</span>
       <span aria-hidden>·</span>
-      <span>{t("ai.usage.turn", {
-        input: formatTokenCount(promptTokens, locale),
-        output: formatTokenCount(usage.outputTokens, locale)
-      })}</span>
-      <span aria-hidden>·</span>
-      <span>{t("ai.usage.calls", { count: usage.providerCalls })}</span>
-      <span className="ai-token-usage-source">{source}</span>
-      {usage.compactedMessages > 0 && (
-        <span>{t("ai.usage.compacted", { count: usage.compactedMessages })}</span>
+      <span>{turn}</span>
+      {sourceKind !== "reported" && (
+        <span className="ai-token-usage-source">{source}</span>
       )}
     </div>
   );
@@ -480,6 +407,7 @@ export default function AssistantPanel({
   locale,
   workspacePort,
   aiAssistantConfig,
+  onOpenSettings,
   t
 }: {
   width: number;
@@ -488,31 +416,21 @@ export default function AssistantPanel({
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
   aiAssistantConfig: AuthConfig["ai_assistant"];
+  onOpenSettings: () => void;
   t: Translator;
 }) {
   const applicationOrigin = window.location.origin;
+  const assistantMenuId = useId();
   const policyMatchesBuild = aiAssistantConfig?.kind === BUILD_AI_CONNECTION_POLICY;
   const managedConfig = policyMatchesBuild && aiAssistantConfig.kind === "managed_catalog"
     ? aiAssistantConfig
     : null;
-  const [stored, setStored] = useState(() =>
-    loadStoredAiConnections(accountId, applicationOrigin)
+  const { configuration, setSettings: setAccountSettings } = useAiAccountConfiguration(
+    accountId,
+    applicationOrigin
   );
-  const [accountSettings, setAccountSettings] = useState(() =>
-    loadAiAccountSettings(accountId)
-  );
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsDraft, setSettingsDraft] = useState<AiAccountSettings>(() =>
-    loadAiAccountSettings(accountId)
-  );
-  const [settingsError, setSettingsError] = useState(false);
-  const initialConnection = activeConnection(stored);
-  const [managerOpen, setManagerOpen] = useState(
-    aiAssistantConfig?.kind === "user_defined" && !initialConnection
-  );
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<AiConnectionDraft>(defaultAiConnectionDraft);
-  const [connectionError, setConnectionError] = useState(false);
+  const stored = configuration.connections;
+  const accountSettings = configuration.settings;
   const conversations = useAiConversations({
     accountId,
     projectId,
@@ -533,7 +451,8 @@ export default function AssistantPanel({
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
   const appliedConversationId = useRef<string | null>(null);
-  const connection = useMemo(() => activeConnection(stored), [stored]);
+  const connection = useMemo(() => activeStoredAiConnection(stored), [stored]);
+  const appliedConnection = useRef(connection);
   const requestedManagedProfileId = managedConfig && accountSettings.managedModelProfileId &&
     managedProfile(managedConfig, accountSettings.managedModelProfileId)
     ? accountSettings.managedModelProfileId
@@ -563,15 +482,34 @@ export default function AssistantPanel({
   const connectionAvailable = policyMatchesBuild && (
     managedConfig !== null || connection !== null
   );
-  const workspaceContext = workspacePort.getContextSnapshot();
   const conversationSwitchBlocked = snapshot.status === "running" || snapshot.status === "handshaking";
   const updateConversationTranscript = conversations.updateTranscript;
+  const replaceRuntime = useCallback(() => {
+    const nextClient = new AiRuntimeClient(locale, workspacePort, accountSettings.runtime);
+    const conversation = conversations.activeConversation;
+    if (conversation) {
+      nextClient.setConversation(
+        conversation.id,
+        storedMessagesToTranscript(conversation.messages),
+        conversationHistory(conversation)
+      );
+      appliedConversationId.current = conversation.id;
+    } else {
+      appliedConversationId.current = null;
+    }
+    setRuntime((current) => ({
+      generation: current.generation + 1,
+      client: nextClient
+    }));
+    setPromptDraft("");
+  }, [accountSettings.runtime, conversations.activeConversation, locale, workspacePort]);
 
   useEffect(() => () => client.dispose(), [client]);
   useEffect(() => client.setLocale(locale), [client, locale]);
   useEffect(() => {
+    if (snapshot.status === "running" || snapshot.status === "handshaking") return;
     client.setPreferences(accountSettings.runtime);
-  }, [accountSettings.runtime, client]);
+  }, [accountSettings.runtime, client, snapshot.status]);
   useLayoutEffect(() => {
     const conversation = conversations.activeConversation;
     if (!conversations.ready || !conversation || appliedConversationId.current === conversation.id) return;
@@ -610,141 +548,48 @@ export default function AssistantPanel({
     transcript.scrollTop = transcript.scrollHeight;
   }, [snapshot.messages]);
 
-  function replaceRuntime() {
-    const nextClient = new AiRuntimeClient(locale, workspacePort, accountSettings.runtime);
-    const conversation = conversations.activeConversation;
-    if (conversation) {
-      nextClient.setConversation(
-        conversation.id,
-        storedMessagesToTranscript(conversation.messages),
-        conversationHistory(conversation)
-      );
-      appliedConversationId.current = conversation.id;
-    } else {
-      appliedConversationId.current = null;
-    }
-    setRuntime((current) => ({
-      generation: current.generation + 1,
-      client: nextClient
-    }));
-    setPromptDraft("");
-  }
+  useEffect(() => {
+    if (appliedConnection.current === connection) return;
+    if (snapshot.status === "running" || snapshot.status === "handshaking") return;
+    appliedConnection.current = connection;
+    replaceRuntime();
+  }, [connection, replaceRuntime, snapshot.status]);
 
-  function persist(next: StoredAiConnections) {
-    setStored(next);
-    saveStoredAiConnections(accountId, next);
-  }
-
-  function persistAccountSettings(next: AiAccountSettings) {
-    setAccountSettings(next);
-    saveAiAccountSettings(accountId, next);
-  }
-
-  function openAccountSettings() {
-    setSettingsDraft({
-      ...accountSettings,
-      runtime: { ...accountSettings.runtime }
-    });
-    setSettingsError(false);
-    setSettingsOpen(true);
-  }
-
-  function submitAccountSettings() {
+  useEffect(() => {
     if (
+      !managedConfig ||
+      !requestedManagedProfileId ||
+      !snapshot.managedCatalog ||
+      snapshot.managedCatalog.selectedModelProfileId === requestedManagedProfileId ||
       snapshot.status === "running" ||
-      snapshot.status === "handshaking" ||
-      !isAiRuntimePreferences(settingsDraft.runtime)
-    ) {
-      setSettingsError(true);
+      snapshot.status === "handshaking"
+    ) return;
+    if (!snapshot.managedCatalog.availableModelProfileIds.includes(requestedManagedProfileId)) {
+      const selected = snapshot.managedCatalog.selectedModelProfileId;
+      if (selected && accountSettings.managedModelProfileId !== selected) {
+        setAccountSettings({ ...accountSettings, managedModelProfileId: selected });
+      }
       return;
     }
-    persistAccountSettings({
-      ...settingsDraft,
-      runtime: { ...settingsDraft.runtime }
-    });
-    setSettingsError(false);
-    setSettingsOpen(false);
-  }
+    client.selectManagedModel(requestedManagedProfileId);
+  }, [
+    accountSettings,
+    client,
+    managedConfig,
+    requestedManagedProfileId,
+    setAccountSettings,
+    snapshot.managedCatalog,
+    snapshot.status
+  ]);
 
   function selectManagedModel(profileId: string) {
     if (!managedConfig || !managedProfile(managedConfig, profileId)) return;
     if (!client.selectManagedModel(profileId)) return;
-    persistAccountSettings({
+    setAccountSettings({
       ...accountSettings,
       managedModelProfileId: profileId
     });
     setManagedModelQuery("");
-  }
-
-  function submitConnection(event: FormEvent) {
-    event.preventDefault();
-    try {
-      const id = editingId ?? secureConnectionId();
-      const nextConnection = createStoredAiConnection(id, draft, applicationOrigin);
-      const existing = stored.connections.findIndex((item) => item.id === id);
-      const connections = existing >= 0
-        ? stored.connections.map((item) => item.id === id ? nextConnection : item)
-        : [...stored.connections, nextConnection];
-      if (connections.length > MAX_AI_CONNECTIONS) throw new Error("ai_connection_limit");
-      persist({ schema: AI_CONNECTION_STORE_SCHEMA, activeConnectionId: id, connections });
-      setConnectionError(false);
-      setEditingId(null);
-      setDraft(defaultAiConnectionDraft());
-      setManagerOpen(false);
-      replaceRuntime();
-    } catch {
-      setConnectionError(true);
-    }
-  }
-
-  function beginAddConnection() {
-    setEditingId(null);
-    setDraft(defaultAiConnectionDraft());
-    setConnectionError(false);
-    setManagerOpen(true);
-  }
-
-  function beginEditConnection(item: StoredAiConnection) {
-    setEditingId(item.id);
-    setDraft({
-      name: item.name,
-      protocol: item.protocol,
-      endpoint: item.endpoint,
-      model: item.model,
-      contextWindow: String(item.contextWindow),
-      maxOutputTokens: String(item.maxOutputTokens),
-      reasoning: item.reasoning,
-      requestOverrides: formatAiProviderRequestOverrides(item.requestOverrides)
-    });
-    setConnectionError(false);
-    setManagerOpen(true);
-  }
-
-  function selectConnection(id: string) {
-    if (stored.activeConnectionId === id) {
-      setManagerOpen(false);
-      return;
-    }
-    persist({ ...stored, activeConnectionId: id });
-    setManagerOpen(false);
-    replaceRuntime();
-  }
-
-  function removeConnection(id: string) {
-    const connections = stored.connections.filter((item) => item.id !== id);
-    const removedActive = stored.activeConnectionId === id;
-    const activeConnectionId = removedActive ? connections[0]?.id : stored.activeConnectionId;
-    persist({
-      schema: AI_CONNECTION_STORE_SCHEMA,
-      ...(activeConnectionId ? { activeConnectionId } : {}),
-      connections
-    });
-    if (editingId === id) {
-      setEditingId(null);
-      setDraft(defaultAiConnectionDraft());
-    }
-    if (removedActive) replaceRuntime();
-    if (connections.length === 0) setManagerOpen(true);
   }
 
   function submitPrompt(event: FormEvent) {
@@ -819,216 +664,139 @@ export default function AssistantPanel({
     });
   }
 
+  function closeAssistantMenu() {
+    document.getElementById(assistantMenuId)?.hidePopover();
+  }
+
+  function openAssistantSettings() {
+    if (conversationSwitchBlocked) return;
+    closeAssistantMenu();
+    onOpenSettings();
+  }
+
+  function openAssistantHelp() {
+    closeAssistantMenu();
+    window.open(
+      new URL("/help?topic=ai-assistant", applicationOrigin).toString(),
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+
+  function renameActiveConversation() {
+    const active = conversations.activeConversation;
+    if (!active || conversationSwitchBlocked) return;
+    closeAssistantMenu();
+    setRenameConversation({ id: active.id, title: active.title });
+  }
+
+  function deleteActiveConversation() {
+    const active = conversations.activeConversation;
+    if (!active || conversationSwitchBlocked) return;
+    closeAssistantMenu();
+    setDeleteConversation(active);
+  }
+
   return (
     <aside className="panel panel-right panel-assistant" style={{ width }}>
       <div className="panel-header ai-assistant-header">
         <h2>{t("workspace.assistant")}</h2>
         <div className="ai-assistant-header-actions">
-          <span className={`ai-runtime-state ai-runtime-state--${snapshot.status}`}>
-            {connectionAvailable
-              ? statusLabel(snapshot.status, t)
-              : policyMatchesBuild
-                ? t("ai.status.connectionRequired")
-                : t("ai.status.error")}
-          </span>
           {connectionAvailable && (
-            <button
-              type="button"
-              className="ai-header-button"
-              title={t("ai.settings.manage")}
-              aria-label={t("ai.settings.manage")}
-              disabled={snapshot.status === "running" || snapshot.status === "handshaking"}
-              onClick={openAccountSettings}
-            >
-              <SlidersHorizontal size={14} aria-hidden />
-            </button>
-          )}
-          {connection && !managedConfig && (
-            <button
-              type="button"
-              className="ai-header-button"
-              title={t("ai.connection.manage")}
-              aria-label={t("ai.connection.manage")}
-              onClick={() => setManagerOpen(true)}
-            >
-              <Settings2 size={14} aria-hidden />
-            </button>
+            <div className="ai-assistant-menu-wrap">
+              <nve-button
+                className="ai-assistant-menu-trigger"
+                role="button"
+                container="flat"
+                size="sm"
+                title={t("ai.menu.open")}
+                aria-label={t("ai.menu.open")}
+                aria-haspopup="menu"
+                popovertarget={assistantMenuId}
+              >
+                <Ellipsis size={16} aria-hidden />
+              </nve-button>
+              <nve-dropdown
+                id={assistantMenuId}
+                className="ai-assistant-menu-dropdown"
+                position="bottom"
+                alignment="end"
+              >
+                <nve-menu className="ai-assistant-menu">
+                  {conversations.ready && conversations.activeConversation && (
+                    <>
+                      <nve-menu-item
+                        role="menuitem"
+                        disabled={conversationSwitchBlocked}
+                        onClick={renameActiveConversation}
+                      >
+                        <Pencil size={14} aria-hidden />
+                        <span>{t("ai.conversation.rename")}</span>
+                      </nve-menu-item>
+                      <nve-menu-item
+                        role="menuitem"
+                        disabled={conversationSwitchBlocked}
+                        onClick={deleteActiveConversation}
+                      >
+                        <Trash2 size={14} aria-hidden />
+                        <span>{t("ai.conversation.delete")}</span>
+                      </nve-menu-item>
+                    </>
+                  )}
+                  <nve-menu-item
+                    role="menuitem"
+                    disabled={conversationSwitchBlocked}
+                    onClick={openAssistantSettings}
+                  >
+                    <SlidersHorizontal size={14} aria-hidden />
+                    <span>{t("ai.settings.manage")}</span>
+                  </nve-menu-item>
+                  <nve-menu-item role="menuitem" onClick={openAssistantHelp}>
+                    <CircleHelp size={14} aria-hidden />
+                    <span>{t("nav.help")}</span>
+                  </nve-menu-item>
+                </nve-menu>
+              </nve-dropdown>
+            </div>
           )}
         </div>
       </div>
-
-      {managerOpen && !managedConfig && policyMatchesBuild && (
-        <section className="ai-connection-manager" aria-label={t("ai.connection.managerTitle")}>
-          <div className="ai-connection-manager-heading">
-            <div>
-              <h3>{t("ai.connection.managerTitle")}</h3>
-              <p>{t("ai.connection.managerDescription")}</p>
-            </div>
-            {connection && (
-              <UiButton type="button" variant="ghost" size="sm" onClick={() => setManagerOpen(false)}>
-                {t("common.close")}
-              </UiButton>
-            )}
-          </div>
-          {stored.connections.length > 0 && (
-            <div className="ai-connection-list">
-              {stored.connections.map((item) => (
-                <article key={item.id} className={item.id === stored.activeConnectionId ? "is-active" : ""}>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <small>{protocolLabel(item.protocol, t)} · {item.model}</small>
-                    <small>{t("ai.connection.tokenSummary", {
-                      context: formatTokenCount(item.contextWindow, locale),
-                      output: formatTokenCount(item.maxOutputTokens, locale)
-                    })}</small>
-                    <small>{t("ai.connection.reasoningSummary", {
-                      state: reasoningCapabilityLabel(item.reasoning, t)
-                    })} · {t(hasAiProviderRequestOverrides(item.requestOverrides)
-                      ? "ai.connection.requestOverridesConfigured"
-                      : "ai.connection.requestOverridesDefault")}</small>
-                    <code>{item.endpoint}</code>
-                  </div>
-                  <div className="ai-connection-list-actions">
-                    <UiButton type="button" size="sm" onClick={() => selectConnection(item.id)}>
-                      {item.id === stored.activeConnectionId ? t("ai.connection.active") : t("ai.connection.use")}
-                    </UiButton>
-                    <UiButton type="button" variant="ghost" size="sm" onClick={() => beginEditConnection(item)}>
-                      {t("common.edit")}
-                    </UiButton>
-                    <UiButton type="button" variant="ghost" size="sm" onClick={() => removeConnection(item.id)}>
-                      {t("common.remove")}
-                    </UiButton>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-          <form className="ai-connection-form" onSubmit={submitConnection}>
-            <h4>{editingId ? t("ai.connection.editTitle") : t("ai.connection.addTitle")}</h4>
-            <UiInput
-              label={t("ai.connection.name")}
-              value={draft.name}
-              maxLength={80}
-              required
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            />
-            <UiSelect
-              label={t("ai.connection.protocol")}
-              value={draft.protocol}
-              onChange={(event) => setDraft((current) => ({
-                ...current,
-                protocol: event.target.value as AiRuntimeProviderProtocol
-              }))}
-            >
-              {AI_RUNTIME_PROVIDER_PROTOCOLS.map((protocol) => (
-                <option key={protocol} value={protocol}>{protocolLabel(protocol, t)}</option>
-              ))}
-            </UiSelect>
-            <UiInput
-              label={t("ai.connection.endpoint")}
-              value={draft.endpoint}
-              type="url"
-              maxLength={2_048}
-              required
-              placeholder="https://example.com/v1"
-              onChange={(event) => setDraft((current) => ({ ...current, endpoint: event.target.value }))}
-            />
-            <UiInput
-              label={t("ai.connection.model")}
-              value={draft.model}
-              maxLength={256}
-              required
-              onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
-            />
-            <UiCheckbox
-              label={t("ai.connection.reasoningCapability")}
-              checked={draft.reasoning}
-              onChange={(event) => setDraft((current) => ({
-                ...current,
-                reasoning: event.target.checked
-              }))}
-            />
-            <p className="ai-connection-note">{t("ai.connection.reasoningCapabilityHint")}</p>
-            <label className="ai-connection-json-field">
-              <span>{t("ai.connection.requestOverrides")}</span>
-              <textarea
-                value={draft.requestOverrides}
-                rows={6}
-                spellCheck={false}
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  requestOverrides: event.target.value
-                }))}
-              />
-            </label>
-            <p className="ai-connection-note">{t("ai.connection.requestOverridesHint")}</p>
-            <div className="ai-connection-token-fields">
-              <UiInput
-                label={t("ai.connection.contextWindow")}
-                value={draft.contextWindow}
-                type="number"
-                inputMode="numeric"
-                min={AI_RUNTIME_MODEL_TOKEN_LIMITS.minContextWindow}
-                max={AI_RUNTIME_MODEL_TOKEN_LIMITS.maxContextWindow}
-                step={1}
-                required
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  contextWindow: event.target.value
-                }))}
-              />
-              <UiInput
-                label={t("ai.connection.maxOutputTokens")}
-                value={draft.maxOutputTokens}
-                type="number"
-                inputMode="numeric"
-                min={AI_RUNTIME_MODEL_TOKEN_LIMITS.minMaxOutputTokens}
-                max={AI_RUNTIME_MODEL_TOKEN_LIMITS.maxMaxOutputTokens}
-                step={1}
-                required
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  maxOutputTokens: event.target.value
-                }))}
-              />
-            </div>
-            <p className="ai-connection-note">{t("ai.connection.tokenHint")}</p>
-            {connectionError && <p className="ai-runtime-error" role="alert">{t("ai.connection.invalid")}</p>}
-            {!accountId && <p className="ai-connection-note">{t("ai.connection.sessionOnly")}</p>}
-            <div className="ai-connection-form-actions">
-              {editingId && (
-                <UiButton type="button" variant="ghost" onClick={beginAddConnection}>
-                  {t("common.cancel")}
-                </UiButton>
-              )}
-              <UiButton type="submit" variant="primary">
-                {t("common.save")}
-              </UiButton>
-            </div>
-          </form>
-        </section>
-      )}
 
       {!policyMatchesBuild && (
         <p className="ai-runtime-error" role="alert">{t("ai.policy.invalid")}</p>
       )}
 
-      {connectionAvailable && !conversations.ready && !managerOpen && (
-        <div className="ai-transcript-empty">
-          <LoaderCircle className="is-spinning" size={18} aria-hidden />
-          <p>{t("ai.conversation.loading")}</p>
-        </div>
+      {policyMatchesBuild && !connectionAvailable && (
+        <UiEmptyState
+          className="ai-assistant-setup"
+          icon={<Brain size={22} aria-hidden />}
+          description={t("ai.settings.connectionRequired")}
+          actions={
+            <UiButton type="button" variant="primary" onClick={onOpenSettings}>
+              {t("ai.settings.open")}
+            </UiButton>
+          }
+        />
+      )}
+
+      {connectionAvailable && !conversations.ready && (
+        <UiEmptyState
+          className="ai-transcript-empty"
+          icon={<LoaderCircle className="is-spinning" size={18} aria-hidden />}
+          description={t("ai.conversation.loading")}
+        />
       )}
 
       {connectionAvailable && conversations.ready && conversations.activeConversation && (
-        <div className="ai-active-session" hidden={managerOpen}>
+        <div className="ai-active-session">
           <div
             className="ai-conversation-toolbar"
             title={conversations.persistent
               ? t("ai.conversation.browserStorage")
               : t("ai.conversation.memoryStorage")}
           >
-            <select
+            <UiSelect
+              className="ai-conversation-select"
               data-testid="ai-conversation-select"
               value={conversations.activeConversation.id}
               aria-label={t("ai.conversation.select")}
@@ -1038,41 +806,17 @@ export default function AssistantPanel({
               {conversations.conversations.map((conversation) => (
                 <option key={conversation.id} value={conversation.id}>{conversation.title}</option>
               ))}
-            </select>
-            <button
-              type="button"
+            </UiSelect>
+            <UiIconButton
               className="ai-header-button"
               data-testid="ai-conversation-new"
-              title={t("ai.conversation.new")}
-              aria-label={t("ai.conversation.new")}
+              tooltip={t("ai.conversation.new")}
+              label={t("ai.conversation.new")}
               disabled={conversationSwitchBlocked}
               onClick={createConversation}
             >
               <Plus size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ai-header-button"
-              title={t("ai.conversation.rename")}
-              aria-label={t("ai.conversation.rename")}
-              disabled={conversationSwitchBlocked}
-              onClick={() => setRenameConversation({
-                id: conversations.activeConversation!.id,
-                title: conversations.activeConversation!.title
-              })}
-            >
-              <Pencil size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ai-header-button"
-              title={t("ai.conversation.delete")}
-              aria-label={t("ai.conversation.delete")}
-              disabled={conversationSwitchBlocked}
-              onClick={() => setDeleteConversation(conversations.activeConversation)}
-            >
-              <Trash2 size={14} aria-hidden />
-            </button>
+            </UiIconButton>
           </div>
           {conversations.storageError === "conflict" && (
             <p className="ai-runtime-error" role="alert">
@@ -1082,13 +826,12 @@ export default function AssistantPanel({
           {managedConfig && selectedManagedProfile ? (
             <div className="ai-connection-summary ai-managed-connection-summary">
               <div>
-                <strong>{localizedText(managedConfig.provider.label, locale)}</strong>
-                <small>{selectedManagedProfile.model}</small>
+                <strong>{localizedAiText(managedConfig.provider.label, locale)}</strong>
               </div>
-              <label className="ai-managed-model-picker">
+              <div className="ai-managed-model-picker">
                 <span>{t("ai.managed.model")}</span>
                 {managedModelSearchVisible && (
-                  <input
+                  <UiInput
                     type="search"
                     value={managedModelQuery}
                     placeholder={t("ai.managed.searchModels")}
@@ -1097,7 +840,8 @@ export default function AssistantPanel({
                     onChange={(event) => setManagedModelQuery(event.target.value)}
                   />
                 )}
-                <select
+                <UiSelect
+                  aria-label={t("ai.managed.model")}
                   value={visibleManagedProfiles.some(
                     (profile) => profile.id === selectedManagedProfile.id
                   ) ? selectedManagedProfile.id : ""}
@@ -1113,25 +857,20 @@ export default function AssistantPanel({
                   )}
                   {visibleManagedProfiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {localizedText(profile.label, locale)} · {profile.model}
+                      {localizedAiText(profile.label, locale)}
                     </option>
                   ))}
-                </select>
-              </label>
+                </UiSelect>
+              </div>
             </div>
           ) : connection ? (
             <div className="ai-connection-summary">
               <div>
                 <strong>{connection.name}</strong>
-                <small>{connection.model} · {t("ai.connection.tokenSummary", {
-                  context: formatTokenCount(connection.contextWindow, locale),
-                  output: formatTokenCount(connection.maxOutputTokens, locale)
-                })} · {reasoningCapabilityLabel(connection.reasoning, t)}</small>
+                <small>{connection.model}</small>
               </div>
-              <span className="ai-connection-protocol">{protocolLabel(connection.protocol, t)}</span>
             </div>
           ) : null}
-          <WorkspaceContextBar context={workspaceContext} t={t} />
           <div
             className="ai-runtime-frame-wrap"
             hidden={!managedConfig && (snapshot.status === "ready" || snapshot.status === "running")}
@@ -1143,7 +882,7 @@ export default function AssistantPanel({
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
               allow="camera 'none'; microphone 'none'; geolocation 'none'; display-capture 'none'"
-              title={t("ai.runtime.title")}
+              title={t("ai.connection.frameTitle")}
               onLoad={(event) => client.connect(
                 event.currentTarget,
                 managedConfig && requestedManagedProfileId
@@ -1158,11 +897,6 @@ export default function AssistantPanel({
                 }
               )}
             />
-            <p className="ai-prototype-notice">
-              {t(managedConfig
-                ? "ai.managed.credentialNotice"
-                : "ai.connection.credentialNotice")}
-            </p>
           </div>
           <div className="ai-transcript-shell">
             <div
@@ -1172,11 +906,11 @@ export default function AssistantPanel({
               aria-busy={snapshot.status === "running"}
             >
               {snapshot.messages.length === 0 ? (
-                <div className="ai-transcript-empty">
-                  <Brain size={22} aria-hidden />
-                  <p>{t("ai.empty")}</p>
-                  <small>{t("ai.emptyHint")}</small>
-                </div>
+                <UiEmptyState
+                  className="ai-transcript-empty"
+                  icon={<Brain size={22} aria-hidden />}
+                  description={t("ai.empty")}
+                />
               ) : (
                 snapshot.messages.map((message) => (
                   <TranscriptMessage key={message.id} message={message} t={t} />
@@ -1198,11 +932,13 @@ export default function AssistantPanel({
             {snapshot.errorMessage ?? t("ai.error", { code: snapshot.error })}
           </p>}
           <form className="ai-composer" onSubmit={submitPrompt}>
-            <textarea
+            <UiTextarea
+              className="ai-composer-field"
               value={promptDraft}
               onChange={(event) => setPromptDraft(event.target.value)}
               onKeyDown={handleComposerKeyDown}
               placeholder={t("ai.prompt.placeholder")}
+              aria-label={t("ai.prompt.placeholder")}
               disabled={snapshot.status !== "ready"}
               rows={3}
             />
@@ -1231,103 +967,6 @@ export default function AssistantPanel({
           </form>
         </div>
       )}
-      <UiDialog
-        open={settingsOpen}
-        title={t("ai.settings.title")}
-        description={t("ai.settings.description")}
-        onClose={() => setSettingsOpen(false)}
-        actions={
-          <>
-            <UiButton
-              onClick={() => setSettingsDraft((current) => ({
-                ...current,
-                runtime: defaultAiAccountSettings().runtime
-              }))}
-            >
-              {t("ai.settings.reset")}
-            </UiButton>
-            <UiButton onClick={() => setSettingsOpen(false)}>{t("common.cancel")}</UiButton>
-            <UiButton variant="primary" onClick={submitAccountSettings}>
-              {t("common.save")}
-            </UiButton>
-          </>
-        }
-      >
-        <div className="ai-settings-fields">
-          <UiInput
-            label={t("ai.settings.providerTimeout")}
-            type="number"
-            inputMode="numeric"
-            min={10}
-            max={300}
-            step={1}
-            value={settingsDraft.runtime.providerRequestTimeoutMs / 1_000}
-            onChange={(event) => setSettingsDraft((current) => ({
-              ...current,
-              runtime: {
-                ...current.runtime,
-                providerRequestTimeoutMs: Number(event.target.value) * 1_000
-              }
-            }))}
-          />
-          <UiInput
-            label={t("ai.settings.maxCalls")}
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={32}
-            step={1}
-            value={settingsDraft.runtime.maxProviderCallsPerTurn}
-            onChange={(event) => setSettingsDraft((current) => ({
-              ...current,
-              runtime: {
-                ...current.runtime,
-                maxProviderCallsPerTurn: Number(event.target.value)
-              }
-            }))}
-          />
-          <UiInput
-            label={t("ai.settings.turnTimeout")}
-            type="number"
-            inputMode="numeric"
-            min={30}
-            max={900}
-            step={1}
-            value={settingsDraft.runtime.maxTurnMs / 1_000}
-            onChange={(event) => setSettingsDraft((current) => ({
-              ...current,
-              runtime: {
-                ...current.runtime,
-                maxTurnMs: Number(event.target.value) * 1_000
-              }
-            }))}
-          />
-          {managedConfig && (
-            <UiInput
-              label={t("ai.settings.catalogTimeout")}
-              type="number"
-              inputMode="numeric"
-              min={5}
-              max={120}
-              step={1}
-              value={settingsDraft.runtime.catalogRequestTimeoutMs / 1_000}
-              onChange={(event) => setSettingsDraft((current) => ({
-                ...current,
-                runtime: {
-                  ...current.runtime,
-                  catalogRequestTimeoutMs: Number(event.target.value) * 1_000
-                }
-              }))}
-            />
-          )}
-          <p className="ai-connection-note">
-            {t(accountId ? "ai.settings.accountStorage" : "ai.settings.sessionStorage")}
-          </p>
-          {settingsError && (
-            <p className="ai-runtime-error" role="alert">{t("ai.settings.invalid")}</p>
-          )}
-        </div>
-      </UiDialog>
       <UiDialog
         open={!!renameConversation}
         title={t("ai.conversation.renameTitle")}

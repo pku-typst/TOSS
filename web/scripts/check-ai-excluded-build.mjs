@@ -49,14 +49,18 @@ try {
   }
 
   const assets = await fs.readdir(path.join(outputDir, "assets"));
-  if (assets.some((name) => name.startsWith("AssistantPanel-"))) {
-    throw new Error("AI-excluded build contains an AssistantPanel chunk");
+  if (assets.some((name) => (
+    name.startsWith("AssistantPanel-") || name.startsWith("AiSettingsSection-")
+  ))) {
+    throw new Error("AI-excluded build contains an Assistant UI chunk");
   }
   if (assets.some((name) => name.startsWith("KaTeX_"))) {
     throw new Error("AI-excluded build contains KaTeX font assets");
   }
   const forbiddenModules = [
+    "src/features/ai/styles.css",
     "src/features/ai/AssistantPanel.tsx",
+    "src/features/ai/AiSettingsSection.tsx",
     "src/pages/workspace/candidateCompilation.ts",
     "src/lib/candidateRuntime.ts",
     "src/ai-runtime/typstDocsSearch.ts"
@@ -78,7 +82,9 @@ try {
     if (error?.code !== "ENOENT") throw error;
   }
 
-  console.log("[ai-excluded-build] no Assistant, candidate compiler, docs tool, KaTeX, or Runtime artifact");
+  console.log(
+    "[ai-excluded-build] no Assistant UI/style, candidate compiler, docs tool, KaTeX, or Runtime artifact"
+  );
 } finally {
   if (previousConfig === undefined) delete process.env.TOSS_CONFIG;
   else process.env.TOSS_CONFIG = previousConfig;

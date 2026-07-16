@@ -1,4 +1,5 @@
 import type { DragEvent as ReactDragEvent } from "react";
+import "@/pages/workspace/file-tree.css";
 import { Archive, FilePlus2, FolderPlus, Upload } from "lucide-react";
 import { UiIconButton } from "@/components/ui";
 import { TreeNodeRow } from "@/pages/workspace/components/TreeNodeRow";

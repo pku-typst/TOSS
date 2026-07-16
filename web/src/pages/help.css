@@ -1,0 +1,227 @@
+/* Help navigation, search, and rendered documentation. */
+
+.help-page {
+  padding: clamp(28px, 5vw, 56px) clamp(18px, 4vw, 44px) 64px;
+}
+
+.help-search-row {
+  width: min(640px, 100%);
+  margin-top: 28px;
+  padding-inline-start: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: var(--toss-border-width) solid var(--toss-border);
+  border-radius: var(--toss-radius-control);
+  color: var(--toss-text-muted);
+  background: var(--toss-surface);
+}
+
+.help-search-row:focus-within {
+  border-color: var(--toss-brand-primary);
+  box-shadow: 0 0 0 2px var(--toss-brand-muted);
+}
+
+.help-search-row .ui-input {
+  flex: 1;
+  --border: 0;
+  --box-shadow: none;
+}
+
+.help-search-row .ui-input input {
+  border: 0;
+  outline: 0;
+}
+
+.help-layout {
+  min-height: 480px;
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: minmax(230px, 0.3fr) minmax(0, 1fr);
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-card);
+  overflow: hidden;
+  background: var(--toss-surface);
+  box-shadow: var(--toss-shadow-surface);
+}
+
+.help-topic-nav {
+  padding: 18px 12px;
+  border-right: var(--toss-border-width) solid var(--toss-border-subtle);
+  background: var(--toss-surface-subtle);
+}
+
+.help-topic-nav > h2 {
+  margin: 0 8px 10px;
+  color: var(--toss-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.help-topic-nav button {
+  width: 100%;
+  padding: 11px 12px;
+  display: grid;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--toss-radius-control);
+  color: var(--toss-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.help-topic-nav button:hover {
+  background: var(--toss-surface);
+}
+
+.help-topic-nav button.active {
+  color: var(--toss-brand-ink);
+  background: var(--toss-brand-subtle);
+  box-shadow: inset 3px 0 0 var(--toss-brand-primary);
+}
+
+.help-topic-nav button:focus-visible {
+  outline: 2px solid var(--toss-brand-primary);
+  outline-offset: -2px;
+}
+
+.help-topic-nav button strong {
+  font-size: 13px;
+}
+
+.help-topic-nav button small {
+  overflow: hidden;
+  color: var(--toss-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-article {
+  min-width: 0;
+  padding: clamp(24px, 4vw, 48px);
+}
+
+.help-article > header {
+  padding-bottom: 20px;
+  border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+}
+
+.help-article > header h2 {
+  margin: 0;
+  color: var(--toss-text-emphasis);
+  font-size: clamp(23px, 2.5vw, 30px);
+  letter-spacing: -0.025em;
+}
+
+.help-article > header p {
+  margin: 7px 0 0;
+  color: var(--toss-text-muted);
+  line-height: 1.55;
+}
+
+.help-markdown {
+  max-width: 780px;
+  color: var(--toss-text);
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+.help-markdown h1,
+.help-markdown h2,
+.help-markdown h3 {
+  margin: 1.7em 0 0.55em;
+  color: var(--toss-text-emphasis);
+  line-height: 1.25;
+}
+
+.help-markdown h1 {
+  font-size: 24px;
+}
+
+.help-markdown h2 {
+  font-size: 19px;
+}
+
+.help-markdown h3 {
+  font-size: 16px;
+}
+
+.help-markdown a {
+  color: var(--toss-brand-strong);
+  text-underline-offset: 3px;
+}
+
+.help-markdown code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--toss-brand-ink);
+  background: var(--toss-brand-subtle);
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.help-markdown pre {
+  overflow-x: auto;
+  padding: 14px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-panel);
+  background: var(--toss-surface-subtle);
+}
+
+.help-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.help-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.help-markdown th,
+.help-markdown td {
+  padding: 8px 10px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  text-align: left;
+}
+
+.help-state {
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  color: var(--toss-text-muted);
+}
+
+.help-no-results {
+  padding: 16px;
+  color: var(--toss-text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .help-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .help-topic-nav {
+    max-height: 250px;
+    overflow-y: auto;
+    border-right: 0;
+    border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+  }
+}
+
+@media (max-width: 520px) {
+  .help-page {
+    padding-inline: 14px;
+  }
+
+  .help-article {
+    padding: 22px 18px;
+  }
+}

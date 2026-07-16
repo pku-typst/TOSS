@@ -5,6 +5,7 @@ import {
   useQueryClient
 } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import "@/pages/external-git.css";
 import {
   Check,
   Download,
@@ -393,7 +394,7 @@ export function ExternalGitImportDialog({
               </div>
             )}
             {job.state === "retry_wait" && job.next_retry_at && (
-              <small className="muted">
+              <small nve-text="body muted">
                 {t("externalGit.retryAt", {
                   time: new Date(job.next_retry_at).toLocaleTimeString()
                 })}
@@ -482,9 +483,9 @@ export function ExternalGitImportDialog({
                 <option value="pdftex">pdfTeX</option>
               </UiSelect>
             )}
-            {loading && <small className="muted">{t("common.loading")}</small>}
+            {loading && <small nve-text="body muted">{t("common.loading")}</small>}
             {repositories.length === 0 && !loading && (
-              <small className="muted">{t("externalGit.noRepositories")}</small>
+              <small nve-text="body muted">{t("externalGit.noRepositories")}</small>
             )}
           </div>
         ) : null}

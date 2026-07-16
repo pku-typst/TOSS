@@ -1,0 +1,130 @@
+/* Workspace file tree and its contextual menu. */
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: var(--toss-space-xs);
+}
+
+.tree-branch {
+  display: grid;
+  gap: 2px;
+}
+
+.tree-children {
+  margin-left: var(--toss-space-md);
+  border-left: var(--toss-border-width) solid var(--toss-border-subtle);
+  padding-left: var(--toss-space-sm);
+  display: grid;
+  gap: 2px;
+}
+
+.tree-node {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--toss-space-2xs);
+  align-items: center;
+  border: var(--toss-border-width) solid transparent;
+  border-radius: var(--toss-radius-control);
+  padding: 1px var(--toss-space-xs);
+  position: relative;
+  background: transparent;
+  min-height: var(--toss-control-height-sm);
+  transition:
+    background var(--toss-transition-fast),
+    border-color var(--toss-transition-fast);
+}
+
+.tree-node:hover {
+  background: var(--toss-surface-hover);
+}
+
+.tree-node.active {
+  border-color: var(--toss-brand-highlight);
+  background: var(--toss-surface-selected);
+  box-shadow: inset 2px 0 0 var(--toss-brand-primary);
+}
+
+nve-icon-button.tree-toggle {
+  --width: 20px;
+  --height: var(--toss-control-height-sm);
+  --color: var(--toss-text-muted);
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.tree-placeholder {
+  display: inline-block;
+  width: 20px;
+}
+
+nve-button.tree-label {
+  --width: 100%;
+  --height: var(--toss-control-height-sm);
+  --padding: 0;
+  --gap: 0;
+  --text-align: left;
+  --font-weight: var(--toss-font-weight-regular);
+  --text-transform: none;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  overflow: hidden;
+}
+
+.tree-label-content {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--toss-text-muted);
+  flex: 0 0 auto;
+}
+
+.tree-icon.directory {
+  color: var(--toss-brand-strong);
+}
+
+.tree-icon.file {
+  color: var(--toss-text-muted);
+}
+
+.tree-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.context-menu {
+  --width: 180px;
+  --min-width: 180px;
+  --padding: var(--toss-space-sm);
+  background: var(--toss-surface-raised);
+  border: var(--toss-border-width) solid var(--toss-border);
+  border-radius: var(--toss-radius-panel);
+  box-shadow: var(--toss-shadow-floating);
+  z-index: 5;
+}
+
+.context-menu nve-menu-item {
+  --text-transform: none;
+}
+
+.context-menu-floating {
+  position: fixed;
+  z-index: 60;
+}

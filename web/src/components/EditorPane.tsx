@@ -145,7 +145,7 @@ const editorChromeTheme = EditorView.theme(
     ".cm-gutters": {
       color: "var(--toss-text-muted)",
       backgroundColor: "var(--toss-surface-subtle)",
-      borderRight: "var(--nve-ref-border-width-sm) solid var(--toss-border-subtle)"
+      borderRight: "var(--toss-border-width) solid var(--toss-border-subtle)"
     },
     ".cm-activeLineGutter": {
       color: "var(--toss-brand-ink)",

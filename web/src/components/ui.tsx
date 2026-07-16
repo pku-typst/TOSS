@@ -102,6 +102,33 @@ export function UiInput({
   );
 }
 
+export function UiTextarea({
+  className = "",
+  label,
+  error,
+  ...props
+}: ComponentPropsWithRef<"textarea"> & { label?: ReactNode; error?: ReactNode }) {
+  const messageId = useId();
+  const describedBy = [props["aria-describedby"], error ? messageId : undefined]
+    .filter(Boolean)
+    .join(" ") || undefined;
+  return (
+    <div className={`ui-textarea ${className}`.trim()} data-status={error ? "error" : undefined}>
+      {label !== undefined && <label>{label}</label>}
+      <textarea
+        {...props}
+        aria-describedby={describedBy}
+        aria-invalid={error ? true : props["aria-invalid"]}
+      />
+      {error !== undefined && error !== null && (
+        <nve-control-message id={messageId} status="error" role="alert">
+          {error}
+        </nve-control-message>
+      )}
+    </div>
+  );
+}
+
 export function UiSelect({
   className = "",
   children,
@@ -210,16 +237,15 @@ export function UiBadge({
   tone = "neutral",
   children,
   className = "",
-  title
-}: {
+  title,
+  ...badgeProps
+}: HTMLAttributes<HTMLElement> & {
   tone?: "neutral" | "accent" | "success" | "warning" | "danger";
-  children: ReactNode;
-  className?: string;
-  title?: string;
 }) {
   const status = tone === "neutral" ? undefined : tone === "accent" ? "accent" : tone;
   return (
     <nve-badge
+      {...badgeProps}
       status={status}
       color={tone === "neutral" ? "gray-slate" : undefined}
       title={title}
@@ -293,13 +319,106 @@ export function UiCard({
   children,
   className = "",
   contentLayout = "column gap:md pad:lg align:horizontal-stretch",
+  accented = false,
   ...cardProps
-}: HTMLAttributes<HTMLDivElement> & { contentLayout?: string }) {
+}: HTMLAttributes<HTMLDivElement> & { contentLayout?: string; accented?: boolean }) {
   return (
-    <nve-card {...cardProps} className={`ui-card ${className}`.trim()}>
+    <nve-card
+      {...cardProps}
+      className={`ui-card${accented ? " is-accented" : ""} ${className}`.trim()}
+    >
       <nve-card-content nve-layout={contentLayout} className="ui-card-layout">
         {children}
       </nve-card-content>
     </nve-card>
+  );
+}
+
+export function UiPageHeading({
+  icon,
+  title,
+  titleAdornment,
+  description,
+  actions,
+  className = ""
+}: {
+  icon?: ReactNode;
+  title: ReactNode;
+  titleAdornment?: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <header className={`ui-page-heading${icon !== undefined ? " has-icon" : ""} ${className}`.trim()}>
+      {icon !== undefined && <span className="ui-page-heading-icon" aria-hidden>{icon}</span>}
+      <div className="ui-page-heading-copy">
+        <div className="ui-page-heading-title-row">
+          <h1 nve-text="heading xl">{title}</h1>
+          {titleAdornment !== undefined && (
+            <span className="ui-page-heading-title-adornment">{titleAdornment}</span>
+          )}
+        </div>
+        {description !== undefined && <p>{description}</p>}
+      </div>
+      {actions !== undefined && <div className="ui-page-heading-actions">{actions}</div>}
+    </header>
+  );
+}
+
+export function UiSectionHeading({
+  icon,
+  title,
+  description,
+  actions,
+  headingLevel = 3,
+  className = ""
+}: {
+  icon?: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  headingLevel?: 2 | 3 | 4;
+  className?: string;
+}) {
+  const Heading = headingLevel === 2 ? "h2" : headingLevel === 4 ? "h4" : "h3";
+  return (
+    <div className={`ui-section-heading${icon !== undefined ? " has-icon" : ""} ${className}`.trim()}>
+      {icon !== undefined && <span className="ui-section-heading-icon" aria-hidden>{icon}</span>}
+      <div className="ui-section-heading-copy">
+        <Heading>{title}</Heading>
+        {description !== undefined && <p>{description}</p>}
+      </div>
+      {actions !== undefined && <div className="ui-section-heading-actions">{actions}</div>}
+    </div>
+  );
+}
+
+export function UiEmptyState({
+  icon,
+  title,
+  description,
+  actions,
+  iconFrame = false,
+  className = "",
+  ...divProps
+}: Omit<HTMLAttributes<HTMLDivElement>, "children" | "title"> & {
+  icon?: ReactNode;
+  title?: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  iconFrame?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      {...divProps}
+      className={`ui-empty-state${iconFrame ? " has-icon-frame" : ""} ${className}`.trim()}
+    >
+      {icon !== undefined && <span className="ui-empty-state-icon" aria-hidden>{icon}</span>}
+      {title !== undefined && <strong>{title}</strong>}
+      {description !== undefined && <p>{description}</p>}
+      {actions !== undefined && <div className="ui-empty-state-actions">{actions}</div>}
+    </div>
   );
 }

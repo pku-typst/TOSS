@@ -7,7 +7,7 @@ import {
   LoaderCircle,
   UserRound
 } from "lucide-react";
-import { UiTooltip } from "@/components/ui";
+import { UiEmptyState, UiTooltip } from "@/components/ui";
 import { formatDateTime, type UiLocale } from "@/lib/i18n";
 
 type Revision = {
@@ -149,12 +149,12 @@ export function HistoryPanel({
         );
       })}
       {revisions.length === 0 && !loadingMore ? (
-        <div className="history-empty">
-          <span className="history-empty-icon" aria-hidden>
-            <History size={20} />
-          </span>
-          <span>{emptyLabel}</span>
-        </div>
+        <UiEmptyState
+          className="history-empty"
+          icon={<History size={20} />}
+          iconFrame
+          description={emptyLabel}
+        />
       ) : null}
       {loadingMore ? (
         <div className="history-list-more">

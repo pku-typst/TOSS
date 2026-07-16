@@ -65,6 +65,21 @@ export type WorkspaceOptionalPanelDescriptor = {
   active: boolean;
 };
 
+export type WorkspaceFeatureSettingsSection = `feature:${string}`;
+
+export type WorkspaceSettingsSectionId =
+  | "project"
+  | "storage"
+  | "access"
+  | WorkspaceFeatureSettingsSection;
+
+export type WorkspaceOptionalSettingsSectionDescriptor = {
+  section: WorkspaceFeatureSettingsSection;
+  label: string;
+  icon: ReactNode;
+  content: ReactNode;
+};
+
 export type WorkspaceAuxiliaryPanel =
   | "settings"
   | "revisions"

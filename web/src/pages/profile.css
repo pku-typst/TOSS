@@ -1,0 +1,331 @@
+/* Account profile, identity connections, and personal access tokens. */
+
+.token-reveal {
+  min-width: 0;
+  border: var(--toss-border-width) solid var(--toss-brand-highlight);
+  border-radius: var(--toss-radius-control);
+  padding: 10px 12px;
+  background: var(--toss-surface);
+  color: var(--toss-brand-ink);
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  box-shadow: inset 3px 0 0 var(--toss-brand-primary);
+}
+
+.profile-page {
+  width: min(980px, 100%);
+}
+
+.profile-content {
+  width: 100%;
+  display: grid;
+  gap: 16px;
+}
+
+.profile-provider-list {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-provider-link-notice {
+  padding: 10px 12px;
+  border: var(--toss-border-width) solid var(--toss-brand-muted);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-brand-subtle);
+  color: var(--toss-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.profile-provider-item {
+  min-width: 0;
+  padding: 11px 12px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-panel);
+  background: var(--toss-surface-subtle);
+}
+
+.profile-provider-identity {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.profile-provider-identity strong,
+.profile-provider-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-provider-identity strong {
+  color: var(--toss-text-emphasis);
+  font-size: 13px;
+}
+
+.profile-provider-identity small,
+.profile-provider-restriction {
+  color: var(--toss-text-muted);
+  font-size: 11px;
+}
+
+.profile-provider-state {
+  white-space: nowrap;
+}
+
+.profile-provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profile-provider-restriction {
+  grid-column: 2 / -1;
+}
+
+.profile-token-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.profile-custom-expiry {
+  grid-column: 1 / -1;
+}
+
+.profile-form-actions {
+  padding-top: 2px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.profile-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.profile-new-token-card {
+  border-color: var(--toss-warning-border);
+  background: color-mix(in oklab, var(--toss-warning-surface) 52%, var(--toss-surface));
+}
+
+.profile-new-token-heading {
+  --toss-brand-strong: var(--toss-warning);
+  --toss-brand-subtle: var(--toss-warning-surface);
+  --toss-brand-muted: var(--toss-warning-border);
+}
+
+.profile-new-token-heading .ui-section-heading-icon {
+  border: var(--toss-border-width) solid var(--toss-warning-border);
+  border-radius: 50%;
+}
+
+.profile-token-reveal-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-new-token-meta,
+.profile-token-metadata {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.profile-token-list {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-token-item {
+  min-width: 0;
+  padding: 12px;
+  display: grid;
+  gap: 11px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-panel);
+  background: var(--toss-surface-subtle);
+  box-shadow: inset 2px 0 0 var(--toss-brand-primary);
+  transition: border-color var(--toss-transition-fast), background var(--toss-transition-fast);
+}
+
+.profile-token-item:hover {
+  border-color: var(--toss-brand-muted);
+  background: color-mix(in oklab, var(--toss-brand-subtle) 52%, var(--toss-surface));
+}
+
+.profile-token-item.expired {
+  box-shadow: inset 2px 0 0 var(--toss-warning-border);
+}
+
+.profile-token-item.revoked {
+  box-shadow: inset 2px 0 0 var(--toss-danger-border);
+  opacity: 0.78;
+}
+
+.profile-token-item-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.profile-token-status-tooltip,
+.profile-token-status-tooltip .ui-tooltip-trigger {
+  display: flex;
+  border-radius: 50%;
+}
+
+.profile-token-status-tooltip .ui-tooltip-trigger:focus-visible {
+  outline: 2px solid var(--toss-brand-primary);
+  outline-offset: 2px;
+}
+
+.profile-token-status {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.profile-token-status.active {
+  border: var(--toss-border-width) solid var(--toss-brand-muted);
+  background: var(--toss-brand-subtle);
+  color: var(--toss-brand-strong);
+}
+
+.profile-token-status.expired {
+  border: var(--toss-border-width) solid var(--toss-warning-border);
+  background: var(--toss-warning-surface);
+  color: var(--toss-warning);
+}
+
+.profile-token-status.revoked {
+  border: var(--toss-border-width) solid var(--toss-danger-border);
+  background: var(--toss-danger-surface);
+  color: var(--toss-danger);
+}
+
+.profile-token-identity {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.profile-token-identity strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--toss-text-emphasis);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-token-identity code {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--toss-surface);
+  color: var(--toss-text-muted);
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+}
+
+.profile-token-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.profile-token-revoke:not([aria-disabled="true"]):hover {
+  --color: var(--toss-danger);
+  --background: var(--toss-danger-surface);
+}
+
+.profile-token-metadata {
+  padding-left: 37px;
+}
+
+.profile-token-meta-tooltip,
+.profile-token-meta-tooltip .ui-tooltip-trigger {
+  min-width: 0;
+  display: flex;
+}
+
+.profile-token-meta-tooltip > nve-tooltip {
+  --width: max-content;
+  --max-width: min(320px, calc(100vw - 24px));
+}
+
+.profile-token-meta {
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: 999px;
+  background: var(--toss-surface);
+  color: var(--toss-text-muted);
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.profile-token-meta svg {
+  flex: 0 0 auto;
+  color: var(--toss-brand-strong);
+}
+
+.profile-token-empty {
+  min-height: 150px;
+}
+
+@media (max-width: 700px) {
+  .profile-token-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-custom-expiry {
+    grid-column: auto;
+  }
+
+  .profile-token-reveal-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-token-reveal-row .ui-button {
+    width: 100%;
+  }
+
+  .profile-token-item-main {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .profile-token-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .profile-token-metadata {
+    padding-left: 0;
+  }
+}

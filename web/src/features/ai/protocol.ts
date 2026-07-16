@@ -18,6 +18,10 @@ import {
   isAiRuntimePreferences,
   type AiRuntimePreferences
 } from "@/features/ai/runtimePreferences";
+import {
+  isRuntimeDesignTheme,
+  type RuntimeDesignTheme
+} from "@/design/runtimeTheme";
 
 export const AI_RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const AI_RUNTIME_BUILD_ID = __TOSS_AI_RUNTIME_BUILD_ID__;
@@ -108,6 +112,7 @@ export type AiRuntimeBootstrapInit = {
   nonce: string;
   parentOrigin: string;
   locale: AiRuntimeLocale;
+  theme: RuntimeDesignTheme;
   preferences: AiRuntimePreferences;
   connection: AiRuntimeConnection;
   conversation: AiRuntimeConversationContext;
@@ -407,6 +412,7 @@ export function isAiRuntimeBootstrapInit(value: unknown): value is AiRuntimeBoot
       "nonce",
       "parentOrigin",
       "locale",
+      "theme",
       "preferences",
       "connection",
       "conversation",
@@ -419,6 +425,7 @@ export function isAiRuntimeBootstrapInit(value: unknown): value is AiRuntimeBoot
     isBoundedString(value.nonce, MAX_ID_LENGTH) &&
     isBoundedString(value.parentOrigin, 2_048) &&
     isAiRuntimeLocale(value.locale) &&
+    isRuntimeDesignTheme(value.theme) &&
     isAiRuntimePreferences(value.preferences) &&
     isRuntimeConnection(value.connection) &&
     isAiRuntimeConversationContext(value.conversation) &&

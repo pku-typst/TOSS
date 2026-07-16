@@ -308,12 +308,13 @@ The target semantic surface is deliberately narrow:
 
 | Direction | Messages |
 | --- | --- |
-| Host to Runtime | initialize locale, tool definitions, and a bounded conversation; update locale; switch conversation; start a user turn with its conversation ID and a bounded Workspace-state snapshot; return a tool result; cancel a turn; clear the session |
+| Host to Runtime | initialize locale, resolved semantic theme, tool definitions, and a bounded conversation; update locale; switch conversation; start a user turn with its conversation ID and a bounded Workspace-state snapshot; return a tool result; cancel a turn; clear the session |
 | Runtime to host | bootstrap acknowledgement, ready and connection state, typed content start/delta/end events, typed tool call, turn completion, sanitized usage and error state |
 
 Protocol version 1 initializes with a bounded locale, non-secret connection
-profile including user-declared context and output limits, tool definitions,
-conversation ID, and restored visible history. It
+profile including user-declared context and output limits, an exact resolved
+semantic-theme object, tool definitions, conversation ID, and restored visible
+history. It
 can replace the inactive conversation without recreating the Runtime, reports
 `credential_required` or `ready`, starts and cancels turns, clears the session,
 and returns only stable sanitized errors. Every start-turn message repeats the
@@ -563,12 +564,16 @@ field that matches both the localized display label and the exact upstream
 model ID; filtering never issues another Provider request or expands the
 allowlist.
 
-The credential surface uses the product's fixed light appearance instead of
-the browser's `prefers-color-scheme` value. This avoids an OS-level dark theme
-making the opaque Runtime disagree with the currently light-only host UI. A
-future product-wide theme capability must explicitly pass a bounded theme
-choice through the Runtime protocol rather than inheriting ambient page or OS
-styling.
+The credential surface uses the host's resolved portable design theme rather
+than the browser's `prefers-color-scheme` value or a duplicate Runtime palette.
+At bootstrap the host resolves the current distribution accent, surfaces,
+text, borders, typography, density, and control shape to concrete CSS values.
+The Runtime accepts only the exact bounded theme shape and maps it to known
+custom properties used by its small isolated stylesheet. This keeps the opaque
+frame visually consistent without importing host CSS, NVIDIA Elements
+internals, DOM access, credentials, or arbitrary style rules. The current theme
+declares the product's light color scheme; a future product-wide theme change
+must update this explicit contract rather than inherit ambient OS styling.
 
 Credential rejection clears the key and returns to credential entry. A
 transient catalog failure retains the key, exposes a retry action, and does not
