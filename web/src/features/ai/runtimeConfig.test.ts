@@ -25,7 +25,24 @@ describe("AI Runtime server policy", () => {
         maxOutputTokens: 4_096,
         reasoning: true,
         requestOverrides: {}
-      }]
+      }],
+      customProfiles: {
+        enabled: true,
+        requireCatalogMatch: true,
+        defaults: {
+          contextWindow: 65_536,
+          maxOutputTokens: 8_192,
+          reasoning: false,
+          requestOverrides: {}
+        },
+        limits: {
+          minContextWindow: 8_192,
+          maxContextWindow: 4_194_304,
+          minOutputTokens: 256,
+          maxOutputTokens: 1_048_576
+        },
+        maxSavedProfiles: 20
+      }
     })?.kind).toBe("managed_catalog");
   });
 

@@ -31,8 +31,15 @@ import {
 } from "@/features/ai/managedModelSelection";
 import {
   formatAiProviderRequestOverrides,
-  hasAiProviderRequestOverrides
+  hasAiProviderRequestOverrides,
+  parseAiProviderRequestOverrides
 } from "@/features/ai/providerRequest";
+import {
+  createManagedCustomProfile,
+  isManagedCustomProfileWithinPolicy,
+  managedCustomProfilesForConfig,
+  requestedManagedSelection
+} from "@/features/ai/managedCustomProfiles";
 import {
   AI_RUNTIME_MODEL_TOKEN_LIMITS,
   AI_RUNTIME_PROVIDER_PROTOCOLS,
@@ -47,6 +54,20 @@ type ManagedAiAssistantClientConfig = Extract<
   AiAssistantClientConfig,
   { kind: "managed_catalog" }
 >;
+
+type ManagedCustomProfileDraft = {
+  contextWindow: string;
+  maxOutputTokens: string;
+  reasoning: boolean;
+  requestOverrides: string;
+};
+
+const EMPTY_MANAGED_CUSTOM_DRAFT: ManagedCustomProfileDraft = {
+  contextWindow: "",
+  maxOutputTokens: "",
+  reasoning: false,
+  requestOverrides: "{}"
+};
 
 function secureConnectionId() {
   const bytes = new Uint8Array(16);
@@ -96,13 +117,31 @@ export default function AiSettingsSection({
   }));
   const [settingsError, setSettingsError] = useState(false);
   const [managedModelQuery, setManagedModelQuery] = useState("");
+  const [managedCustomDraft, setManagedCustomDraft] = useState<ManagedCustomProfileDraft>(
+    EMPTY_MANAGED_CUSTOM_DRAFT
+  );
+  const [managedCustomError, setManagedCustomError] = useState(false);
   const activeConnection = activeStoredAiConnection(connections);
-  const selectedManagedProfileId = managedConfig && settings.managedModelProfileId &&
-    managedConfig.model_profiles.some((profile) => profile.id === settings.managedModelProfileId)
-    ? settings.managedModelProfileId
-    : managedConfig?.default_model_profile ?? "";
+  const effectiveManagedSelection = managedConfig
+    ? requestedManagedSelection(managedConfig, settings)
+    : null;
+  const managedCustomProfiles = useMemo(() => managedConfig
+    ? managedCustomProfilesForConfig(managedConfig, settings)
+    : [], [managedConfig, settings]);
+  const selectedManagedIdentity = effectiveManagedSelection ? {
+    kind: effectiveManagedSelection.kind,
+    profileId: effectiveManagedSelection.profileId
+  } : null;
+  const selectedCustomProfile = effectiveManagedSelection?.kind === "custom"
+    ? managedCustomProfiles.find(
+        (profile) => profile.profileId === effectiveManagedSelection.profileId
+      ) ?? null
+    : null;
   const showManagedModelSearch = shouldShowManagedModelSearch(
-    managedConfig?.model_profiles.length ?? 0
+    (managedConfig?.model_profiles.length ?? 0) +
+      (managedConfig?.custom_profiles.enabled
+        ? managedCustomProfiles.length
+        : 0)
   );
   const visibleManagedProfiles = useMemo(() => managedConfig
     ? filterManagedModelProfiles(
@@ -111,10 +150,35 @@ export default function AiSettingsSection({
         locale
       )
     : [], [locale, managedConfig, managedModelQuery, showManagedModelSearch]);
+  const visibleManagedCustomProfiles = useMemo(() => {
+    const profiles = managedConfig?.custom_profiles.enabled
+      ? managedCustomProfiles
+      : [];
+    const query = showManagedModelSearch ? managedModelQuery.trim().toLocaleLowerCase(locale) : "";
+    return query
+      ? profiles.filter((profile) => profile.model.toLocaleLowerCase(locale).includes(query))
+      : profiles;
+  }, [
+    locale,
+    managedConfig?.custom_profiles.enabled,
+    managedModelQuery,
+    managedCustomProfiles,
+    showManagedModelSearch
+  ]);
 
   useEffect(() => {
     setSettingsDraft({ ...settings, runtime: { ...settings.runtime } });
   }, [settings]);
+
+  useEffect(() => {
+    setManagedCustomDraft(selectedCustomProfile ? {
+      contextWindow: String(selectedCustomProfile.contextWindow),
+      maxOutputTokens: String(selectedCustomProfile.maxOutputTokens),
+      reasoning: selectedCustomProfile.reasoning,
+      requestOverrides: formatAiProviderRequestOverrides(selectedCustomProfile.requestOverrides)
+    } : EMPTY_MANAGED_CUSTOM_DRAFT);
+    setManagedCustomError(false);
+  }, [selectedCustomProfile]);
 
   function beginAddConnection() {
     setEditingId(null);
@@ -177,10 +241,106 @@ export default function AiSettingsSection({
     if (editingId === id) beginAddConnection();
   }
 
-  function selectManagedModel(profileId: string) {
-    if (!managedConfig?.model_profiles.some((profile) => profile.id === profileId)) return;
-    setSettings({ ...settings, managedModelProfileId: profileId });
+  function selectManagedModel(value: string) {
+    if (!managedConfig) return;
+    const separator = value.indexOf(":");
+    if (separator < 0) return;
+    const kind = value.slice(0, separator);
+    const profileId = value.slice(separator + 1);
+    if (kind === "recommended" && !managedConfig.model_profiles.some(
+      (profile) => profile.id === profileId
+    )) return;
+    if (kind === "custom" && !managedCustomProfiles.some(
+      (profile) => profile.profileId === profileId
+    )) return;
+    if (kind !== "recommended" && kind !== "custom") return;
+    setSettings({
+      ...settings,
+      managedModelSelection: { kind, profileId }
+    });
     setManagedModelQuery("");
+  }
+
+  function saveManagedCustomProfile() {
+    if (!managedConfig || !selectedCustomProfile) return;
+    const requestOverrides = parseAiProviderRequestOverrides(
+      managedCustomDraft.requestOverrides
+    );
+    const updated = {
+      ...selectedCustomProfile,
+      contextWindow: Number(managedCustomDraft.contextWindow),
+      maxOutputTokens: Number(managedCustomDraft.maxOutputTokens),
+      reasoning: managedCustomDraft.reasoning,
+      ...(requestOverrides ? { requestOverrides } : {})
+    };
+    if (!requestOverrides || !isManagedCustomProfileWithinPolicy(managedConfig, updated)) {
+      setManagedCustomError(true);
+      return;
+    }
+    try {
+      setSettings({
+        ...settings,
+        managedCustomProfiles: managedCustomProfiles.map((profile) =>
+          profile.profileId === updated.profileId ? updated : profile
+        )
+      });
+      setManagedCustomError(false);
+    } catch {
+      setManagedCustomError(true);
+    }
+  }
+
+  function customizeSelectedRecommendation() {
+    if (
+      !managedConfig?.custom_profiles.enabled ||
+      effectiveManagedSelection?.kind !== "recommended"
+    ) return;
+    const recommendation = managedConfig.model_profiles.find(
+      (profile) => profile.id === effectiveManagedSelection.profileId
+    );
+    if (!recommendation) return;
+    const profiles = managedCustomProfiles;
+    const existing = profiles.find((profile) => profile.model === recommendation.model);
+    if (existing) {
+      setSettings({
+        ...settings,
+        managedModelSelection: { kind: "custom", profileId: existing.profileId }
+      });
+      return;
+    }
+    if (profiles.length >= managedConfig.custom_profiles.max_saved_profiles) {
+      setManagedCustomError(true);
+      return;
+    }
+    const profile = createManagedCustomProfile(managedConfig, { id: recommendation.model });
+    if (!profile) {
+      setManagedCustomError(true);
+      return;
+    }
+    try {
+      setSettings({
+        ...settings,
+        managedModelSelection: { kind: "custom", profileId: profile.profileId },
+        managedCustomProfiles: [...profiles, profile]
+      });
+      setManagedCustomError(false);
+    } catch {
+      setManagedCustomError(true);
+    }
+  }
+
+  function removeManagedCustomProfile() {
+    if (!managedConfig || !selectedCustomProfile) return;
+    setSettings({
+      ...settings,
+      managedModelSelection: {
+        kind: "recommended",
+        profileId: managedConfig.default_model_profile
+      },
+      managedCustomProfiles: managedCustomProfiles.filter(
+        (profile) => profile.profileId !== selectedCustomProfile.profileId
+      )
+    });
   }
 
   function saveAgentSettings() {
@@ -219,20 +379,116 @@ export default function AiSettingsSection({
           )}
           <UiSelect
             label={t("ai.managed.model")}
-            value={visibleManagedProfiles.some((profile) => profile.id === selectedManagedProfileId)
-              ? selectedManagedProfileId
+            value={selectedManagedIdentity
+              ? `${selectedManagedIdentity.kind}:${selectedManagedIdentity.profileId}`
               : ""}
             onChange={(event) => selectManagedModel(event.target.value)}
           >
-            {visibleManagedProfiles.length === 0 && (
+            {visibleManagedProfiles.length === 0 && visibleManagedCustomProfiles.length === 0 && (
               <option value="" disabled>{t("ai.managed.noModelsFound")}</option>
             )}
-            {visibleManagedProfiles.map((profile) => (
-              <option value={profile.id} key={profile.id}>
-                {localizedAiText(profile.label, locale)}
-              </option>
-            ))}
+            {visibleManagedProfiles.length > 0 && (
+              <optgroup label={t("ai.managed.recommendedModels")}>
+                {visibleManagedProfiles.map((profile) => (
+                  <option value={`recommended:${profile.id}`} key={profile.id}>
+                    {localizedAiText(profile.label, locale)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {visibleManagedCustomProfiles.length > 0 && (
+              <optgroup label={t("ai.managed.savedCustomModels")}>
+                {visibleManagedCustomProfiles.map((profile) => (
+                  <option value={`custom:${profile.profileId}`} key={profile.profileId}>
+                    {profile.model}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </UiSelect>
+          {managedConfig.custom_profiles.enabled &&
+            effectiveManagedSelection?.kind === "recommended" && (
+            <div className="ai-connection-form-actions">
+              <UiButton type="button" onClick={customizeSelectedRecommendation}>
+                {t("ai.managed.customize")}
+              </UiButton>
+            </div>
+          )}
+          {selectedCustomProfile && (
+            <div className="ai-connection-form">
+              <p className="ai-connection-note">{t("ai.managed.customizedHint")}</p>
+              <UiInput
+                label={t("ai.connection.model")}
+                value={selectedCustomProfile.model}
+                disabled
+              />
+              <UiCheckbox
+                label={t("ai.connection.reasoningCapability")}
+                checked={managedCustomDraft.reasoning}
+                onChange={(event) => setManagedCustomDraft((current) => ({
+                  ...current,
+                  reasoning: event.target.checked
+                }))}
+              />
+              <UiTextarea
+                className="ai-connection-json-field"
+                label={t("ai.connection.requestOverrides")}
+                value={managedCustomDraft.requestOverrides}
+                rows={6}
+                spellCheck={false}
+                onChange={(event) => setManagedCustomDraft((current) => ({
+                  ...current,
+                  requestOverrides: event.target.value
+                }))}
+              />
+              <p className="ai-connection-note">{t("ai.connection.requestOverridesHint")}</p>
+              <div className="ai-connection-token-fields">
+                <UiInput
+                  label={t("ai.connection.contextWindow")}
+                  value={managedCustomDraft.contextWindow}
+                  type="number"
+                  inputMode="numeric"
+                  min={managedConfig.custom_profiles.limits.min_context_window}
+                  max={managedConfig.custom_profiles.limits.max_context_window}
+                  step={1}
+                  onChange={(event) => setManagedCustomDraft((current) => ({
+                    ...current,
+                    contextWindow: event.target.value
+                  }))}
+                />
+                <UiInput
+                  label={t("ai.connection.maxOutputTokens")}
+                  value={managedCustomDraft.maxOutputTokens}
+                  type="number"
+                  inputMode="numeric"
+                  min={managedConfig.custom_profiles.limits.min_output_tokens}
+                  max={managedConfig.custom_profiles.limits.max_output_tokens}
+                  step={1}
+                  onChange={(event) => setManagedCustomDraft((current) => ({
+                    ...current,
+                    maxOutputTokens: event.target.value
+                  }))}
+                />
+              </div>
+              <p className="ai-connection-note">{t("ai.connection.tokenHint")}</p>
+              <div className="ai-connection-form-actions">
+                <UiButton type="button" variant="ghost" onClick={removeManagedCustomProfile}>
+                  {t("common.remove")}
+                </UiButton>
+                <UiButton type="button" variant="primary" onClick={saveManagedCustomProfile}>
+                  {t("common.save")}
+                </UiButton>
+              </div>
+            </div>
+          )}
+          {managedCustomError && (
+            <p className="ai-runtime-error" role="alert">
+              {t("ai.managed.customProfileInvalid")}
+            </p>
+          )}
+          {managedConfig.custom_profiles.enabled && (
+            <p className="ai-connection-note">{t("ai.managed.addModelsHint")}</p>
+          )}
         </UiCard>
       ) : (
         <UiCard className="settings-section-card ai-settings-card" contentLayout="column gap:md pad:md align:horizontal-stretch">

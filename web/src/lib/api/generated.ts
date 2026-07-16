@@ -1623,6 +1623,7 @@ export interface components {
             /** @enum {string} */
             kind: "user_defined";
         } | {
+            custom_profiles: components["schemas"]["ManagedAiCustomProfilesResponse"];
             default_model_profile: string;
             /** @enum {string} */
             kind: "managed_catalog";
@@ -2000,6 +2001,31 @@ export interface components {
             email: string;
             password: string;
             username: string;
+        };
+        ManagedAiCustomProfileDefaultsResponse: {
+            /** Format: int64 */
+            context_window: number;
+            /** Format: int64 */
+            max_output_tokens: number;
+            reasoning: boolean;
+            request_overrides: unknown;
+        };
+        ManagedAiCustomProfileLimitsResponse: {
+            /** Format: int64 */
+            max_context_window: number;
+            /** Format: int64 */
+            max_output_tokens: number;
+            /** Format: int64 */
+            min_context_window: number;
+            /** Format: int64 */
+            min_output_tokens: number;
+        };
+        ManagedAiCustomProfilesResponse: {
+            defaults: components["schemas"]["ManagedAiCustomProfileDefaultsResponse"];
+            enabled: boolean;
+            limits: components["schemas"]["ManagedAiCustomProfileLimitsResponse"];
+            max_saved_profiles: number;
+            require_catalog_match: boolean;
         };
         ManagedAiModelProfileResponse: {
             id: string;

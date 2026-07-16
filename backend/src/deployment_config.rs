@@ -251,6 +251,7 @@ fn validate_managed_catalog_deployment(
         provider: catalog.provider.clone(),
         default_model_profile,
         model_profiles,
+        custom_profiles: catalog.custom_profiles.clone(),
     })
 }
 
@@ -276,7 +277,7 @@ fn validate_frontend_features(
 
 #[cfg(test)]
 mod tests {
-    use super::DeploymentConfig;
+    use super::{DeploymentConfig, DeploymentFile};
     use crate::distribution::{DistributionConfig, FrontendFeature};
     use std::path::Path;
 
@@ -297,6 +298,19 @@ mod tests {
         assert!(deployment.frontend_features.is_empty());
         assert!(deployment.processing.configured_operations().is_empty());
         assert_eq!(deployment.external_git_providers.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn checked_in_deployment_example_has_valid_toml_syntax(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .ok_or("backend must have a repository parent")?;
+        let raw = std::fs::read_to_string(
+            repository_root.join("docs/community/configuration/deployment.example.toml"),
+        )?;
+        let _: DeploymentFile = toml::from_str(&raw)?;
         Ok(())
     }
 

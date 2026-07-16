@@ -85,8 +85,8 @@ provider, model, credential, or Agent limits. Those values belong to the user
 or to hard safety bounds.
 
 For a downstream `managed_catalog` distribution only, deployment configuration
-may narrow the distribution's approved profiles and choose a default inside
-that subset:
+may narrow the distribution's verified recommendations and choose a default
+inside that subset:
 
 ```toml
 [frontend]
@@ -100,9 +100,11 @@ default_model_profile = "example-model"
 Both fields are optional. Omitting the subsection uses the distribution's full
 ordered profile list and default. An empty list, duplicate or unknown profile,
 or default outside the enabled subset fails startup. Deployment configuration
-cannot add a profile, change its metadata, replace the managed endpoint, or
-change the connection-policy kind. API keys and personal request/turn/catalog
-limits never belong in this TOML.
+cannot add a recommendation, change its metadata, replace the managed endpoint,
+change the custom-profile policy, or change the connection-policy kind. Users
+may still save bounded personal profiles for live-catalog models when the
+distribution enables that capability. API keys and personal
+request/turn/catalog values never belong in this TOML.
 
 ## Worker identities and secrets
 

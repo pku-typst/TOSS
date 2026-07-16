@@ -37,6 +37,8 @@ pub(super) enum AiConnectionPolicyFile {
         provider: Box<ManagedAiProviderFile>,
         default_model_profile: String,
         model_profiles: Vec<ManagedAiModelProfileFile>,
+        #[serde(default)]
+        custom_profiles: Option<ManagedAiCustomProfilesFile>,
     },
 }
 
@@ -62,6 +64,35 @@ pub(super) struct ManagedAiModelProfileFile {
     pub(super) reasoning: bool,
     #[serde(default)]
     pub(super) request_overrides: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedAiCustomProfilesFile {
+    pub(super) enabled: bool,
+    pub(super) require_catalog_match: bool,
+    pub(super) defaults: ManagedAiCustomProfileDefaultsFile,
+    pub(super) limits: ManagedAiCustomProfileLimitsFile,
+    pub(super) max_saved_profiles: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedAiCustomProfileDefaultsFile {
+    pub(super) context_window: u64,
+    pub(super) max_output_tokens: u64,
+    pub(super) reasoning: bool,
+    #[serde(default)]
+    pub(super) request_overrides: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ManagedAiCustomProfileLimitsFile {
+    pub(super) min_context_window: u64,
+    pub(super) max_context_window: u64,
+    pub(super) min_output_tokens: u64,
+    pub(super) max_output_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]

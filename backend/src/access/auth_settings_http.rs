@@ -78,6 +78,7 @@ pub(crate) enum AiAssistantClientConfigResponse {
         provider: ManagedAiProviderResponse,
         default_model_profile: String,
         model_profiles: Vec<ManagedAiModelProfileResponse>,
+        custom_profiles: Box<ManagedAiCustomProfilesResponse>,
     },
 }
 
@@ -92,6 +93,31 @@ pub(crate) struct ManagedAiModelProfileResponse {
     pub id: String,
     pub model: String,
     pub label: LocalizedText,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct ManagedAiCustomProfilesResponse {
+    pub enabled: bool,
+    pub require_catalog_match: bool,
+    pub defaults: ManagedAiCustomProfileDefaultsResponse,
+    pub limits: ManagedAiCustomProfileLimitsResponse,
+    pub max_saved_profiles: usize,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct ManagedAiCustomProfileDefaultsResponse {
+    pub context_window: u64,
+    pub max_output_tokens: u64,
+    pub reasoning: bool,
+    pub request_overrides: serde_json::Value,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub(crate) struct ManagedAiCustomProfileLimitsResponse {
+    pub min_context_window: u64,
+    pub max_context_window: u64,
+    pub min_output_tokens: u64,
+    pub max_output_tokens: u64,
 }
 
 fn ai_assistant_client_config(
@@ -116,6 +142,25 @@ fn ai_assistant_client_config(
                         label: profile.label.clone(),
                     })
                     .collect(),
+                custom_profiles: Box::new(ManagedAiCustomProfilesResponse {
+                    enabled: catalog.custom_profiles.enabled,
+                    require_catalog_match: catalog.custom_profiles.require_catalog_match,
+                    defaults: ManagedAiCustomProfileDefaultsResponse {
+                        context_window: catalog.custom_profiles.defaults.context_window,
+                        max_output_tokens: catalog.custom_profiles.defaults.max_output_tokens,
+                        reasoning: catalog.custom_profiles.defaults.reasoning,
+                        request_overrides: serde_json::Value::Object(
+                            catalog.custom_profiles.defaults.request_overrides.clone(),
+                        ),
+                    },
+                    limits: ManagedAiCustomProfileLimitsResponse {
+                        min_context_window: catalog.custom_profiles.limits.min_context_window,
+                        max_context_window: catalog.custom_profiles.limits.max_context_window,
+                        min_output_tokens: catalog.custom_profiles.limits.min_output_tokens,
+                        max_output_tokens: catalog.custom_profiles.limits.max_output_tokens,
+                    },
+                    max_saved_profiles: catalog.custom_profiles.max_saved_profiles,
+                }),
             })
         }
     }

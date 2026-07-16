@@ -405,8 +405,12 @@ describe("AiRuntimeClient", () => {
       port.postMessage({
         type: "toss.ai.runtime.managed_catalog",
         sessionId: init.sessionId,
-        availableModelProfileIds: ["model-one", "model-two"],
-        selectedModelProfileId: "model-one"
+        availableRecommendedProfileIds: ["model-one", "model-two"],
+        models: [
+          { id: "vendor/model-one" },
+          { id: "vendor/model-two" }
+        ],
+        selectedModel: { kind: "recommended", profileId: "model-one" }
       });
       port.postMessage({
         type: "toss.ai.runtime.connection_state",
@@ -415,20 +419,30 @@ describe("AiRuntimeClient", () => {
       });
     });
 
-    client.connect(frame, { kind: "managed", modelProfileId: "model-one" });
+    client.connect(frame, {
+      kind: "managed",
+      selection: { kind: "recommended", profileId: "model-one" }
+    });
     await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
     expect(observed.bootstrap?.preferences).toEqual(initialPreferences);
     expect(client.getSnapshot().managedCatalog).toEqual({
-      availableModelProfileIds: ["model-one", "model-two"],
-      selectedModelProfileId: "model-one",
+      availableRecommendedProfileIds: ["model-one", "model-two"],
+      models: [
+        { id: "vendor/model-one" },
+        { id: "vendor/model-two" }
+      ],
+      selectedModel: { kind: "recommended", profileId: "model-one" },
       errorCode: null
     });
 
     const modelMessage = nextPortMessage(runtimePort!);
-    expect(client.selectManagedModel("model-two")).toBe(true);
+    expect(client.selectManagedModel({
+      kind: "recommended",
+      profileId: "model-two"
+    })).toBe(true);
     await expect(modelMessage).resolves.toMatchObject({
       type: "toss.ai.host.select_managed_model",
-      modelProfileId: "model-two"
+      selection: { kind: "recommended", profileId: "model-two" }
     });
 
     const preferences = {

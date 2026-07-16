@@ -7,6 +7,8 @@ type ManagedModelProfile = {
   label: LocalizedText;
 };
 
+type CatalogModel = { id: string };
+
 const MANAGED_MODEL_SEARCH_THRESHOLD = 8;
 
 export function localizedAiText(value: LocalizedText, locale: UiLocale) {
@@ -28,4 +30,16 @@ export function filterManagedModelProfiles<T extends ManagedModelProfile>(
 
 export function shouldShowManagedModelSearch(profileCount: number) {
   return profileCount > MANAGED_MODEL_SEARCH_THRESHOLD;
+}
+
+export function filterManagedCatalogModels<T extends CatalogModel>(
+  models: readonly T[],
+  query: string,
+  locale: UiLocale
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase(locale);
+  if (!normalizedQuery) return models;
+  return models.filter((model) =>
+    model.id.toLocaleLowerCase(locale).includes(normalizedQuery)
+  );
 }
