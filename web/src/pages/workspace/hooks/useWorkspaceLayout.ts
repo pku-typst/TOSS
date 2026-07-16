@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent
 } from "react";
 import type {
+  WorkspaceAuxiliaryPanel,
   WorkspaceLayoutPrefs,
   WorkspacePanelView
 } from "@/pages/workspace/types";
@@ -25,7 +26,8 @@ const ACCOUNT_CONTROLS_IN_MENU_MAX_WIDTH = 1180;
 const SINGLE_PANEL_MAX_WIDTH = 980;
 const LAYOUT_PERSIST_DELAY_MS = 250;
 
-type SidePanel = Exclude<WorkspacePanelView, "editor">;
+type PrimarySidePanel = "files" | "preview";
+type SidePanel = PrimarySidePanel | WorkspaceAuxiliaryPanel;
 type ViewportBand = 0 | 1 | 2 | 3;
 
 function viewportBandForWidth(width: number): ViewportBand {
@@ -49,12 +51,12 @@ export function useWorkspaceLayout() {
   const [preferences, setPreferences] = useState<WorkspaceLayoutPrefs>(
     readWorkspaceLayoutPrefs
   );
-  const [visiblePanels, setVisiblePanels] = useState<Record<SidePanel, boolean>>({
+  const [visiblePanels, setVisiblePanels] = useState<Record<PrimarySidePanel, boolean>>({
     files: true,
-    preview: true,
-    settings: false,
-    revisions: false
+    preview: true
   });
+  const [auxiliaryPanel, setAuxiliaryPanel] =
+    useState<WorkspaceAuxiliaryPanel | null>(null);
   const [compactPanelView, selectCompactPanel] =
     useState<WorkspacePanelView>("editor");
   const viewportBand = useSyncExternalStore(
@@ -107,21 +109,11 @@ export function useWorkspaceLayout() {
       )
     }));
   }, []);
-  const resizeSettingsPanel = useCallback((deltaX: number) => {
+  const resizeAuxiliaryPanel = useCallback((deltaX: number) => {
     setPreferences((current) => ({
       ...current,
-      settingsWidth: clampNumber(
-        current.settingsWidth - deltaX,
-        MIN_SIDE_PANEL_WIDTH,
-        MAX_SIDE_PANEL_WIDTH
-      )
-    }));
-  }, []);
-  const resizeRevisionsPanel = useCallback((deltaX: number) => {
-    setPreferences((current) => ({
-      ...current,
-      revisionsWidth: clampNumber(
-        current.revisionsWidth - deltaX,
+      auxiliaryWidth: clampNumber(
+        current.auxiliaryWidth - deltaX,
         MIN_SIDE_PANEL_WIDTH,
         MAX_SIDE_PANEL_WIDTH
       )
@@ -147,12 +139,15 @@ export function useWorkspaceLayout() {
   const effectiveShowPreviewPanel = singlePanelMode
     ? compactPanelView === "preview"
     : visiblePanels.preview;
-  const effectiveShowSettingsPanel = singlePanelMode
-    ? compactPanelView === "settings"
-    : visiblePanels.settings;
-  const effectiveShowRevisionsPanel = singlePanelMode
-    ? compactPanelView === "revisions"
-    : visiblePanels.revisions;
+  const effectiveAuxiliaryPanel = singlePanelMode
+    ? compactPanelView === "settings" ||
+      compactPanelView === "revisions" ||
+      compactPanelView.startsWith("feature:")
+      ? compactPanelView
+      : null
+    : auxiliaryPanel;
+  const effectiveShowSettingsPanel = effectiveAuxiliaryPanel === "settings";
+  const effectiveShowRevisionsPanel = effectiveAuxiliaryPanel === "revisions";
   const effectiveShowEditorPanel =
     !singlePanelMode || compactPanelView === "editor";
 
@@ -162,10 +157,29 @@ export function useWorkspaceLayout() {
         selectCompactPanel(panel);
         return;
       }
+      if (panel !== "files" && panel !== "preview") {
+        setAuxiliaryPanel((current) => (current === panel ? null : panel));
+        return;
+      }
       setVisiblePanels((current) => ({
         ...current,
         [panel]: !current[panel]
       }));
+    },
+    [singlePanelMode]
+  );
+  const openPanel = useCallback(
+    (panel: WorkspacePanelView) => {
+      if (singlePanelMode) {
+        selectCompactPanel(panel);
+        return;
+      }
+      if (panel === "editor") return;
+      if (panel === "files" || panel === "preview") {
+        setVisiblePanels((current) => ({ ...current, [panel]: true }));
+        return;
+      }
+      setAuxiliaryPanel(panel);
     },
     [singlePanelMode]
   );
@@ -196,10 +210,8 @@ export function useWorkspaceLayout() {
   return {
     filesPanelWidth: preferences.filesWidth,
     resizeFilesPanel,
-    settingsPanelWidth: preferences.settingsWidth,
-    resizeSettingsPanel,
-    revisionsPanelWidth: preferences.revisionsWidth,
-    resizeRevisionsPanel,
+    auxiliaryPanelWidth: preferences.auxiliaryWidth,
+    resizeAuxiliaryPanel,
     editorRatio: preferences.editorRatio,
     resizeEditorSplit,
     collapsePanelToggles,
@@ -211,8 +223,10 @@ export function useWorkspaceLayout() {
     effectiveShowPreviewPanel,
     effectiveShowSettingsPanel,
     effectiveShowRevisionsPanel,
+    effectiveAuxiliaryPanel,
     effectiveShowEditorPanel,
     togglePanel,
+    openPanel,
     beginHorizontalResize
   };
 }

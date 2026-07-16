@@ -1,0 +1,13 @@
+{
+  "schema": 6,
+  "id": "test-no-ai",
+  "project_types": {
+    "typst": {
+      "starter_template": "templates/main.typ"
+    }
+  },
+  "frontend_features": {
+    "included": [],
+    "default_enabled": []
+  }
+}

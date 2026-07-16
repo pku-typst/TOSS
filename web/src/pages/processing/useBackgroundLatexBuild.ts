@@ -47,13 +47,18 @@ export function useBackgroundLatexBuild({
       openProcessingTaskCenter();
     }
   });
+  const inScope = enabled && !!userId;
+  const visible =
+    inScope &&
+    (capabilityQuery.isPending || capabilityQuery.isError || capability !== undefined);
 
   return {
-    visible: enabled && !!userId,
+    visible,
     state: (capability?.state ??
-      (capabilityQuery.isPending ? "loading" : "unavailable")) as
+      (capabilityQuery.isPending ? "loading" : "error")) as
       | ProcessingCapabilityState
-      | "loading",
+      | "loading"
+      | "error",
     reason: capability?.reason ?? null,
     submit: mutation.mutate,
     pending: mutation.isPending,

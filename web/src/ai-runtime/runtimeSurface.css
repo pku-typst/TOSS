@@ -1,0 +1,138 @@
+:root {
+  color-scheme: light;
+  font-family: var(--toss-font-family);
+  font-size: var(--toss-font-size-body);
+  line-height: var(--toss-line-height-body);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  background: transparent;
+  color: var(--toss-text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+#ai-runtime-root {
+  display: grid;
+  gap: var(--toss-space-sm);
+  padding: var(--toss-space-sm);
+}
+
+.runtime-status,
+.credential-hint {
+  margin: 0;
+  color: var(--toss-text-muted);
+  font-size: var(--toss-font-size-caption);
+  line-height: var(--toss-line-height-compact);
+}
+
+.runtime-status[hidden] {
+  display: none;
+}
+
+.credential-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--toss-space-xs) var(--toss-space-sm);
+}
+
+.credential-field {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  gap: var(--toss-space-xs);
+  color: var(--toss-text-emphasis);
+  font-size: var(--toss-font-size-label);
+  font-weight: 500;
+  line-height: var(--toss-line-height-compact);
+}
+
+.credential-field input {
+  width: 100%;
+  min-width: 0;
+  height: var(--toss-control-height-md);
+  padding: 0 var(--toss-space-sm);
+  border: 1px solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface-field);
+  color: var(--toss-text-emphasis);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.credential-field input::placeholder {
+  color: var(--toss-text-placeholder);
+}
+
+.credential-field input:hover {
+  border-color: var(--toss-border-strong);
+}
+
+.credential-field input:focus-visible {
+  border-color: var(--toss-brand-primary);
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--toss-brand-primary) 24%, transparent);
+}
+
+.credential-form > button,
+.managed-controls button {
+  min-height: var(--toss-control-height-md);
+  padding: 0 var(--toss-space-sm);
+  border: 1px solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  color: var(--toss-text-emphasis);
+  background: var(--toss-surface);
+  font-size: var(--toss-font-size-label);
+  font-weight: 600;
+  line-height: var(--toss-line-height-compact);
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.credential-form > button {
+  justify-self: end;
+  border-color: var(--toss-brand-primary);
+  color: var(--toss-brand-contrast);
+  background: var(--toss-brand-primary);
+}
+
+.credential-form > button:hover {
+  border-color: var(--toss-brand-hover);
+  background: var(--toss-brand-hover);
+}
+
+.managed-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--toss-space-sm);
+}
+
+.managed-controls button:hover {
+  border-color: var(--toss-brand-primary);
+  color: var(--toss-brand-hover);
+  background: var(--toss-brand-subtle);
+}
+
+.credential-form > button:focus-visible,
+.managed-controls button:focus-visible {
+  outline: 2px solid var(--toss-brand-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .credential-field input,
+  .credential-form > button,
+  .managed-controls button {
+    transition: none;
+  }
+}

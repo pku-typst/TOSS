@@ -1,0 +1,49 @@
+/* Explicit route, access, startup, and unavailable-project states. */
+
+.status-page {
+  width: min(620px, calc(100% - 32px));
+  min-height: min(560px, calc(100dvh - 50px));
+  margin-inline: auto;
+  padding: 64px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.status-page-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+}
+
+.status-forbidden .status-page-icon,
+.status-startup .status-page-icon {
+  color: var(--toss-danger);
+  border-color: var(--toss-danger-border);
+  background: var(--toss-danger-surface);
+}
+
+.status-page-copy h1 {
+  margin: 22px 0 0;
+  color: var(--toss-text-emphasis);
+  font-size: clamp(26px, 4vw, 36px);
+  letter-spacing: -0.035em;
+}
+
+.status-page-copy p {
+  max-width: 520px;
+  margin: 10px auto 0;
+  color: var(--toss-text-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.status-page-actions {
+  margin-top: 26px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+}

@@ -72,7 +72,6 @@ text_enum! {
     pub enum ProcessingCapabilityState {
         Available => "available",
         Waiting => "waiting",
-        Unavailable => "unavailable",
     }
 }
 

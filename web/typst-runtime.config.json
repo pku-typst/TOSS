@@ -1,10 +1,11 @@
 {
   "schema": 1,
-  "runtime_version": "0.8.0-rc3-source-map.b1e7009",
+  "typst_language_version": "0.15.0",
+  "runtime_version": "0.8.0-rc3-source-map.b9c354f",
   "compiler": {
     "package": "@myriaddreamin/typst-ts-web-compiler",
     "package_version": "0.8.0-rc3",
-    "source_revision": "b1e700986082cce2bd3dd0db8b27af9f4418883b"
+    "source_revision": "b9c354ffda394880e7942888c832412fd4fa9156"
   },
   "renderer": {
     "package": "@myriaddreamin/typst-ts-renderer",

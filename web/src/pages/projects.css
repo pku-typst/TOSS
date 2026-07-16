@@ -1,0 +1,220 @@
+/* Project creation, filtering, table, and project-level actions. */
+
+.projects-grid-header,
+.projects-row {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.8fr) minmax(140px, 1fr) minmax(140px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.projects-grid-header {
+  color: var(--toss-text-muted);
+  font-size: 12px;
+  font-weight: var(--toss-font-weight-semibold);
+  padding: var(--toss-space-md) var(--toss-space-lg);
+  border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+  background: var(--toss-surface-subtle);
+}
+
+.projects-list {
+  display: grid;
+  gap: 0;
+  padding: 0;
+}
+
+.projects-row {
+  border: 0;
+  border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: 0;
+  background: var(--toss-surface);
+  padding: var(--toss-space-lg);
+  transition:
+    background var(--toss-transition-fast),
+    box-shadow var(--toss-transition-fast);
+}
+
+.projects-row:hover {
+  background: var(--toss-surface-hover);
+  box-shadow: inset 3px 0 0 var(--toss-brand-primary);
+}
+
+.projects-row:last-child {
+  border-bottom: 0;
+}
+
+nve-button.project-title-cell {
+  --width: 100%;
+  --height: auto;
+  --padding: 0;
+  --gap: 0;
+  --border-radius: var(--toss-radius-panel);
+  --text-align: left;
+  --font-weight: var(--toss-font-weight-regular);
+  --text-transform: none;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.project-title-content {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--toss-space-md);
+  text-align: left;
+}
+
+.project-thumb {
+  width: 88px;
+  height: 54px;
+  border-radius: var(--toss-radius-control);
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  object-fit: cover;
+  object-position: top center;
+  background: var(--toss-surface-preview);
+}
+
+.project-thumb.placeholder {
+  background: linear-gradient(135deg, var(--toss-brand-subtle), var(--toss-surface-preview));
+  display: grid;
+  place-items: center;
+  color: var(--toss-brand-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.project-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projects-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-owner-cell,
+.project-edited-cell {
+  min-width: 0;
+}
+
+.project-meta-label {
+  display: none;
+  color: var(--toss-text-muted);
+  font-size: 11px;
+}
+
+.project-meta-value {
+  min-width: 0;
+}
+
+.projects-filter-card {
+  background: var(--toss-surface-subtle);
+}
+
+.projects-table-card {
+  overflow: hidden;
+}
+
+.projects-table-card .ui-card-layout {
+  gap: 0;
+  padding: 0;
+}
+
+@media (max-width: 680px) {
+  .projects-create-heading {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .projects-create-heading .ui-section-heading-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .project-title-content {
+    gap: 8px;
+  }
+
+  .project-thumb {
+    width: 64px;
+    height: 40px;
+  }
+
+  .projects-row-actions {
+    justify-self: stretch;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 1100px) {
+  .projects-grid-header {
+    display: none;
+  }
+
+  .projects-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .project-title-content {
+    align-items: flex-start;
+  }
+
+  .project-thumb {
+    width: 72px;
+    height: 44px;
+  }
+
+  .project-main strong {
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .project-owner-cell,
+  .project-edited-cell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-inline: 2px;
+  }
+
+  .project-meta-label {
+    display: inline;
+    white-space: nowrap;
+  }
+
+  .project-meta-value {
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .projects-row-actions {
+    justify-self: end;
+    flex-wrap: wrap;
+  }
+}

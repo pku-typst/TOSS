@@ -1,0 +1,87 @@
+/* Source editor surface, collaboration cursors, and connection state. */
+
+.editor-peer-count,
+.editor-session-count {
+  --gap: var(--toss-space-xs);
+}
+
+.editor-wrap-toggle {
+  --height: var(--toss-control-height-sm);
+  --padding: 0 var(--toss-control-padding-inline-sm);
+  --font-size: var(--toss-font-size-label);
+}
+
+.editor-panel-content {
+  grid-template-rows: 1fr auto auto;
+}
+
+.editor-surface {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-surface > [class^="cm-theme"] {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.editor-surface .cm-editor,
+.editor-surface .cm-scroller {
+  height: 100% !important;
+}
+
+.editor-surface .cm-editor {
+  border: 0;
+  border-radius: 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  flex: 1;
+}
+
+.editor-surface .cm-scroller {
+  overflow: auto !important;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  flex: 1;
+}
+
+.remote-cursor {
+  display: inline-block;
+  width: 0;
+  border-left: 2px solid var(--cursor-color);
+  height: 1.2em;
+  position: relative;
+}
+
+.remote-cursor-label {
+  position: absolute;
+  top: -1.2em;
+  left: -1px;
+  background: var(--cursor-color);
+  color: var(--toss-text-on-color);
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.connection-warning {
+  font-weight: 600;
+}
+
+.connection-warning-row {
+  margin: 0;
+}

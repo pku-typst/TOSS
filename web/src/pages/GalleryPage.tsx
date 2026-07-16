@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import "@/pages/gallery.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -18,9 +19,11 @@ import {
   UiButton,
   UiCard,
   UiDialog,
+  UiEmptyState,
   UiHelpTooltip,
   UiIconButton,
   UiInput,
+  UiPageHeading,
   UiSelect,
   UiTooltip
 } from "@/components/ui";
@@ -42,7 +45,7 @@ import {
 } from "@/lib/galleryUtils";
 import type { Translator, UiLocale } from "@/lib/i18n";
 
-type GalleryAccentStyle = CSSProperties & { "--gallery-accent": string };
+type GalleryAccentStyle = CSSProperties & { "--toss-card-accent": string };
 
 function sourceIcon(source: TemplateSource): ReactNode {
   if (source === "personal") return <UserRound size={16} aria-hidden />;
@@ -123,9 +126,14 @@ function TemplateCard({
 }) {
   const name = localizedTemplateText(template.name, locale);
   const description = localizedTemplateText(template.description, locale);
-  const style: GalleryAccentStyle = { "--gallery-accent": template.accent_color };
+  const style: GalleryAccentStyle = { "--toss-card-accent": template.accent_color };
   return (
-    <UiCard className="gallery-card" contentLayout="column gap:md pad:none align:horizontal-stretch" style={style}>
+    <UiCard
+      className="gallery-card"
+      contentLayout="column gap:md pad:none align:horizontal-stretch"
+      style={style}
+      accented
+    >
       <div className="gallery-card-visual">
         <TemplateThumbnail
           key={template.updated_at ?? template.id}
@@ -319,22 +327,18 @@ export function GalleryPage({
 
   return (
     <section className="app-page gallery-page" nve-layout="column gap:lg pad:md @md|pad:xl">
-      <header className="gallery-header">
-        <div className="gallery-header-icon" aria-hidden>
-          <LayoutTemplate size={24} />
-        </div>
-        <div className="gallery-header-copy">
-          <div className="gallery-title-row">
-            <h1 nve-text="heading xl">{t("gallery.title")}</h1>
-            <UiHelpTooltip content={t("gallery.help")} />
-          </div>
-          <p>{t("gallery.subtitle")}</p>
-        </div>
-        <UiButton variant="primary" onClick={openCreatePersonal}>
-          <Plus size={16} aria-hidden />
-          {t("gallery.createPersonal")}
-        </UiButton>
-      </header>
+      <UiPageHeading
+        icon={<LayoutTemplate size={24} />}
+        title={t("gallery.title")}
+        titleAdornment={<UiHelpTooltip content={t("gallery.help")} />}
+        description={t("gallery.subtitle")}
+        actions={
+          <UiButton variant="primary" onClick={openCreatePersonal}>
+            <Plus size={16} aria-hidden />
+            {t("gallery.createPersonal")}
+          </UiButton>
+        }
+      />
 
       <UiCard className="gallery-toolbar" contentLayout="column gap:sm pad:lg align:horizontal-stretch">
         <div className="gallery-search-row">
@@ -377,17 +381,22 @@ export function GalleryPage({
       {loading ? (
         <div className="gallery-state" role="status">{t("gallery.loading")}</div>
       ) : galleryQuery.isError && !galleryQuery.data ? (
-        <div className="gallery-state" role="alert">
-          <TriangleAlert size={34} aria-hidden />
-          <strong>{t("gallery.loadFailed")}</strong>
-          <UiButton onClick={() => void galleryQuery.refetch()}>{t("common.retry")}</UiButton>
-        </div>
+        <UiEmptyState
+          className="gallery-state"
+          role="alert"
+          icon={<TriangleAlert size={34} />}
+          iconFrame
+          title={t("gallery.loadFailed")}
+          actions={<UiButton onClick={() => void galleryQuery.refetch()}>{t("common.retry")}</UiButton>}
+        />
       ) : visibleTemplates.length === 0 ? (
-        <div className="gallery-state">
-          <LayoutTemplate size={34} aria-hidden />
-          <strong>{t("gallery.emptyTitle")}</strong>
-          <span>{t("gallery.emptyHint")}</span>
-        </div>
+        <UiEmptyState
+          className="gallery-state"
+          icon={<LayoutTemplate size={34} />}
+          iconFrame
+          title={t("gallery.emptyTitle")}
+          description={t("gallery.emptyHint")}
+        />
       ) : (
         <div className="gallery-grid">
           {visibleTemplates.map((template) => (
@@ -492,12 +501,14 @@ export function GalleryPage({
         }
       />
       {(error || galleryQuery.error) && (
-        <div className="error" role="alert">
-          {error ||
-            (galleryQuery.error instanceof Error
-              ? galleryQuery.error.message
-              : t("gallery.loadFailed"))}
-        </div>
+        <nve-alert status="danger" role="alert">
+          <span>
+            {error ||
+              (galleryQuery.error instanceof Error
+                ? galleryQuery.error.message
+                : t("gallery.loadFailed"))}
+          </span>
+        </nve-alert>
       )}
     </section>
   );

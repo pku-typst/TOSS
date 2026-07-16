@@ -1,4 +1,6 @@
 import { Eye, GitBranch, UsersRound } from "lucide-react";
+import "@/pages/home.css";
+import "@/pages/public-pages.css";
 import { ExperienceResourceLink } from "@/components/ExperienceResourceLink";
 import { UiButton } from "@/components/ui";
 import type { Experience } from "@/lib/api";

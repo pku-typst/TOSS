@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "typst_language_version": "0.15.0",
+  "source_repository": "https://github.com/lucifer1004/claude-skill-typst",
+  "source_revision": "94b0c65944e743b3389d24a1c99736bf92605c72",
+  "files": {
+    "api-0.15.0.json": {
+      "source_path": "skills/typst/data/api-0.15.0.json",
+      "sha256": "4e096de3321c0b5e0b9213a9d39186094e713212cd386c7444862f216b710d59"
+    },
+    "api-0.15.0-bm25.json": {
+      "source_path": "skills/typst/data/api-0.15.0-bm25.json",
+      "sha256": "5a0f7dc54ceb7c99a871b475a96e99429a1cd4ff72226d49993452984b274fbc"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+# Safe Community deployment defaults. This file contains no credentials.
+schema = 1
+
+[frontend]
+enabled_features = []
+
+[external_git]
+providers = []
+
+[document_processing]
+worker_identities = []
+max_queued_jobs = 100
+max_active_jobs_per_user = 4
+max_active_jobs_per_project = 2
+max_input_bytes = 134217728
+max_output_bytes = 67108864
+max_diagnostic_bytes = 65536
+job_wall_seconds = 300
+queue_wait_seconds = 86400
+retention_seconds = 604800
+claim_lease_seconds = 45
+session_lease_seconds = 60
+transfer_seconds = 300
+finalization_lease_seconds = 60

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type ProjectNode = {
   path: string;
   kind: "file" | "directory";
@@ -50,16 +52,45 @@ export type PathDialogState =
 
 export type WorkspaceLayoutPrefs = {
   filesWidth: number;
-  settingsWidth: number;
-  revisionsWidth: number;
+  auxiliaryWidth: number;
   editorRatio: number;
 };
+
+export type WorkspaceFeaturePanel = `feature:${string}`;
+
+export type WorkspaceOptionalPanelDescriptor = {
+  panel: WorkspaceFeaturePanel;
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+};
+
+export type WorkspaceFeatureSettingsSection = `feature:${string}`;
+
+export type WorkspaceSettingsSectionId =
+  | "project"
+  | "storage"
+  | "access"
+  | WorkspaceFeatureSettingsSection;
+
+export type WorkspaceOptionalSettingsSectionDescriptor = {
+  section: WorkspaceFeatureSettingsSection;
+  label: string;
+  icon: ReactNode;
+  content: ReactNode;
+};
+
+export type WorkspaceAuxiliaryPanel =
+  | "settings"
+  | "revisions"
+  | WorkspaceFeaturePanel;
 
 export type WorkspacePanelView =
   | "editor"
   | "files"
   | "preview"
   | "settings"
-  | "revisions";
+  | "revisions"
+  | WorkspaceFeaturePanel;
 
 export type PreviewFitMode = "manual" | "page" | "width";

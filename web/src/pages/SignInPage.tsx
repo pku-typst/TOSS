@@ -1,5 +1,6 @@
 import { AuthForm } from "@/components/AuthForm";
 import { BrandMark } from "@/components/BrandMark";
+import "@/pages/sign-in.css";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { UiCard } from "@/components/ui";
 import type { AuthConfig, ExternalGitProvider } from "@/lib/api";
@@ -80,7 +81,7 @@ export function SignInPage({
         </div>
         <UiCard
           className="auth-card"
-          contentLayout="column gap:lg pad:xl align:horizontal-stretch"
+          contentLayout="column gap:lg align:horizontal-stretch"
         >
           <div className="auth-brand">
             <BrandMark

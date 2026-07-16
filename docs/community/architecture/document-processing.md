@@ -123,11 +123,12 @@ The registry recognizes these versioned identifiers:
 | `typst.export.pptx/v1` | project export | Typst project bundle | PPTX and conversion report | Reserved; no public endpoint or Community processor |
 | `pptx.import.typst/v1` | file import | PPTX input blob | Typst Workspace bundle and report | Reserved; no public endpoint or Community processor |
 
-Reserving a public operation does not enable it. Availability is the
-intersection of a core-known contract, the selected distribution's allowlist,
-deployment worker configuration, and live compatible capacity. A new semantic
-operation requires a Community protocol change; a new implementation of an
-existing operation does not.
+Reserving a public operation does not enable it. Distribution policy first
+allows an operation; a worker identity in the deployment TOML then enables it;
+live compatible sessions determine whether that enabled operation is waiting
+or available. Operations absent from deployment configuration are omitted from
+the public capability list. A new semantic operation requires a Community
+protocol change; a new implementation of an existing operation does not.
 
 Options are operation-specific structures, not an unrestricted JSON object.
 The operation version changes when input, result, option, or finalization
@@ -305,20 +306,23 @@ capacity.
 
 ## Availability and degradation
 
-Capability state has four independent inputs:
+Operation exposure has four independent inputs:
 
 1. Core recognizes the operation and schema version.
 2. The selected distribution allows the operation.
 3. Deployment configuration expects a scoped worker identity for it.
 4. A compatible worker session is healthy and has or can regain capacity.
 
-The public capability projection reports three states rather than one boolean:
+Only operations that satisfy the first three inputs appear in the public
+capability projection. Their live state is:
 
 | State | Meaning |
 | --- | --- |
 | `available` | The operation is allowed and at least one compatible worker session is healthy; jobs may still queue behind occupied slots |
 | `waiting` | The operation is configured and admission still permits bounded work, but compatible capacity is temporarily offline |
-| `unavailable` | The operation is disallowed, unconfigured, contract-incompatible, or administratively disabled and does not accept work |
+
+An absent operation is not enabled by this deployment. It is not represented
+as a third `unavailable` worker-health state.
 
 A waiting operation may accept a bounded, expiring job while workers are
 temporarily offline. The frontend presents that condition before submission

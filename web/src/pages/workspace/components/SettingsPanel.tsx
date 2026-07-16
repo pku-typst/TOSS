@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import "@/pages/workspace/settings.css";
 import {
   Building2,
   Check,
@@ -13,7 +14,16 @@ import {
   UserRound,
   UsersRound
 } from "lucide-react";
-import { UiBadge, UiButton, UiCard, UiHelpTooltip, UiIconButton, UiSelect, UiTooltip } from "@/components/ui";
+import {
+  UiBadge,
+  UiButton,
+  UiCard,
+  UiHelpTooltip,
+  UiIconButton,
+  UiSectionHeading,
+  UiSelect,
+  UiTooltip
+} from "@/components/ui";
 import type {
   ExternalGitProvider,
   OrganizationMembership,
@@ -26,47 +36,29 @@ import type {
   ProjectShareLink
 } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
+import type {
+  WorkspaceOptionalSettingsSectionDescriptor,
+  WorkspaceSettingsSectionId
+} from "@/pages/workspace/types";
 import { ExternalGitSettingsCard } from "./ExternalGitSettingsCard";
 
-type SettingsSection = "project" | "storage" | "access";
 const SETTINGS_SECTION_STORAGE_KEY = "toss.workspace-settings-section";
 
-function readStoredSettingsSection(): SettingsSection {
+function readStoredSettingsSection(): string | null {
   try {
-    const value = window.localStorage.getItem(SETTINGS_SECTION_STORAGE_KEY);
-    if (value === "project" || value === "storage" || value === "access") return value;
+    return window.localStorage.getItem(SETTINGS_SECTION_STORAGE_KEY);
   } catch {
     // Storage can be unavailable in hardened browser contexts.
   }
-  return "project";
+  return null;
 }
 
-function storeSettingsSection(section: SettingsSection) {
+function storeSettingsSection(section: WorkspaceSettingsSectionId) {
   try {
     window.localStorage.setItem(SETTINGS_SECTION_STORAGE_KEY, section);
   } catch {
     // Navigation still works when storage is unavailable.
   }
-}
-
-function SettingsCardHeading({
-  icon,
-  title,
-  aside
-}: {
-  icon: ReactNode;
-  title: string;
-  aside?: ReactNode;
-}) {
-  return (
-    <div className="settings-card-heading">
-      <span className="settings-card-heading-icon">{icon}</span>
-      <span className="settings-card-heading-copy">
-        <h3>{title}</h3>
-      </span>
-      {aside}
-    </div>
-  );
 }
 
 type ShareLinkCardProps = {
@@ -166,6 +158,8 @@ export function SettingsPanel({
   formatAccessType,
   formatRoleLabel,
   formatAccessSource,
+  optionalSections = [],
+  preferredSection,
   t
 }: {
   width: number;
@@ -202,19 +196,46 @@ export function SettingsPanel({
   formatAccessType: (accessType: ProjectAccessType, role: ProjectRole) => string;
   formatRoleLabel: (role: ProjectRole) => string;
   formatAccessSource: (source: ProjectAccessSource) => string;
+  optionalSections?: readonly WorkspaceOptionalSettingsSectionDescriptor[];
+  preferredSection?: WorkspaceSettingsSectionId | null;
   t: Translator;
 }) {
   const windowOrigin = window.location.origin;
-  const [activeSection, setActiveSection] = useState<SettingsSection>(readStoredSettingsSection);
-  const sections: Array<{
-    id: SettingsSection;
+  const sections = useMemo<Array<{
+    id: WorkspaceSettingsSectionId;
     label: string;
     icon: ReactNode;
-  }> = [
+  }>>(() => [
     { id: "project", label: t("settings.sectionProject"), icon: <Settings2 size={15} aria-hidden /> },
     { id: "storage", label: t("settings.sectionStorage"), icon: <Database size={15} aria-hidden /> },
-    { id: "access", label: t("settings.sectionAccess"), icon: <UsersRound size={15} aria-hidden /> }
-  ];
+    { id: "access", label: t("settings.sectionAccess"), icon: <UsersRound size={15} aria-hidden /> },
+    ...optionalSections.map((section) => ({
+      id: section.section,
+      label: section.label,
+      icon: section.icon
+    }))
+  ], [optionalSections, t]);
+  const availableSections = useMemo(
+    () => new Set(sections.map((section) => section.id)),
+    [sections]
+  );
+  const [activeSection, setActiveSection] = useState<WorkspaceSettingsSectionId>(() => {
+    if (preferredSection && availableSections.has(preferredSection)) return preferredSection;
+    const stored = readStoredSettingsSection();
+    return stored && availableSections.has(stored as WorkspaceSettingsSectionId)
+      ? stored as WorkspaceSettingsSectionId
+      : "project";
+  });
+
+  useEffect(() => {
+    if (!availableSections.has(activeSection)) {
+      setActiveSection("project");
+    }
+  }, [activeSection, availableSections]);
+
+  useEffect(() => {
+    storeSettingsSection(activeSection);
+  }, [activeSection]);
 
   return (
     <aside className="panel panel-settings" style={{ width }}>
@@ -232,10 +253,7 @@ export function SettingsPanel({
               aria-selected={activeSection === section.id}
               aria-label={section.label}
               className={`settings-nav-item ${activeSection === section.id ? "is-active" : ""}`}
-              onClick={() => {
-                setActiveSection(section.id);
-                storeSettingsSection(section.id);
-              }}
+              onClick={() => setActiveSection(section.id)}
             >
               <span className="settings-nav-icon" aria-hidden>
                 {section.icon}
@@ -245,7 +263,7 @@ export function SettingsPanel({
         ))}
       </nav>
       <div className="panel-content settings-panel-content">
-        {error && <div className="error panel-inline-error">{error}</div>}
+        {error && <div className="workspace-error panel-inline-error">{error}</div>}
         {activeSection === "project" && (
           <div
             className="settings-tab-panel"
@@ -254,10 +272,10 @@ export function SettingsPanel({
             aria-labelledby="settings-tab-project"
           >
             <UiCard className="settings-section-card" contentLayout="column gap:md pad:md align:horizontal-stretch">
-              <SettingsCardHeading
+              <UiSectionHeading
                 icon={<Cpu size={18} aria-hidden />}
                 title={t("settings.compilation")}
-                aside={
+                actions={
                   <span className="settings-heading-actions">
                     <UiBadge tone="accent">
                       {projectType === "typst"
@@ -319,10 +337,10 @@ export function SettingsPanel({
             </UiCard>
 
             <UiCard className="settings-section-card" contentLayout="column gap:md pad:md align:horizontal-stretch">
-              <SettingsCardHeading
+              <UiSectionHeading
                 icon={<LayoutTemplate size={18} aria-hidden />}
                 title={t("settings.templateTitle")}
-                aside={<UiHelpTooltip content={t("settings.templateHint")} />}
+                actions={<UiHelpTooltip content={t("settings.templateHint")} />}
               />
               <div className="settings-toggle-row">
                 <span>
@@ -359,10 +377,10 @@ export function SettingsPanel({
             />
 
             <UiCard className="settings-section-card" contentLayout="column gap:md pad:md align:horizontal-stretch">
-              <SettingsCardHeading
+              <UiSectionHeading
                 icon={<GitBranch size={18} aria-hidden />}
                 title={t("settings.gitAccess")}
-                aside={<UiHelpTooltip content={t("settings.gitHint")} />}
+                actions={<UiHelpTooltip content={t("settings.gitHint")} />}
               />
               <div className="settings-copy-field">
                 <code className="settings-code">{gitRepoUrl || t("common.loading")}</code>
@@ -391,7 +409,7 @@ export function SettingsPanel({
             aria-labelledby="settings-tab-access"
           >
             <UiCard className="settings-section-card" contentLayout="column gap:md pad:md align:horizontal-stretch">
-              <SettingsCardHeading icon={<Share2 size={18} aria-hidden />} title={t("share.title")} />
+              <UiSectionHeading icon={<Share2 size={18} aria-hidden />} title={t("share.title")} />
               <div className="settings-subcard-list">
               <ShareLinkCard
                 title={t("share.readLink")}
@@ -423,7 +441,7 @@ export function SettingsPanel({
             </UiCard>
 
             <UiCard className="settings-section-card" contentLayout="column gap:md pad:md align:horizontal-stretch">
-              <SettingsCardHeading
+              <UiSectionHeading
                 icon={<Building2 size={18} aria-hidden />}
                 title={t("settings.organizationAccess")}
               />
@@ -466,7 +484,7 @@ export function SettingsPanel({
             </UiCard>
 
             <UiCard className="settings-section-card" contentLayout="column gap:md pad:md align:horizontal-stretch">
-              <SettingsCardHeading
+              <UiSectionHeading
                 icon={<UsersRound size={18} aria-hidden />}
                 title={t("settings.projectUsers")}
               />
@@ -495,6 +513,17 @@ export function SettingsPanel({
             </UiCard>
           </div>
         )}
+        {optionalSections.map((section) => activeSection === section.section && (
+          <div
+            className="settings-tab-panel"
+            id={`settings-panel-${section.section}`}
+            role="tabpanel"
+            aria-labelledby={`settings-tab-${section.section}`}
+            key={section.section}
+          >
+            {section.content}
+          </div>
+        ))}
       </div>
     </aside>
   );

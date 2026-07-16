@@ -95,6 +95,7 @@ cd ../backend
 DATABASE_URL=postgres://typst:typst@127.0.0.1:5432/typst \
 WEB_STATIC_DIR=../web/dist \
 TOSS_CONFIG=../distributions/community/toss.json \
+TOSS_DEPLOYMENT_CONFIG=../config/deployment.toml \
 CORE_API_PORT=8080 \
 cargo run --locked
 ```
@@ -102,9 +103,10 @@ cargo run --locked
 Relative paths resolve from each command's working directory. The backend runs
 database migrations during startup.
 
-With no `PROCESSING_WORKER_IDENTITIES_JSON`, durable processing reports
-unavailable while Typst and BusyTeX preview continue normally. This is the
-supported browser-only development topology, not a degraded application state.
+With no worker identity in the deployment TOML, processing operations are not
+enabled or advertised while Typst and BusyTeX preview continue normally. This
+is the supported browser-only development topology, not a degraded application
+state.
 
 ## Optional processing worker
 
@@ -128,10 +130,11 @@ start. The default Compose topology deliberately omits this profile.
 
 ## Distribution build matrix
 
-The frontend and backend must use capability-compatible distribution configs.
-Community includes Typst and optional LaTeX. A Typst-only downstream build can
-replace LaTeX modules with disabled stubs and remove `dist/busytex`; runtime
-configuration cannot activate code omitted at build time.
+The frontend and backend must use distribution configs compatible with the
+checked web build manifest. Community includes Typst and optional LaTeX. A
+Typst-only downstream build can replace LaTeX modules with disabled stubs and
+remove `dist/busytex`; runtime configuration cannot activate code omitted at
+build time.
 
 ## Implementation conventions
 

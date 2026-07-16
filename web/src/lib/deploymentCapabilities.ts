@@ -1,18 +1,22 @@
-import { BUILD_LATEX_ENABLED } from "@/lib/buildCapabilities";
-import type { ProjectType } from "@/lib/api/types";
+import { BUILD_FRONTEND_FEATURES, BUILD_PROJECT_TYPES } from "@/lib/buildCapabilities";
+import type { FrontendFeature, ProjectType } from "@/lib/api/types";
 
 export type { ProjectType };
-
-const BUILD_PROJECT_TYPES: readonly ProjectType[] = BUILD_LATEX_ENABLED
-  ? ["typst", "latex"]
-  : ["typst"];
 
 type ProjectTypeConfig = {
   enabled_project_types?: ProjectType[];
 };
 
+type FrontendFeatureConfig = {
+  enabled_frontend_features?: FrontendFeature[];
+};
+
 export function buildProjectTypes(): readonly ProjectType[] {
   return BUILD_PROJECT_TYPES;
+}
+
+export function buildFrontendFeatures(): readonly FrontendFeature[] {
+  return BUILD_FRONTEND_FEATURES;
 }
 
 export function deploymentProjectTypes(config: ProjectTypeConfig | null | undefined): ProjectType[] {
@@ -27,4 +31,19 @@ export function deploymentSupportsProjectType(
   projectType: ProjectType
 ): boolean {
   return deploymentProjectTypes(config).includes(projectType);
+}
+
+export function deploymentFrontendFeatures(
+  config: FrontendFeatureConfig | null | undefined
+): FrontendFeature[] {
+  const configured = config?.enabled_frontend_features;
+  if (!configured) return [];
+  return BUILD_FRONTEND_FEATURES.filter((feature) => configured.includes(feature));
+}
+
+export function deploymentEnablesFrontendFeature(
+  config: FrontendFeatureConfig | null | undefined,
+  feature: FrontendFeature
+): boolean {
+  return deploymentFrontendFeatures(config).includes(feature);
 }

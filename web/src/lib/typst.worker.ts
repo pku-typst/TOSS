@@ -6,7 +6,6 @@ import {
 } from "@myriaddreamin/typst.ts/compiler";
 import { FetchAccessModel } from "@myriaddreamin/typst.ts/fs/fetch";
 import {
-  loadFonts,
   withAccessModel,
   withPackageRegistry
 } from "@myriaddreamin/typst.ts/options.init";
@@ -30,6 +29,7 @@ import {
   type TypstMappingRequest,
   type TypstMappingResponse
 } from "@/lib/typstSync";
+import { loadBrowserFonts } from "@/lib/typstFontLoader";
 
 type CompileRequest = {
   kind: "compile";
@@ -46,6 +46,7 @@ type CompileRequest = {
   fontSignature?: string;
   emitPdf?: boolean;
   pdfOnly?: boolean;
+  diagnosticsOnly?: boolean;
   forceFullVector?: boolean;
   appOrigin?: string;
 };
@@ -393,7 +394,7 @@ async function getTypst(
           // Align browser preview with Typst CLI defaults by loading Typst's
           // builtin "text" font asset set (Libertinus/NewCM/DejaVu Mono),
           // then layer the versioned NV font bundle and project fonts on top.
-          loadFonts([...builtin.fontUrlsForProfile(fontProfile), ...fontData], {
+          loadBrowserFonts([...builtin.fontUrlsForProfile(fontProfile), ...fontData], {
             assets: ["text"],
             assetUrlPrefix: localTypstFontAssetBase(appOrigin),
             fetcher: builtin.fontFetcher
@@ -650,6 +651,7 @@ async function handleCompile(eventData: CompileRequest) {
     coreApiUrl,
     emitPdf = false,
     pdfOnly = false,
+    diagnosticsOnly = false,
     forceFullVector = false
   } = eventData;
   const appOrigin = eventData.appOrigin ?? self.location.origin;
@@ -674,6 +676,28 @@ async function handleCompile(eventData: CompileRequest) {
     await syncShadowFiles(typst, documents, assets);
     const mainFilePath = sourcePath(entryFilePath);
     const compiler = await typst.getCompiler();
+    if (diagnosticsOnly) {
+      const diagnosticResult = await compiler.runWithWorld({ mainFilePath }, (world) =>
+        world.compile({ diagnostics: "unix" })
+      );
+      const diagnostics = (diagnosticResult.diagnostics || [])
+        .map((item) => String(item).trim())
+        .filter((item) => !!item)
+        .map((item) => parseCompileDiagnostic(item));
+      const errorDiagnostics = diagnostics.filter((item) => item.severity === "error");
+      self.postMessage({
+        id,
+        ok: !diagnosticResult.hasError,
+        workspaceApplied,
+        errors: errorDiagnostics.map((item) => item.raw),
+        diagnostics
+      } satisfies CompileResponse);
+      self.postMessage({
+        kind: "runtime.status",
+        stage: "ready"
+      } satisfies RuntimeStatusMessage);
+      return;
+    }
     if (pdfOnly) {
       const pdfResult = (await compiler.compile({
         mainFilePath,

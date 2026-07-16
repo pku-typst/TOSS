@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   compileWorldFontData,
+  compileWorldWithCandidateDocument,
   CompileWorldProjector,
   type CompileWorldInput,
 } from "@/pages/workspace/compileWorld";
@@ -135,5 +136,34 @@ describe("CompileWorldProjector", () => {
 
     expect(second).toBe(first);
     expect(second.documents).toBe(first.documents);
+  });
+
+  it("derives an isolated candidate World without mutating the live World", () => {
+    const projector = new CompileWorldProjector();
+    const live = projector.project(
+      input(
+        { "main.typ": "live", "chapter.typ": "shared" },
+        { "font.ttf": btoa("font-data"), "logo.bin": "asset" },
+      ),
+    );
+    const candidate = compileWorldWithCandidateDocument(
+      live,
+      "main.typ",
+      "candidate",
+    );
+
+    expect(candidate).not.toBeNull();
+    expect(candidate?.scope).toBe("project-a:live:assistant-candidate");
+    expect(candidate?.source("main.typ")).toBe("candidate");
+    expect(live.source("main.typ")).toBe("live");
+    expect(candidate?.documents.find(({ path }) => path === "chapter.typ")).toBe(
+      live.documents.find(({ path }) => path === "chapter.typ"),
+    );
+    expect(candidate?.assets).toBe(live.assets);
+    expect(compileWorldFontData(candidate!)[0]).toBe(
+      compileWorldFontData(live)[0],
+    );
+    expect(Object.isFrozen(candidate)).toBe(true);
+    expect(compileWorldWithCandidateDocument(live, "missing.typ", "x")).toBeNull();
   });
 });

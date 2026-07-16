@@ -1,0 +1,121 @@
+/* Non-text asset preview in the editor pane. */
+
+.file-preview {
+  min-height: 0;
+  height: 100%;
+  background: var(--toss-surface-subtle);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.file-preview.file-preview-asset {
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.file-preview-media {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+}
+
+.file-preview-meta {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding-bottom: 8px;
+}
+
+.file-preview.empty {
+  gap: 8px;
+  color: var(--toss-text-muted);
+  text-align: center;
+}
+
+.file-preview-name {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.file-icon {
+  width: 38px;
+  height: 48px;
+  border: var(--toss-border-width-emphasis) solid var(--toss-brand-strong);
+  border-radius: var(--toss-radius-control);
+  position: relative;
+  background: linear-gradient(180deg, var(--toss-brand-subtle), var(--toss-surface-preview));
+}
+
+.file-icon::before {
+  content: "";
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  width: 12px;
+  height: 12px;
+  border-top: var(--toss-border-width-emphasis) solid var(--toss-brand-strong);
+  border-right: var(--toss-border-width-emphasis) solid var(--toss-brand-strong);
+  border-top-right-radius: var(--toss-radius-control);
+  background: var(--toss-brand-subtle);
+}
+
+.file-icon::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 16px;
+  right: 7px;
+  height: 2px;
+  background: var(--toss-brand-strong);
+  box-shadow: 0 8px 0 var(--toss-brand-strong), 0 16px 0 var(--toss-brand-strong);
+}
+
+.file-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.file-preview-media .file-icon {
+  width: 52px;
+  height: 64px;
+}
+
+.file-preview-pdf-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  overflow: auto;
+  background: var(--toss-surface-preview);
+}
+
+.file-preview-pdf-surface {
+  min-height: 100%;
+}
+
+.file-preview-pdf-overlay {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+  padding: 6px 10px;
+  border-radius: var(--toss-radius-control);
+  border: var(--toss-border-width) solid var(--toss-brand-highlight);
+  background: color-mix(in oklab, var(--toss-brand-subtle) 96%, transparent);
+  color: var(--toss-brand-ink);
+  font-size: 12px;
+}
+
+.file-preview-pdf-canvas .pdf-pages {
+  width: max-content;
+  margin: 0 auto;
+  padding: 12px;
+}

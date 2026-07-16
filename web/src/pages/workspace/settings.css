@@ -1,0 +1,283 @@
+/* Project, storage, access, and optional workspace settings composition. */
+
+.panel-files,
+.panel-settings,
+.panel-revisions {
+  flex: 0 0 auto;
+}
+
+.panel-settings .panel-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  align-content: unset;
+  overflow-y: auto;
+  overflow-x: hidden;
+  gap: 0;
+  padding: 0;
+}
+
+.settings-code {
+  display: block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.panel-settings .ui-card {
+  min-width: 0;
+}
+
+.settings-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 3px;
+  padding: 6px;
+  border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+  background: var(--toss-surface);
+  flex: 0 0 auto;
+}
+
+.settings-nav-item {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  border: var(--toss-border-width) solid transparent;
+  border-radius: var(--toss-radius-control);
+  background: transparent;
+  color: var(--toss-text-muted);
+  padding: 7px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: var(--toss-font-weight-semibold);
+  cursor: pointer;
+  transition:
+    color var(--toss-transition-fast),
+    background var(--toss-transition-fast),
+    border-color var(--toss-transition-fast);
+}
+
+.settings-nav-item:hover {
+  color: var(--toss-brand-ink);
+  background: var(--toss-brand-subtle);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--toss-brand-primary);
+  outline-offset: 1px;
+}
+
+.settings-nav-item.is-active {
+  color: var(--toss-brand-ink);
+  border-color: var(--toss-brand-highlight);
+  background: var(--toss-brand-subtle);
+  box-shadow: inset 0 -2px 0 var(--toss-brand-primary);
+}
+
+.settings-nav-tooltip,
+.settings-nav-tooltip .ui-tooltip-trigger,
+.settings-nav-icon {
+  display: grid;
+  place-items: center;
+}
+
+.settings-nav-tooltip,
+.settings-nav-tooltip .ui-tooltip-trigger {
+  width: 100%;
+}
+
+.settings-nav-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.panel-settings .settings-panel-content {
+  padding: 8px;
+  background: var(--toss-canvas);
+}
+
+.settings-tab-panel {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.panel-settings .settings-section-card {
+  flex: 0 0 auto;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-panel);
+  background: var(--toss-surface);
+  box-shadow: var(--toss-shadow-surface);
+  overflow: hidden;
+}
+
+.panel-settings .settings-section-card .ui-card {
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface-subtle);
+  box-shadow: none;
+}
+
+.settings-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-toggle-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-toggle-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-toggle-row strong {
+  font-size: 12px;
+}
+
+.settings-toggle-row small,
+.settings-empty-copy {
+  color: var(--toss-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-copy-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 9px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface-subtle);
+}
+
+.settings-copy-field .settings-code {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.settings-copy-field .ui-tooltip,
+.settings-copy-field .ui-tooltip-trigger {
+  display: flex;
+}
+
+.settings-subcard-list {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-subcard-heading {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-subcard-heading strong {
+  font-size: 12px;
+}
+
+.settings-status-icon,
+.settings-user-avatar {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--toss-text-muted);
+  background: var(--toss-surface);
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+}
+
+.settings-status-icon.is-active {
+  color: var(--toss-brand-strong);
+  background: var(--toss-brand-subtle);
+  border-color: var(--toss-brand-muted);
+}
+
+.settings-organization-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface-subtle);
+}
+
+.settings-organization-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.settings-organization-row .ui-select {
+  grid-column: 1 / -1;
+}
+
+.settings-user-list {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-user-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  padding: 8px;
+  border: var(--toss-border-width) solid var(--toss-border-subtle);
+  border-radius: var(--toss-radius-control);
+  background: var(--toss-surface-subtle);
+}
+
+.settings-user-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.settings-user-copy strong,
+.settings-user-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-user-copy strong {
+  font-size: 12px;
+}
+
+.settings-user-copy small,
+.settings-user-source {
+  color: var(--toss-text-muted);
+  font-size: 10px;
+}
+
+.settings-user-source {
+  grid-column: 2 / -1;
+}

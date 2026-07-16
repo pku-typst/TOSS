@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { EditorChange } from "@/components/EditorPane";
+import { minimalTextChange } from "@/lib/editorSync";
 import type { RealtimeStatus, ReconnectState } from "@/lib/realtime";
 import type { DocumentIdentity } from "@/pages/workspace/types";
 import {
@@ -183,6 +184,52 @@ export function useRealtimeDoc({
     [canWrite, isRevisionMode, realtimeActor, withCurrentSession],
   );
 
+  const replaceActiveDocumentText = useCallback(
+    (
+      path: string,
+      expectedText: string,
+      candidateText: string
+    ): "applied" | "stale" | "unavailable" => {
+      if (isRevisionMode || !canWrite || path !== activePath) return "unavailable";
+      let outcome: "applied" | "stale" | "unavailable" = "unavailable";
+      withCurrentSession((current) => {
+        if (
+          !realtimeActor
+            .getSnapshot()
+            .matches({ active: { document: "ready" } })
+        ) return;
+        const currentText = current.ytext.toString();
+        if (currentText !== expectedText) {
+          outcome = "stale";
+          return;
+        }
+        const change = minimalTextChange(currentText, candidateText);
+        if (change) {
+          current.ydoc.transact(() => {
+            const deleteCount = change.to - change.from;
+            if (deleteCount > 0) current.ytext.delete(change.from, deleteCount);
+            if (change.insert) current.ytext.insert(change.from, change.insert);
+          });
+        }
+        outcome = "applied";
+      });
+      return outcome;
+    },
+    [activePath, canWrite, isRevisionMode, realtimeActor, withCurrentSession]
+  );
+
+  const readActiveDocumentText = useCallback(() => {
+    let text: string | null = null;
+    withCurrentSession((current) => {
+      if (
+        realtimeActor
+          .getSnapshot()
+          .matches({ active: { document: "ready" } })
+      ) text = current.ytext.toString();
+    });
+    return text;
+  }, [realtimeActor, withCurrentSession]);
+
   let realtimeStatus: RealtimeStatus = "disconnected";
   if (bindingIsCurrent) {
     if (snapshot.matches({ active: { connection: "connected" } })) {
@@ -221,6 +268,8 @@ export function useRealtimeDoc({
     realtimeBoundPath: realtimeDocReady ? activePath : "",
     hasActiveLiveDoc,
     applyDocumentDeltas,
+    replaceActiveDocumentText,
+    readActiveDocumentText,
     sendCursor,
     reconnectNow,
     sendSyncSnapshot,

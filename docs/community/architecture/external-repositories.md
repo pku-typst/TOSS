@@ -22,7 +22,7 @@ related:
 code_paths:
   - backend/src/external_repositories
   - web/src/pages/workspace/external-git
-  - docs/community/configuration/external-git.example.toml
+  - docs/community/configuration/deployment.example.toml
 ---
 
 # External repositories

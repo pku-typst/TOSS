@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFrontendFeatures,
   buildProjectTypes,
+  deploymentEnablesFrontendFeature,
+  deploymentFrontendFeatures,
   deploymentProjectTypes,
   deploymentSupportsProjectType
 } from "@/lib/deploymentCapabilities";
@@ -20,5 +23,15 @@ describe("deployment project type capabilities", () => {
     expect(
       deploymentSupportsProjectType({ enabled_project_types: ["typst"] }, "latex")
     ).toBe(false);
+  });
+
+  it("keeps frontend features independent from project types and bounded by the build", () => {
+    expect(deploymentFrontendFeatures({ enabled_frontend_features: [] })).toEqual([]);
+    expect(
+      deploymentEnablesFrontendFeature(
+        { enabled_frontend_features: ["ai_assistant"] },
+        "ai_assistant"
+      )
+    ).toBe(buildFrontendFeatures().includes("ai_assistant"));
   });
 });

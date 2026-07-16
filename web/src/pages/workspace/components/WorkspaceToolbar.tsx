@@ -11,9 +11,17 @@ import {
   Settings,
   UserRound
 } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent
+} from "react";
 import type { Translator, UiLocale } from "@/lib/i18n";
-import type { WorkspacePanelView } from "@/pages/workspace/types";
+import type {
+  WorkspaceOptionalPanelDescriptor,
+  WorkspacePanelView
+} from "@/pages/workspace/types";
 
 export function WorkspaceToolbar({
   projectId,
@@ -22,15 +30,13 @@ export function WorkspaceToolbar({
   showPreviewPanel,
   showProjectSettingsPanel,
   showRevisionPanel,
+  optionalAuxiliaryPanels,
   collapsePanelsIntoMenu,
   singlePanelMode,
   activePanel,
   onRenameProject,
   canRenameProject,
-  onToggleFiles,
-  onTogglePreview,
-  onToggleSettings,
-  onToggleRevisions,
+  onTogglePanel,
   onSelectPanel,
   showAccountControlsInViewMenu,
   accountDisplayName,
@@ -47,15 +53,13 @@ export function WorkspaceToolbar({
   showPreviewPanel: boolean;
   showProjectSettingsPanel: boolean;
   showRevisionPanel: boolean;
+  optionalAuxiliaryPanels: readonly WorkspaceOptionalPanelDescriptor[];
   collapsePanelsIntoMenu: boolean;
   singlePanelMode: boolean;
   activePanel: WorkspacePanelView;
   onRenameProject: (nextName: string) => Promise<boolean>;
   canRenameProject: boolean;
-  onToggleFiles: () => void;
-  onTogglePreview: () => void;
-  onToggleSettings: () => void;
-  onToggleRevisions: () => void;
+  onTogglePanel: (panel: Exclude<WorkspacePanelView, "editor">) => void;
   onSelectPanel: (panel: WorkspacePanelView) => void;
   showAccountControlsInViewMenu: boolean;
   accountDisplayName: string | null;
@@ -180,7 +184,7 @@ export function WorkspaceToolbar({
         {collapsePanelsIntoMenu ? (
           <div className="workspace-view-menu-wrap">
             <nve-button
-              className="icon-toggle"
+              className="workspace-toolbar-toggle"
               role="button"
               container="flat"
               aria-label={t("workspace.view")}
@@ -213,10 +217,11 @@ export function WorkspaceToolbar({
                 )}
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="files"
                   current={showFilesPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
-                    singlePanelMode ? onSelectPanel("files") : onToggleFiles();
+                    onTogglePanel("files");
                   }}
                 >
                   <FolderOpen size={14} aria-hidden />
@@ -224,21 +229,38 @@ export function WorkspaceToolbar({
                 </nve-menu-item>
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="preview"
                   current={showPreviewPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
-                    singlePanelMode ? onSelectPanel("preview") : onTogglePreview();
+                    onTogglePanel("preview");
                   }}
                 >
                   <Eye size={14} aria-hidden />
                   <span>{t("workspace.preview")}</span>
                 </nve-menu-item>
+                {optionalAuxiliaryPanels.map((control) => (
+                  <nve-menu-item
+                    key={control.panel}
+                    role="menuitem"
+                    data-panel-toggle={control.panel}
+                    current={control.active ? "page" : undefined}
+                    onClick={() => {
+                      closePopover(viewMenuId);
+                      onTogglePanel(control.panel);
+                    }}
+                  >
+                    {control.icon}
+                    <span>{control.label}</span>
+                  </nve-menu-item>
+                ))}
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="settings"
                   current={showProjectSettingsPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
-                    singlePanelMode ? onSelectPanel("settings") : onToggleSettings();
+                    onTogglePanel("settings");
                   }}
                 >
                   <Settings size={14} aria-hidden />
@@ -246,10 +268,11 @@ export function WorkspaceToolbar({
                 </nve-menu-item>
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="revisions"
                   current={showRevisionPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
-                    singlePanelMode ? onSelectPanel("revisions") : onToggleRevisions();
+                    onTogglePanel("revisions");
                   }}
                 >
                   <History size={14} aria-hidden />
@@ -308,37 +331,59 @@ export function WorkspaceToolbar({
         ) : (
           <>
             <UiButton
-              className={`icon-toggle ${showFilesPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showFilesPanel ? "active" : ""}`}
+              data-panel-toggle="files"
               aria-label={t("workspace.files")}
+              aria-pressed={showFilesPanel}
               title={t("workspace.files")}
-              onClick={onToggleFiles}
+              onClick={() => onTogglePanel("files")}
             >
               <FolderOpen size={14} aria-hidden />
               <span>{t("workspace.files")}</span>
             </UiButton>
             <UiButton
-              className={`icon-toggle ${showPreviewPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showPreviewPanel ? "active" : ""}`}
+              data-panel-toggle="preview"
               aria-label={t("workspace.preview")}
+              aria-pressed={showPreviewPanel}
               title={t("workspace.preview")}
-              onClick={onTogglePreview}
+              onClick={() => onTogglePanel("preview")}
             >
               <Eye size={14} aria-hidden />
               <span>{t("workspace.preview")}</span>
             </UiButton>
+            {optionalAuxiliaryPanels.map((control) => (
+              <UiButton
+                key={control.panel}
+                className={`workspace-toolbar-toggle ${control.active ? "active" : ""}`}
+                data-panel-toggle={control.panel}
+                aria-label={control.label}
+                aria-pressed={control.active}
+                title={control.label}
+                onClick={() => onTogglePanel(control.panel)}
+              >
+                {control.icon}
+                <span>{control.label}</span>
+              </UiButton>
+            ))}
             <UiButton
-              className={`icon-toggle ${showProjectSettingsPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showProjectSettingsPanel ? "active" : ""}`}
+              data-panel-toggle="settings"
               aria-label={t("workspace.settings")}
+              aria-pressed={showProjectSettingsPanel}
               title={t("workspace.settings")}
-              onClick={onToggleSettings}
+              onClick={() => onTogglePanel("settings")}
             >
               <Settings size={14} aria-hidden />
               <span>{t("workspace.settings")}</span>
             </UiButton>
             <UiButton
-              className={`icon-toggle ${showRevisionPanel ? "active" : ""}`}
+              className={`workspace-toolbar-toggle ${showRevisionPanel ? "active" : ""}`}
+              data-panel-toggle="revisions"
               aria-label={t("workspace.revisions")}
+              aria-pressed={showRevisionPanel}
               title={t("workspace.revisions")}
-              onClick={onToggleRevisions}
+              onClick={() => onTogglePanel("revisions")}
             >
               <History size={14} aria-hidden />
               <span>{t("workspace.revisions")}</span>

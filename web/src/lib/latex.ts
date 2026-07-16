@@ -1,4 +1,5 @@
 import type { CompileDiagnostic } from "./typst";
+import { CandidateRuntimeScheduler } from "./candidateRuntime";
 import { validateLatexCompileInput } from "./latexRuntimeUtils";
 
 export type LatexCompileOutput = {
@@ -117,6 +118,24 @@ export class LatexWorkerRuntime {
     };
   }
 
+  dispose() {
+    this.active?.resolve({
+      id: this.active.id,
+      ok: false,
+      errors: ["LaTeX compiler runtime was disposed"]
+    });
+    this.queued?.resolve({
+      id: this.queued.id,
+      ok: false,
+      errors: ["LaTeX compiler runtime was disposed"]
+    });
+    this.active = null;
+    this.queued = null;
+    this.worker?.terminate();
+    this.worker = null;
+    this.notify({ stage: "idle" });
+  }
+
   compile(options: CompileOptions): Promise<WorkerCompileResponse> {
     try {
       validateLatexCompileInput(options);
@@ -166,8 +185,22 @@ export class LatexWorkerRuntime {
 }
 
 const runtime = new LatexWorkerRuntime();
+const CANDIDATE_RUNTIME_IDLE_MS = 60_000;
+let candidateRuntime: CandidateRuntimeScheduler<LatexWorkerRuntime> | null = null;
 
-export async function compileLatexClientSide(options: CompileOptions): Promise<LatexCompileOutput> {
+function candidateRuntimeScheduler() {
+  candidateRuntime ??= new CandidateRuntimeScheduler(
+    () => new LatexWorkerRuntime(),
+    CANDIDATE_RUNTIME_IDLE_MS,
+  );
+  return candidateRuntime;
+}
+
+async function compileLatexWithRuntime(
+  selectedRuntime: LatexWorkerRuntime,
+  options: CompileOptions,
+  supersededErrors: string[] = [],
+): Promise<LatexCompileOutput> {
   if (!options.documents.length) {
     return {
       vectorData: null,
@@ -177,12 +210,12 @@ export async function compileLatexClientSide(options: CompileOptions): Promise<L
       compiledAt: Date.now()
     };
   }
-  const result = await runtime.compile(options);
+  const result = await selectedRuntime.compile(options);
   if (result.superseded) {
     return {
       vectorData: null,
       pdfData: null,
-      errors: [],
+      errors: supersededErrors,
       diagnostics: [],
       compiledAt: Date.now()
     };
@@ -208,6 +241,25 @@ export async function compileLatexClientSide(options: CompileOptions): Promise<L
     diagnostics: result.diagnostics ?? [],
     compiledAt: Date.now()
   };
+}
+
+export function compileLatexClientSide(options: CompileOptions) {
+  return compileLatexWithRuntime(runtime, options);
+}
+
+/** Keeps Assistant candidate checks independent from the live preview queue. */
+export function compileLatexCandidateClientSide(
+  options: CompileOptions,
+  signal?: AbortSignal,
+) {
+  return candidateRuntimeScheduler().run(async (selectedRuntime) => {
+    const output = await compileLatexWithRuntime(
+      selectedRuntime,
+      options,
+      ["LaTeX candidate compilation was superseded before it ran"],
+    );
+    return { ...output, pdfData: null };
+  }, signal);
 }
 
 export function subscribeLatexRuntimeStatus(listener: (status: LatexRuntimeStatus) => void) {

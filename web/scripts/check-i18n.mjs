@@ -102,6 +102,26 @@ for (const file of sourceFiles(sourceRoot)) {
   }
 }
 
+const runtimeCatalogPath = path.join(sourceRoot, "ai-runtime", "i18n.ts");
+for (const file of sourceFiles(path.join(sourceRoot, "ai-runtime"))) {
+  if (file === runtimeCatalogPath || file.endsWith(".test.ts")) continue;
+  const relative = path.relative(webRoot, file);
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    for (const match of line.matchAll(humanString)) {
+      failures.push(
+        `${relative}:${index + 1}: Runtime UI text must come from src/ai-runtime/i18n.ts: ${match[2].trim()}`
+      );
+    }
+    if (/[\u3400-\u9fff]/.test(line)) {
+      failures.push(
+        `${relative}:${index + 1}: Runtime CJK text must come from src/ai-runtime/i18n.ts`
+      );
+    }
+  }
+}
+
 if (/\b(?:throwApiError|parseJsonOrThrow)[\s\S]{0,120}["'](?:Unable to|Login failed|Registration failed)/.test(
   fs.readFileSync(path.join(sourceRoot, "lib", "api.ts"), "utf8")
 )) {
@@ -113,4 +133,6 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`[i18n] catalogs aligned (${englishKeys.length} keys); no hard-coded UI copy found`);
+console.log(
+  `[i18n] catalogs aligned (${englishKeys.length} host keys); no hard-coded host or Runtime UI copy found`
+);

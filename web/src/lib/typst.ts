@@ -10,6 +10,7 @@ import {
   type TypstRuntimeModule,
   verifyRuntimeModule
 } from "@/lib/typstRuntime";
+import { CandidateRuntimeScheduler } from "@/lib/candidateRuntime";
 import type {
   TypstDocumentPosition,
   TypstMappingResponse,
@@ -83,6 +84,7 @@ export type CompileOptions = {
   fontData: Uint8Array[];
   emitPdf?: boolean;
   pdfOnly?: boolean;
+  diagnosticsOnly?: boolean;
   appOrigin?: string;
 };
 
@@ -151,6 +153,11 @@ class TypstWorkerRuntime {
       pending.resolve(undefined);
     }
     this.pendingMappings.clear();
+  }
+
+  dispose() {
+    this.resetWorker("Typst compiler runtime was disposed");
+    this.notify({ stage: "idle" });
   }
 
   private fontIdentity(bytes: Uint8Array) {
@@ -330,6 +337,7 @@ class TypstWorkerRuntime {
         coreApiUrl: options.coreApiUrl,
         emitPdf: options.emitPdf ?? false,
         pdfOnly: options.pdfOnly ?? false,
+        diagnosticsOnly: options.diagnosticsOnly ?? false,
         forceFullVector: persistentRendererNeedsFullArtifact(),
         appOrigin: options.appOrigin
       });
@@ -894,8 +902,21 @@ function getCanvasDocument(
 }
 
 const runtime = new TypstWorkerRuntime();
+const CANDIDATE_RUNTIME_IDLE_MS = 60_000;
+let candidateRuntime: CandidateRuntimeScheduler<TypstWorkerRuntime> | null = null;
 
-export async function compileTypstClientSide(options: CompileOptions): Promise<CompileOutput> {
+function candidateRuntimeScheduler() {
+  candidateRuntime ??= new CandidateRuntimeScheduler(
+    () => new TypstWorkerRuntime(),
+    CANDIDATE_RUNTIME_IDLE_MS,
+  );
+  return candidateRuntime;
+}
+
+async function compileTypstWithRuntime(
+  selectedRuntime: TypstWorkerRuntime,
+  options: CompileOptions,
+): Promise<CompileOutput> {
   if (!options.documents.length) {
     return {
       vectorData: null,
@@ -907,7 +928,18 @@ export async function compileTypstClientSide(options: CompileOptions): Promise<C
       mappingRevision: null
     };
   }
-  const result = await runtime.compile(options);
+  const result = await selectedRuntime.compile(options);
+  if (options.diagnosticsOnly && result.ok) {
+    return {
+      vectorData: null,
+      vectorMode: null,
+      pdfData: null,
+      errors: [],
+      diagnostics: result.diagnostics ?? [],
+      compiledAt: Date.now(),
+      mappingRevision: null
+    };
+  }
   if (options.pdfOnly && result.ok && result.pdfBytes && result.pdfBytes.byteLength > 0) {
     return {
       vectorData: null,
@@ -943,6 +975,27 @@ export async function compileTypstClientSide(options: CompileOptions): Promise<C
     compiledAt: Date.now(),
     mappingRevision: null
   };
+}
+
+export function compileTypstClientSide(options: CompileOptions) {
+  return compileTypstWithRuntime(runtime, options);
+}
+
+/** Uses a dedicated worker and diagnostics-only compilation so candidate edits
+ * cannot supersede live preview work or mutate its incremental renderer session. */
+export async function compileTypstCandidateClientSide(
+  options: Omit<CompileOptions, "emitPdf" | "pdfOnly" | "diagnosticsOnly">,
+  signal?: AbortSignal,
+) {
+  return candidateRuntimeScheduler().run(async (selectedRuntime) => {
+    const output = await compileTypstWithRuntime(selectedRuntime, {
+      ...options,
+      emitPdf: false,
+      pdfOnly: false,
+      diagnosticsOnly: true,
+    });
+    return { ...output, pdfData: null };
+  }, signal);
 }
 
 export function subscribeTypstRuntimeStatus(listener: (status: TypstRuntimeStatus) => void) {

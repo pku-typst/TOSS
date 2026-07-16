@@ -125,6 +125,17 @@ describe("useRealtimeDoc", () => {
     });
     expect(result.current.docText).toBe("two!");
 
+    let replaceOutcome: ReturnType<typeof result.current.replaceActiveDocumentText> | undefined;
+    act(() => {
+      replaceOutcome = result.current.replaceActiveDocumentText("two.typ", "two!", "two updated");
+    });
+    expect(replaceOutcome).toBe("applied");
+    expect(result.current.docText).toBe("two updated");
+    expect(result.current.replaceActiveDocumentText("two.typ", "two!", "stale edit"))
+      .toBe("stale");
+    expect(result.current.replaceActiveDocumentText("one.typ", "one", "wrong path"))
+      .toBe("unavailable");
+
     unmount();
     expect(second?.close).toHaveBeenCalledOnce();
   });

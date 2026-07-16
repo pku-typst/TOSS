@@ -221,6 +221,46 @@ export function compileWorldFontData(world: CompileWorld) {
   return fontDataByWorld.get(world) ?? [];
 }
 
+/**
+ * Builds an immutable, non-published World for preflighting one candidate edit.
+ * The candidate receives a distinct compiler scope, while unchanged documents,
+ * assets, and decoded font buffers remain structurally shared with the live
+ * World. It never enters the Workspace/Yjs source of truth.
+ */
+export function compileWorldWithCandidateDocument(
+  world: CompileWorld,
+  rawPath: string,
+  content: string,
+): CompileWorld | null {
+  const path = normalizePath(rawPath);
+  let found = false;
+  const documents = Object.freeze(
+    world.documents.map((document) => {
+      if (document.path !== path) return document;
+      found = true;
+      return document.content === content
+        ? document
+        : Object.freeze({ path, content });
+    }),
+  );
+  if (!found) return null;
+
+  const documentMap = new Map(
+    documents.map((document) => [document.path, document.content]),
+  );
+  const candidate = Object.freeze({
+    scope: `${world.scope}:assistant-candidate`,
+    projectType: world.projectType,
+    entryFilePath: world.entryFilePath,
+    documents,
+    assets: world.assets,
+    source: (candidatePath: string) =>
+      documentMap.get(normalizePath(candidatePath)),
+  });
+  fontDataByWorld.set(candidate, compileWorldFontData(world));
+  return candidate;
+}
+
 export function createCompileTarget(
   projectType: ProjectType,
   latexEngine: LatexEngine,

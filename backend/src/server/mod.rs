@@ -1,18 +1,20 @@
 use crate::access::OidcProviderDefaults;
 use crate::app_state::AppState;
 use crate::collaboration::CollaborationContext;
-use crate::distribution::DistributionConfig;
-use crate::document_processing::{
-    spawn_processing_maintenance, DocumentProcessingContext, ProcessingConfig,
-};
+use crate::deployment_config::DeploymentConfig;
+use crate::distribution::{DistributionConfig, FrontendFeature};
+use crate::document_processing::{spawn_processing_maintenance, DocumentProcessingContext};
 use crate::external_repositories::{
-    external_git_provider_registry_from_env, spawn_external_git_checkpoint_worker,
-    spawn_external_git_inbound_worker,
+    spawn_external_git_checkpoint_worker, spawn_external_git_inbound_worker,
 };
 use crate::object_cleanup::spawn_object_cleanup_worker;
 use crate::object_storage::init_object_storage_from_env;
 use axum::extract::DefaultBodyLimit;
+use axum::http::header::{HeaderName, HeaderValue};
 use axum::routing::get_service;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::net::SocketAddr;
@@ -20,14 +22,21 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+mod ai_runtime;
 mod routes;
 mod runtime;
+mod web_build_manifest;
 
 use runtime::run_migrations;
 pub(crate) use runtime::HealthResponse;
+use web_build_manifest::WebBuildManifest;
+
+const APP_BOOT_SCRIPT_OPEN: &str = "<script>";
+const APP_BOOT_SCRIPT_CLOSE: &str = "</script>";
 
 fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -51,11 +60,27 @@ fn replace_index_marker(html: String, marker: &str, replacement: &str) -> Result
     Ok(html.replacen(marker, replacement, 1))
 }
 
+fn application_content_security_policy(index_html: &str) -> Result<String, String> {
+    let (_, after_open) = index_html
+        .split_once(APP_BOOT_SCRIPT_OPEN)
+        .ok_or("web index is missing its inline boot script")?;
+    let (boot_script, after_close) = after_open
+        .split_once(APP_BOOT_SCRIPT_CLOSE)
+        .ok_or("web index has an unterminated inline boot script")?;
+    if after_close.contains(APP_BOOT_SCRIPT_OPEN) {
+        return Err("web index contains more than one inline script".to_string());
+    }
+    let boot_script_hash = STANDARD.encode(Sha256::digest(boot_script.as_bytes()));
+    Ok(format!(
+        "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data: blob:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-{boot_script_hash}'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; form-action 'self'"
+    ))
+}
+
 fn render_spa_index(
     static_dir: &str,
     data_dir: &std::path::Path,
     distribution: &DistributionConfig,
-) -> Result<(Arc<[u8]>, PathBuf), String> {
+) -> Result<(Arc<[u8]>, PathBuf, String), String> {
     let source_path = PathBuf::from(static_dir).join("index.html");
     let mut html = std::fs::read_to_string(&source_path).map_err(|error| {
         format!(
@@ -108,6 +133,7 @@ fn render_spa_index(
         .map(|_| "<link rel=\"apple-touch-icon\" href=\"/v1/product-assets/touch-icon\" />")
         .unwrap_or("");
     html = replace_index_marker(html, "<!-- TOSS_TOUCH_ICON -->", touch_icon)?;
+    let content_security_policy = application_content_security_policy(&html)?;
 
     let runtime_dir = data_dir.join("runtime");
     std::fs::create_dir_all(&runtime_dir).map_err(|error| {
@@ -126,6 +152,7 @@ fn render_spa_index(
     Ok((
         Arc::from(html.into_bytes().into_boxed_slice()),
         rendered_path,
+        content_security_policy,
     ))
 }
 
@@ -147,6 +174,34 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         distribution.id,
         distribution.source_label()
     );
+    let deployment = DeploymentConfig::load_from_env(&distribution)
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    info!("deployment loaded from {}", deployment.source_label());
+    let enabled_frontend_features = deployment.frontend_features.clone();
+    let enabled_ai_assistant = deployment.ai_assistant.clone();
+    let static_dir = env::var("WEB_STATIC_DIR").unwrap_or_else(|_| "./web-dist".to_string());
+    let web_build_manifest = WebBuildManifest::load(std::path::Path::new(&static_dir))?;
+    web_build_manifest.validate_runtime(&distribution, &enabled_frontend_features)?;
+    let runtime_policy = enabled_ai_assistant
+        .as_ref()
+        .or(distribution.ai_assistant.as_ref());
+    let built_ai_runtime = web_build_manifest
+        .ai_runtime()
+        .map(|manifest| {
+            let policy = runtime_policy.ok_or_else(|| {
+                "web build contains an AI Runtime but the distribution has no AI policy".to_string()
+            })?;
+            ai_runtime::AiRuntimeAssets::load(std::path::Path::new(&static_dir), manifest, policy)
+        })
+        .transpose()?;
+    let ai_runtime_assets = if enabled_frontend_features.contains(&FrontendFeature::AiAssistant) {
+        Some(built_ai_runtime.ok_or_else(|| {
+            "deployment enables ai_assistant but the web build has no AI Runtime artifact"
+                .to_string()
+        })?)
+    } else {
+        None
+    };
 
     let database_url = env::var("DATABASE_URL")?;
     let db = PgPoolOptions::new()
@@ -190,8 +245,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         redirect_uri: env::var("OIDC_REDIRECT_URI").unwrap_or_else(|_| "".to_string()),
         groups_claim: env::var("OIDC_GROUPS_CLAIM").unwrap_or_else(|_| "groups".to_string()),
     };
-    let external_git_providers = external_git_provider_registry_from_env()
-        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    let external_git_providers = deployment.external_git_providers;
     info!(
         count = external_git_providers.len(),
         "external Git provider registry loaded"
@@ -223,19 +277,22 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&data_dir)?;
     std::fs::create_dir_all(data_dir.join("git"))?;
     std::fs::create_dir_all(data_dir.join("thumbnails"))?;
-    let static_dir = env::var("WEB_STATIC_DIR").unwrap_or_else(|_| "./web-dist".to_string());
-    let (spa_index_html, branded_index_path) =
+    let (spa_index_html, branded_index_path, application_csp) =
         render_spa_index(&static_dir, &data_dir, &distribution)
             .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
+    let application_csp = HeaderValue::try_from(application_csp).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("application Content-Security-Policy is invalid: {error}"),
+        )
+    })?;
     let max_request_body_bytes = env::var("MAX_REQUEST_BODY_BYTES")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|v| *v >= 1024 * 1024)
         .unwrap_or(64 * 1024 * 1024);
     let collaboration = CollaborationContext::new(db.clone());
-    let processing_config = ProcessingConfig::from_env()
-        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
-    let processing = DocumentProcessingContext::new(db.clone(), processing_config);
+    let processing = DocumentProcessingContext::new(db.clone(), deployment.processing);
     let state = AppState {
         db,
         oidc_defaults,
@@ -244,6 +301,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         typst_builtin_dir,
         storage,
         distribution,
+        frontend_features: Arc::new(enabled_frontend_features),
+        ai_assistant: Arc::new(enabled_ai_assistant),
         spa_index_html,
         collaboration,
         versioning: crate::versioning::VersioningContext::default(),
@@ -267,8 +326,27 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .fallback(ServeFile::new(branded_index_path)),
     );
     let app = routes::build_router()
+        .merge(ai_runtime::router(ai_runtime_assets))
         .layer(DefaultBodyLimit::max(max_request_body_bytes))
         .fallback_service(static_service)
+        .layer(SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static(
+                "camera=(), microphone=(), geolocation=(), display-capture=()",
+            ),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static("x-content-type-options"),
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static("referrer-policy"),
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static("content-security-policy"),
+            application_csp,
+        ))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(TraceLayer::new_for_http())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
@@ -285,4 +363,24 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::application_content_security_policy;
+
+    #[test]
+    fn application_csp_hashes_the_only_inline_boot_script() -> Result<(), String> {
+        let first = application_content_security_policy(
+            "<html><script>window.boot = 'first';</script><script type=\"module\" src=\"/app.js\"></script></html>",
+        )?;
+        let second = application_content_security_policy(
+            "<html><script>window.boot = 'second';</script><script type=\"module\" src=\"/app.js\"></script></html>",
+        )?;
+
+        assert!(first.contains("script-src 'self' 'wasm-unsafe-eval' 'sha256-"));
+        assert_ne!(first, second);
+        assert!(application_content_security_policy("<html></html>").is_err());
+        Ok(())
+    }
 }

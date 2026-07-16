@@ -65,8 +65,14 @@ protocol error bodies. Regeneration and compatibility rules are documented in
 
 `GET /v1/auth/config` returns sanitized runtime policy and distribution fields,
 including `distribution_id`, `enabled_project_types`, product branding,
-anonymous-access policy, and an ordered `identity_providers` list. It never returns config
-paths, client secrets, token encryption keys, or credentials.
+anonymous-access policy, an ordered `identity_providers` list, and nullable
+`ai_assistant` connection-policy display metadata. A user-defined policy returns
+only its kind. A managed policy returns provider ID/label, effective default
+profile ID, and effective model-profile IDs/upstream IDs/labels. It deliberately
+omits the managed base URL, credential label, protocol details, context/output
+limits, reasoning flags, request overrides, live catalog, and user selection.
+It never returns config paths, client secrets, token encryption keys, or
+credentials.
 
 `GET /v1/experience` returns product identity, localized landing content, and
 resources visible to the current request. `GET /v1/help` returns localized
@@ -188,7 +194,8 @@ Community currently enables only `latex.compile.pdf/v1`. Build submission
 requires authentication, current project read access, a LaTeX project, a
 configured worker identity, and an `Idempotency-Key`; it returns `202` for a new
 durable job and the existing job for an exact replay. The capability response
-distinguishes `available`, configured-but-offline `waiting`, and `unavailable`.
+contains only deployment-configured operations and distinguishes `available`
+from configured-but-offline `waiting`. An absent operation is not enabled.
 
 Job lists are requester-owned and recheck current project access. Cancellation
 is allowed during preparation, queueing, and active execution, but not after

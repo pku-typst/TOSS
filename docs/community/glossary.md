@@ -53,7 +53,7 @@ Use these terms consistently in code, UI copy, and documentation.
 | Provider brand | Explicit presentation metadata used for logos and colors. It never selects an adapter. |
 | Repository connection | One platform user's OAuth grant for one configured provider instance. A user may connect multiple provider instances. |
 | Project link | The association between one project, one provider instance, one external repository, and the platform user whose grant performs background work. |
-| Distribution | A versioned JSON configuration plus assets and content that selects product identity and available capabilities. |
+| Distribution | A versioned JSON configuration plus assets and content that selects product identity, supported project types, frontend build bounds, and allowed processing operations. |
 | Built-in template | An immutable project source loaded from the active distribution. Instantiation creates an independent project. |
 | Personal template | An ordinary project published to the Gallery by its owner. Copies are independent. |
 | Content epoch | A Workspace generation value used to reject writes from a client opened before destructive content replacement. |

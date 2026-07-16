@@ -681,14 +681,23 @@ async fn claim_heartbeat_loop(
             }
             _ = tick.tick() => {
                 let phase = *phase_rx.borrow();
-                let response = client.heartbeat_claim(
-                    claim_id,
-                    &ClaimHeartbeatInput {
-                        request_id: Uuid::new_v4(),
-                        session_id,
-                        phase,
-                    },
-                ).await;
+                let heartbeat = ClaimHeartbeatInput {
+                    request_id: Uuid::new_v4(),
+                    session_id,
+                    phase,
+                };
+                let response = match heartbeat_before_lease_deadline(
+                    stop_at,
+                    &mut stop_rx,
+                    client.heartbeat_claim(claim_id, &heartbeat),
+                ).await {
+                    HeartbeatWait::LeaseExpired => {
+                        cancellation_tx.send_replace(true);
+                        return;
+                    }
+                    HeartbeatWait::Stop => return,
+                    HeartbeatWait::Response(response) => response,
+                };
                 match response {
                     Ok(response) if response.state == ClaimHeartbeatState::Active => {
                         if let Some(expiry) = response.lease_expires_at {
@@ -709,6 +718,29 @@ async fn claim_heartbeat_loop(
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum HeartbeatWait<T> {
+    Response(T),
+    Stop,
+    LeaseExpired,
+}
+
+async fn heartbeat_before_lease_deadline<T>(
+    stop_at: tokio::time::Instant,
+    stop_rx: &mut watch::Receiver<bool>,
+    heartbeat: impl std::future::Future<Output = T>,
+) -> HeartbeatWait<T> {
+    tokio::select! {
+        biased;
+        _ = tokio::time::sleep_until(stop_at) => HeartbeatWait::LeaseExpired,
+        changed = stop_rx.changed() => {
+            let _ = changed;
+            HeartbeatWait::Stop
+        },
+        response = heartbeat => HeartbeatWait::Response(response),
     }
 }
 
@@ -797,11 +829,40 @@ fn read_worker_token() -> Result<String, AgentError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_code, truncate_text};
+    use super::{heartbeat_before_lease_deadline, normalize_code, truncate_text, HeartbeatWait};
+    use std::future::pending;
+    use std::time::Duration;
+    use tokio::sync::watch;
 
     #[test]
     fn diagnostics_are_bounded_on_character_boundaries() {
         assert_eq!(truncate_text("aéz", 2), "a");
         assert_eq!(normalize_code("Bad-Code!"), "_ad__ode_");
+    }
+
+    #[tokio::test]
+    async fn claim_heartbeat_never_outlives_the_confirmed_lease() {
+        let (_stop_tx, mut stop_rx) = watch::channel(false);
+        let result = heartbeat_before_lease_deadline(
+            tokio::time::Instant::now(),
+            &mut stop_rx,
+            pending::<()>(),
+        )
+        .await;
+
+        assert_eq!(result, HeartbeatWait::LeaseExpired);
+    }
+
+    #[tokio::test]
+    async fn claim_heartbeat_can_still_finish_before_the_lease_deadline() {
+        let (_stop_tx, mut stop_rx) = watch::channel(false);
+        let result = heartbeat_before_lease_deadline(
+            tokio::time::Instant::now() + Duration::from_secs(60),
+            &mut stop_rx,
+            async { 7 },
+        )
+        .await;
+
+        assert_eq!(result, HeartbeatWait::Response(7));
     }
 }

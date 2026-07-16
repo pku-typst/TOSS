@@ -17,6 +17,7 @@ related:
   - docs/community/architecture/overview.md
   - docs/community/architecture/collaboration.md
   - docs/community/architecture/document-processing.md
+  - docs/community/architecture/browser-ai-assistant.md
   - docs/community/runtimes/typst.md
   - docs/community/decisions/0008-durable-document-processing.md
   - web/DESIGN.md
@@ -25,6 +26,7 @@ code_paths:
   - web/src/router.tsx
   - web/src/pages/workspace
   - web/src/pages/processing
+  - web/src/features/ai
   - web/src/lib
 ---
 
@@ -133,10 +135,46 @@ Changing accounts changes the query key and closes/reset the drawer, so stale
 work cannot cross an identity boundary. Component state owns only presentation
 choices and transient download/cancel errors.
 
+## Optional frontend features
+
+Frontend features are independent from project types and durable processing
+operations. The distribution bounds which feature chunks a web build may
+contain; the deployment TOML selects an enabled subset. Core exposes that set
+through `/v1/auth/config`, and the frontend intersects it with compile-time
+build constants before presenting an entry point or loading a lazy chunk.
+
+Project types use `deploymentProjectTypes`, frontend features use their own
+typed feature projection, and Worker-backed actions query Document Processing
+capabilities. Do not introduce a generic `useCapability(id)` hook or move
+browser feature state into the Workspace session actor.
+
+Optional Workspace panels use a narrower presentation extension: the toolbar
+accepts typed panel descriptors and one generic `onTogglePanel(panel)` command.
+A feature-local module owns its label, icon, lazy entry, and runtime state and
+returns no descriptor when unavailable. The composition root may know which
+features it composes, but shared toolbar components must not grow
+feature-specific availability booleans or callbacks.
+
 The PreviewPanel receives only the contextual submit/capability state needed by
 its button. Durable job aggregates remain in the task-center query and are not
 copied into the Workspace projection, compiler actors, preview reducer, or Yjs
 documents.
+
+## Presentation ownership
+
+The browser has one semantic token layer and one primitive layer. Global CSS
+owns only document defaults, the application shell, startup skeletons, and
+route loading. Page, component, Workspace-area, and optional-feature styles are
+co-located with the module that owns their markup and responsive behavior.
+This keeps route styling independent of visit order and lets disabled optional
+features disappear from the build graph together with their styles.
+
+Feature styles consume TOSS semantic tokens rather than NVIDIA Elements
+reference values. Direct palette values remain local only when color carries
+content, such as provider identity, syntax, collaborator presence, a document
+paper surface, or a product illustration. Shared headings, cards, empty states,
+form controls, and feedback components come from the UI primitive layer; broad
+classes such as `.error`, `.loading`, or `.muted` are not cross-page contracts.
 
 ## Browser persistence
 
@@ -153,6 +191,7 @@ documents.
 
 - [Collaboration](./collaboration.md)
 - [Durable document processing](./document-processing.md)
+- [Browser AI assistant](./browser-ai-assistant.md)
 - [Typst runtime](../runtimes/typst.md)
 - [LaTeX runtime](../runtimes/latex.md)
 - [Web design language](../../../web/DESIGN.md)

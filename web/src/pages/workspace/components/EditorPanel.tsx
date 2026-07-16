@@ -1,8 +1,9 @@
 import { EditorPane } from "@/components/EditorPane";
 import { UiBadge, UiButton } from "@/components/ui";
+import "@/pages/workspace/editor.css";
 import { UnsupportedFilePane } from "@/pages/workspace/components/UnsupportedFilePane";
 import { MonitorSmartphone, UsersRound } from "lucide-react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Translator } from "@/lib/i18n";
 
 type RemoteCursor = {
@@ -52,6 +53,7 @@ export function EditorPanel({
   reconnectCountdownText,
   onReconnectNow,
   activePathExistsInTree,
+  editorOverride,
   panelStyle,
   t
 }: {
@@ -87,6 +89,7 @@ export function EditorPanel({
   reconnectCountdownText: string;
   onReconnectNow: () => void;
   activePathExistsInTree: boolean;
+  editorOverride: ReactNode;
   panelStyle: CSSProperties;
   t: Translator;
 }) {
@@ -143,7 +146,9 @@ export function EditorPanel({
         </nve-toolbar>
       </div>
       <div className="panel-content flush editor-panel-content">
-        {isActiveEditableTextDoc ? (
+        {isActiveEditableTextDoc && editorOverride ? (
+          editorOverride
+        ) : isActiveEditableTextDoc ? (
           <div className="editor-surface">
             <EditorPane
               editorInstanceKey={`${activePath}:${isRevisionMode ? "revision" : "live"}:${currentEditorLanguage}`}
@@ -170,12 +175,12 @@ export function EditorPanel({
             t={t}
           />
         )}
-        {!isActiveEditableTextDoc && <div className="error panel-inline-error">{t("workspace.notEditable")}</div>}
+        {!isActiveEditableTextDoc && <div className="workspace-error panel-inline-error">{t("workspace.notEditable")}</div>}
         {isRevisionMode && !activePathExistsInTree && (
-          <div className="error panel-inline-error">{t("workspace.revisionFileMissing")}</div>
+          <div className="workspace-error panel-inline-error">{t("workspace.revisionFileMissing")}</div>
         )}
         {showConnectionWarning && realtimeStatus === "disconnected" && (
-          <div className="error panel-inline-error connection-warning connection-warning-row ui-message-with-action">
+          <div className="workspace-error panel-inline-error connection-warning connection-warning-row workspace-message-with-action">
             <span className="message-text">
               {reconnectState.active ? reconnectCountdownText : t("workspace.connectionLost")}
             </span>
@@ -185,9 +190,9 @@ export function EditorPanel({
           </div>
         )}
         {showConnectionWarning && realtimeStatus === "connecting" && !reconnectState.active && (
-          <div className="error panel-inline-error connection-warning">{t("workspace.connectionReconnecting")}</div>
+          <div className="workspace-error panel-inline-error connection-warning">{t("workspace.connectionReconnecting")}</div>
         )}
-        {workspaceError && <div className="error panel-inline-error">{workspaceError}</div>}
+        {workspaceError && <div className="workspace-error panel-inline-error">{workspaceError}</div>}
       </div>
     </article>
   );

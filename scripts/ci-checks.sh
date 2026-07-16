@@ -8,10 +8,27 @@ CORE_API_PORT="${CORE_API_PORT:-18080}"
 CORE_API_URL="http://127.0.0.1:${CORE_API_PORT}"
 REALTIME_URL="ws://127.0.0.1:${CORE_API_PORT}"
 TMP_DIR="$(mktemp -d)"
+CORE_LOG="$TMP_DIR/core.log"
 
 export PROCESSING_WORKER_TOKEN="community-ci-processing-token-0123456789abcdef"
 export PROCESSING_PROCESSOR_CONTRACT="sha256:1111111111111111111111111111111111111111111111111111111111111111"
-export PROCESSING_WORKER_IDENTITIES_JSON='[{"id":"community-latex-ci","token":"community-ci-processing-token-0123456789abcdef","operations":[{"id":"latex.compile.pdf/v1","processor_contracts":["sha256:1111111111111111111111111111111111111111111111111111111111111111"]}]}]'
+
+printf '%s\n' "$PROCESSING_WORKER_TOKEN" >"$TMP_DIR/worker.token"
+printf '%s\n' \
+  'schema = 1' \
+  '' \
+  '[frontend]' \
+  'enabled_features = ["ai_assistant"]' \
+  '' \
+  '[document_processing]' \
+  '[[document_processing.worker_identities]]' \
+  'id = "community-latex-ci"' \
+  'token_file = "worker.token"' \
+  '' \
+  '[[document_processing.worker_identities.operations]]' \
+  'id = "latex.compile.pdf/v1"' \
+  'processor_contracts = ["sha256:1111111111111111111111111111111111111111111111111111111111111111"]' \
+  >"$TMP_DIR/deployment.toml"
 
 cd "$ROOT_DIR"
 
@@ -63,7 +80,7 @@ if ! find web/dist/assets -maxdepth 1 -type f -name 'latex.worker-*' -print -qui
 fi
 
 echo "[ci] start backend monolith"
-(cd backend && TOSS_CONFIG="../distributions/community/toss.json" DATABASE_URL="$DB_URL" CORE_API_PORT="$CORE_API_PORT" GIT_STORAGE_PATH="/tmp/toss-git" AUTH_DEV_HEADER_ENABLED=1 WEB_STATIC_DIR="../web/dist" cargo run --locked >/tmp/toss-core.log 2>&1) &
+(cd backend && TOSS_CONFIG="../distributions/community/toss.json" TOSS_DEPLOYMENT_CONFIG="$TMP_DIR/deployment.toml" DATABASE_URL="$DB_URL" CORE_API_PORT="$CORE_API_PORT" GIT_STORAGE_PATH="$TMP_DIR/git" AUTH_DEV_HEADER_ENABLED=1 WEB_STATIC_DIR="../web/dist" cargo run --locked >"$CORE_LOG" 2>&1) &
 CORE_PID=$!
 for _ in $(seq 1 180); do
   if curl -fsS "$CORE_API_URL/health" >/dev/null 2>&1; then
@@ -71,7 +88,10 @@ for _ in $(seq 1 180); do
   fi
   sleep 1
 done
-curl -fsS "$CORE_API_URL/health" >/dev/null
+if ! curl -fsS "$CORE_API_URL/health" >/dev/null; then
+  cat "$CORE_LOG" >&2
+  exit 1
+fi
 
 echo "[ci] run durable processing protocol checks"
 CORE_API_URL="$CORE_API_URL" node scripts/processing-protocol-smoke.mjs
@@ -83,6 +103,7 @@ CORE_API_URL="$CORE_API_URL" bash web/scripts/git-nonoverlap-merge-test.sh
 
 echo "[ci] run headless browser checks"
 WEB_BASE_URL="$CORE_API_URL" node web/scripts/headless-smoke.mjs
+WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-ai-runtime.mjs
 WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-collab-git.mjs
 WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-revision-collab-regression.mjs
 WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-sync-cache-regression.mjs

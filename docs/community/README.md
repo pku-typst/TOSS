@@ -15,6 +15,7 @@ topics:
 related:
   - docs/community/product/overview.md
   - docs/community/architecture/overview.md
+  - docs/community/architecture/browser-ai-assistant.md
   - docs/community/architecture/document-processing.md
   - docs/community/development/setup.md
 code_paths:
@@ -56,6 +57,7 @@ versions of this Wiki.
 - [Product model](./product/overview.md) and [Glossary](./glossary.md)
 - [Architecture overview](./architecture/overview.md)
 - [Frontend](./architecture/frontend.md) and [Backend](./architecture/backend.md)
+- [Browser AI assistant design draft](./architecture/browser-ai-assistant.md)
 - [Durable document processing](./architecture/document-processing.md)
 - [Collaboration](./architecture/collaboration.md) and [Versioning](./architecture/versioning.md)
 - [External repositories](./architecture/external-repositories.md)
@@ -65,6 +67,7 @@ versions of this Wiki.
 ### Configuration and runtimes
 
 - [Configuration index](./configuration/README.md)
+- [Deployment configuration](./configuration/deployment.md)
 - [Distribution configuration](./configuration/distributions.md)
 - [External Git configuration](./configuration/external-git.md)
 - [Typst runtime](./runtimes/typst.md), [browser LaTeX runtime](./runtimes/latex.md), and [native LaTeX worker](./runtimes/latex-worker.md)
@@ -107,5 +110,6 @@ frontmatter can still traverse the Wiki.
 
 - [Product model](./product/overview.md)
 - [Architecture overview](./architecture/overview.md)
+- [Browser AI assistant design draft](./architecture/browser-ai-assistant.md)
 - [Durable document processing](./architecture/document-processing.md)
 - [Development setup](./development/setup.md)

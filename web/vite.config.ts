@@ -3,62 +3,57 @@ import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
 import wasm from "vite-plugin-wasm";
-
-type DistributionBuildConfig = {
-  schema?: number;
-  id?: string;
-  capabilities?: {
-    project_types?: string[];
-    processing_operations?: string[];
-  };
-};
-
-function loadDistributionBuildConfig() {
-  const configuredPath = process.env.TOSS_CONFIG?.trim();
-  const configPath = configuredPath
-    ? path.resolve(process.cwd(), configuredPath)
-    : path.resolve(__dirname, "../distributions/community/toss.json");
-  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as DistributionBuildConfig;
-  if (
-    config.schema !== 5 ||
-    typeof config.id !== "string" ||
-    !Array.isArray(config.capabilities?.project_types) ||
-    !config.capabilities.project_types.includes("typst") ||
-    config.capabilities.project_types.some(
-      (projectType) => projectType !== "typst" && projectType !== "latex"
-    ) ||
-    new Set(config.capabilities.project_types).size !== config.capabilities.project_types.length ||
-    !Array.isArray(config.capabilities.processing_operations) ||
-    config.capabilities.processing_operations.some(
-      (operation) =>
-        operation !== "latex.compile.pdf/v1" &&
-        operation !== "typst.export.pptx/v1" &&
-        operation !== "pptx.import.typst/v1"
-    ) ||
-    new Set(config.capabilities.processing_operations).size !==
-      config.capabilities.processing_operations.length
-  ) {
-    throw new Error(`Invalid distribution build config: ${configPath}`);
-  }
-  return {
-    latexEnabled: config.capabilities.project_types.includes("latex")
-  };
-}
+import { computeAiRuntimeBuildId } from "./aiRuntimeBuildConfig";
+import { loadDistributionBuildConfig } from "./distributionBuildConfig";
 
 const distribution = loadDistributionBuildConfig();
+const aiRuntimeIncluded = distribution.frontendFeatures.includes("ai_assistant");
+const aiRuntimeBuildId = computeAiRuntimeBuildId();
+let distributionOutputDir = path.resolve(__dirname, "dist");
 
 const distributionAssetsPlugin = {
   name: "toss-distribution-assets",
   apply: "build" as const,
+  configResolved(config: { root: string; build: { outDir: string } }) {
+    distributionOutputDir = path.resolve(config.root, config.build.outDir);
+  },
   closeBundle() {
     if (!distribution.latexEnabled) {
-      fs.rmSync(path.resolve(__dirname, "dist/busytex"), { recursive: true, force: true });
+      fs.rmSync(path.resolve(distributionOutputDir, "busytex"), { recursive: true, force: true });
     }
+    if (!aiRuntimeIncluded) {
+      fs.rmSync(path.resolve(distributionOutputDir, "_ai-runtime"), { recursive: true, force: true });
+    }
+    fs.writeFileSync(
+      path.resolve(distributionOutputDir, "toss-build-manifest.json"),
+      `${JSON.stringify(
+        {
+          schema: 2,
+          project_types: distribution.projectTypes,
+          frontend_features: distribution.frontendFeatures,
+          ai_runtime: aiRuntimeIncluded
+            ? {
+                build_id: aiRuntimeBuildId,
+                entry_path: "_ai-runtime/bootstrap.html",
+                connection_policy: distribution.aiConnectionPolicy
+              }
+            : null
+        },
+        null,
+        2
+      )}\n`
+    );
   }
 };
 
 export default defineConfig({
   plugins: [react(), wasm(), distributionAssetsPlugin],
+  define: {
+    __TOSS_BUILD_PROJECT_TYPES__: JSON.stringify(distribution.projectTypes),
+    __TOSS_BUILD_FRONTEND_FEATURES__: JSON.stringify(distribution.frontendFeatures),
+    __TOSS_BUILD_AI_CONNECTION_POLICY__: JSON.stringify(distribution.aiConnectionPolicy),
+    __TOSS_AI_RUNTIME_BUILD_ID__: JSON.stringify(aiRuntimeBuildId)
+  },
   worker: {
     format: "es"
   },
@@ -107,13 +102,6 @@ export default defineConfig({
         ? []
         : [
             {
-              find: /^@\/lib\/buildCapabilities$/,
-              replacement: path.resolve(
-                __dirname,
-                "src/lib/buildCapabilities.disabled.ts"
-              )
-            },
-            {
               find: /^@\/lib\/latex$/,
               replacement: path.resolve(__dirname, "src/lib/latex.disabled.ts")
             },
@@ -122,6 +110,14 @@ export default defineConfig({
               replacement: path.resolve(__dirname, "src/lib/latexLanguage.disabled.ts")
             }
           ]),
+      ...(!aiRuntimeIncluded
+        ? [
+            {
+              find: /^@\/features\/ai$/,
+              replacement: path.resolve(__dirname, "src/features/ai.disabled.tsx")
+            }
+          ]
+        : []),
       {
         find: "@",
         replacement: path.resolve(__dirname, "src")

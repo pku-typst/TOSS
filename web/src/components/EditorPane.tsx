@@ -27,8 +27,8 @@ import {
 import { RangeSetBuilder } from "@codemirror/state";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { tags } from "@lezer/highlight";
-import { TypstParser, typstHighlight } from "codemirror-lang-typst";
 import { minimalTextChange } from "@/lib/editorSync";
+import { createTypstParser } from "@/lib/typstSyntax";
 
 export type EditorChange = {
   from: number;
@@ -145,7 +145,7 @@ const editorChromeTheme = EditorView.theme(
     ".cm-gutters": {
       color: "var(--toss-text-muted)",
       backgroundColor: "var(--toss-surface-subtle)",
-      borderRight: "var(--nve-ref-border-width-sm) solid var(--toss-border-subtle)"
+      borderRight: "var(--toss-border-width) solid var(--toss-border-subtle)"
     },
     ".cm-activeLineGutter": {
       color: "var(--toss-brand-ink)",
@@ -185,7 +185,7 @@ const typstLanguageData = defineLanguageFacet({
 });
 
 function buildTypstLanguageSupport() {
-  const parser = new (TypstParser as unknown as new (highlighting: unknown) => TypstParser)(typstHighlight);
+  const parser = createTypstParser();
   const resetParserEffect = StateEffect.define<null>();
   const safeParserSync = StateField.define<null>({
     create() {

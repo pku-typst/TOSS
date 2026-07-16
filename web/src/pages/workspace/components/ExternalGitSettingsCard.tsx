@@ -3,8 +3,9 @@ import {
   ProviderBrandMark,
   type ProviderBrand
 } from "@/components/ProviderBrandMark";
-import { UiCard, UiSelect, UiTooltip } from "@/components/ui";
+import { UiCard, UiSectionHeading, UiSelect, UiTooltip } from "@/components/ui";
 import { useEffect, useState } from "react";
+import "@/pages/external-git.css";
 import {
   externalGitAuthorizationUrl,
   type ExternalGitProvider
@@ -105,17 +106,12 @@ export function ExternalGitSettingsCard({
       )}`
     : null;
   const header = (
-    <div className="settings-card-heading external-git-card-heading">
-      <ProviderBrandMark
-        brand={providerBrand}
-        size={32}
-        className="settings-card-heading-icon"
-      />
-      <span className="settings-card-heading-copy">
-        <h3>{t("externalGit.title")}</h3>
-        <small>{t("externalGit.subtitle")}</small>
-      </span>
-      {status && statusSummary && (
+    <UiSectionHeading
+      className="external-git-card-heading"
+      icon={<ProviderBrandMark brand={providerBrand} size={20} />}
+      title={t("externalGit.title")}
+      description={t("externalGit.subtitle")}
+      actions={status && statusSummary ? (
         <UiTooltip
           content={statusSummary}
           className="external-git-status-tooltip"
@@ -132,8 +128,8 @@ export function ExternalGitSettingsCard({
             <ExternalGitSyncStateIcon state={status.state} />
           </span>
         </UiTooltip>
-      )}
-    </div>
+      ) : undefined}
+    />
   );
 
   if (!connection || !status) {

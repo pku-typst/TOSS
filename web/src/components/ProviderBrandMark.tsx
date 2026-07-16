@@ -1,5 +1,6 @@
 import { KeyRound } from "lucide-react";
 import type { CSSProperties } from "react";
+import "@/components/provider-brand-mark.css";
 import codebergLogo from "@/assets/provider-brands/codeberg.svg";
 import forgejoLogo from "@/assets/provider-brands/forgejo.svg";
 import giteaLogo from "@/assets/provider-brands/gitea.svg";

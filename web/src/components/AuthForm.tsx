@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import "@/components/auth-form.css";
 import { ArrowRight, KeyRound } from "lucide-react";
 import { ProviderBrandMark } from "@/components/ProviderBrandMark";
 import { UiButton, UiInput } from "@/components/ui";
@@ -265,9 +266,9 @@ export function AuthForm({
         </div>
       )}
       {error && (
-        <div className="error auth-error" role="alert">
+        <nve-alert status="danger" className="auth-error" role="alert">
           {error}
-        </div>
+        </nve-alert>
       )}
     </form>
   );

@@ -1,7 +1,8 @@
 //! Audience-aware product experience and help content.
 
 use super::{ExperienceResourceKind, ExperienceVisibility};
-use crate::distribution::{DistributionConfig, LocalizedText};
+use crate::distribution::{DistributionConfig, FrontendFeature, LocalizedText};
+use crate::document_processing::ProcessingOperation;
 
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct ExperienceProduct {
@@ -118,6 +119,8 @@ pub(crate) fn load_experience(
 
 pub(crate) fn load_help_content(
     distribution: &DistributionConfig,
+    enabled_frontend_features: &[FrontendFeature],
+    configured_processing_operations: &[ProcessingOperation],
     authenticated: bool,
 ) -> HelpContent {
     HelpContent {
@@ -126,6 +129,23 @@ pub(crate) fn load_help_content(
             .help_topics
             .iter()
             .filter(|topic| visible_to_viewer(topic.visibility, authenticated))
+            .filter(|topic| {
+                topic
+                    .availability
+                    .project_types
+                    .iter()
+                    .all(|project_type| distribution.supports_project_type(*project_type))
+                    && topic
+                        .availability
+                        .frontend_features
+                        .iter()
+                        .all(|feature| enabled_frontend_features.contains(feature))
+                    && topic
+                        .availability
+                        .processing_operations
+                        .iter()
+                        .all(|operation| configured_processing_operations.contains(operation))
+            })
             .map(|topic| HelpTopic {
                 id: topic.id.clone(),
                 title: topic.title.clone(),
@@ -140,7 +160,9 @@ pub(crate) fn load_help_content(
 #[cfg(test)]
 mod tests {
     use super::{load_experience, load_help_content};
-    use crate::distribution::experience_content::{ExperienceHelpTopic, ExperienceResource};
+    use crate::distribution::experience_content::{
+        ExperienceHelpTopic, ExperienceResource, HelpAvailability,
+    };
     use crate::distribution::LocalizedText;
     use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 
@@ -171,6 +193,7 @@ mod tests {
                 summary: text("Authenticated only"),
                 content: text("Content"),
                 visibility: ExperienceVisibility::Authenticated,
+                availability: HelpAvailability::default(),
             });
 
         let public_experience = load_experience(&distribution, false);
@@ -184,8 +207,8 @@ mod tests {
             .iter()
             .any(|resource| resource.id == "internal-resource"));
 
-        let public_help = load_help_content(&distribution, false);
-        let authenticated_help = load_help_content(&distribution, true);
+        let public_help = load_help_content(&distribution, &[], &[], false);
+        let authenticated_help = load_help_content(&distribution, &[], &[], true);
         assert!(!public_help
             .topics
             .iter()

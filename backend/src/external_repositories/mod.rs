@@ -20,7 +20,7 @@ pub(crate) use checkpoint::{
     ExternalGitCheckpointPhase, ExternalGitCheckpointState,
 };
 pub(crate) use command::ExternalGitCommandFailure;
-pub(crate) use config::external_git_provider_registry_from_env;
+pub(crate) use config::{external_git_provider_registry_from_config, ExternalGitConfigFile};
 pub(crate) use connection::{ExternalGitGrantStatus, ExternalRepositoryConnectionStatus};
 pub(crate) use connection_http::{
     disconnect_external_git, external_git_connection_status, list_external_git_repositories,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import "@/pages/workspace/unsupported-file.css";
 import { Download } from "lucide-react";
 import { renderPdfBytesToCanvas } from "@/lib/pdf";
 import type { Translator } from "@/lib/i18n";
@@ -59,7 +60,7 @@ export function UnsupportedFilePane({
   ) : isPdf ? (
     <div className="file-preview-pdf-canvas" aria-label={path}>
       {pdfRendering && <div className="file-preview-pdf-overlay">{t("workspace.fileLoading")}</div>}
-      {pdfRenderError && <div className="file-preview-pdf-overlay error">{pdfRenderError}</div>}
+      {pdfRenderError && <div className="file-preview-pdf-overlay workspace-error">{pdfRenderError}</div>}
       <div ref={pdfCanvasRef} className="file-preview-pdf-surface" />
     </div>
   ) : (
@@ -85,7 +86,7 @@ export function UnsupportedFilePane({
       <div className="file-preview-media">{media}</div>
       <div className="file-preview-meta">
         <div className="file-preview-name">{downloadName}</div>
-        <small className="muted">{path}</small>
+        <small nve-text="body muted">{path}</small>
         <nve-icon-button
           className="ui-icon-button"
           role="button"

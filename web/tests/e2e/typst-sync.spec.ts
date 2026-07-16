@@ -115,7 +115,7 @@ test("synchronizes source and canvas positions without PDF export invalidating t
   await page.goto("/signin");
   await page.getByPlaceholder("Email").fill(account.email);
   await page.getByPlaceholder("Password").fill(account.password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByPlaceholder("Password").press("Enter");
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
   let compilerRequestSeen = false;
   await page.route("**/typst-runtime/**/typst_ts_web_compiler_bg.wasm", async (route) => {

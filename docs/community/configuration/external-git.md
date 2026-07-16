@@ -23,23 +23,26 @@ related:
 code_paths:
   - backend/src/external_repositories/config.rs
   - backend/src/external_repositories/provider
-  - docs/community/configuration/external-git.example.toml
+  - docs/community/configuration/deployment.example.toml
 ---
 
 # External Git configuration
 
-External repositories are optional. `EXTERNAL_GIT_CONFIG` points to a strict
-schema-1 TOML registry. An unset path loads an empty registry and disables the
-feature without affecting normal Workspace editing.
+External repositories are optional. Their provider registry is the
+`external_git` section of the strict schema-1 file selected by
+`TOSS_DEPLOYMENT_CONFIG`. An empty section disables the feature without
+affecting normal Workspace editing.
 
-Start from [external-git.example.toml](./external-git.example.toml).
+Start from [deployment.example.toml](./deployment.example.toml).
 
 ## Registry fields
 
 ```toml
 schema = 1
 
-[[providers]]
+[external_git]
+
+[[external_git.providers]]
 id = "engineering-gitlab"
 kind = "gitlab"
 brand = "gitlab"
@@ -69,7 +72,7 @@ links, or jobs exist. Multiple instances may share the same kind.
 
 ## Secrets
 
-The TOML file contains no secret fields.
+The deployment TOML contains no secret fields.
 
 - `EXTERNAL_GIT_TOKEN_ENCRYPTION_KEY` must be standard-base64 encoding of
   exactly 32 random bytes. One deployment key encrypts all stored grants.

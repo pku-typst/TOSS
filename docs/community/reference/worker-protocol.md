@@ -74,12 +74,12 @@ their verified manifests. A self-advertised contract hash is not authority to
 claim work, and users do not choose a processor contract as a priority setting.
 
 The current implementation uses bearer tokens. Core loads deployment-owned
-identity, token, operation, and exact processor-contract allowlists from
-`PROCESSING_WORKER_IDENTITIES_JSON`, hashes candidates, and compares
-fingerprints in constant time. The SDK accepts its token from
-`PROCESSING_WORKER_TOKEN_FILE` or `PROCESSING_WORKER_TOKEN`. Mutual TLS or
-workload identity may replace bearer authentication later without changing
-claim semantics.
+identity, `token_file`, operation, and exact processor-contract allowlists from
+the `document_processing` section of `TOSS_DEPLOYMENT_CONFIG`, hashes
+candidates, and compares fingerprints in constant time. The SDK accepts its
+token from `PROCESSING_WORKER_TOKEN_FILE` or the standalone
+`PROCESSING_WORKER_TOKEN` fallback. Mutual TLS or workload identity may replace
+bearer authentication later without changing claim semantics.
 
 Browser sessions, personal access tokens, external-provider grants, and worker
 credentials are not interchangeable. Internal routes reject cookies as a
@@ -269,7 +269,9 @@ Network failure does not prove ownership loss, but the agent must stop the
 sandbox before the last confirmed lease expires. It must never continue work on
 the assumption that a failed heartbeat will eventually succeed. The SDK lease
 guard centralizes server-time offset, renewal margin, cancellation propagation,
-and process termination.
+and process termination. Claim renewal is a single HTTP attempt raced directly
+against the last confirmed lease deadline and shutdown signal; it does not use
+the generic mutation retry loop, so a stalled request cannot hide lease expiry.
 
 ## Transfer tickets
 

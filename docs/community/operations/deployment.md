@@ -79,10 +79,11 @@ and a shared development endpoint does not weaken the credential checks.
 Build the exact worker image first and print its production contract:
 
 ```bash
-export PROCESSING_WORKER_TOKEN="$(openssl rand -hex 32)"
 sudo apparmor_parser -r workers/latex/toss-latex-worker.apparmor
 docker compose --profile processing build latex-worker
 docker run --rm toss-latex-worker:local contract
+mkdir -p tmp/processing-config
+openssl rand -hex 32 > tmp/processing-config/worker.token
 ```
 
 The profile load is required on AppArmor hosts, including Ubuntu 24.04, where
@@ -93,22 +94,38 @@ the equivalent policy through node provisioning in production. On a host that
 does not use AppArmor and already permits rootless user namespaces, set
 `PROCESSING_APPARMOR_PROFILE=unconfined` instead.
 
-Put that same token in `PROCESSING_WORKER_TOKEN` for the worker and in one Core
-identity entry. Replace `<token>` and `<contract>` with the literal values; an
-environment/secret templating layer should render both from one secret in
-production:
+Create `tmp/processing-config/deployment.toml` from
+[`deployment.example.toml`](../configuration/deployment.example.toml). Keep the
+default limits, remove any unused provider examples, and replace `<contract>`
+with the exact value printed by the image:
 
-```dotenv
-PROCESSING_WORKER_TOKEN=<token>
-PROCESSING_WORKER_IDENTITIES_JSON=[{"id":"community-latex","token":"<token>","operations":[{"id":"latex.compile.pdf/v1","processor_contracts":["<contract>"]}]}]
-PROCESSING_LATEX_SLOTS=1
+```toml
+schema = 1
+
+[frontend]
+enabled_features = []
+
+[document_processing]
+
+[[document_processing.worker_identities]]
+id = "community-latex"
+token_file = "worker.token"
+
+[[document_processing.worker_identities.operations]]
+id = "latex.compile.pdf/v1"
+processor_contracts = ["<contract>"]
 ```
 
 Then start the optional profile with the normal Community stack:
 
 ```bash
+export TOSS_DEPLOYMENT_CONFIG_DIR=./tmp/processing-config
 docker compose --profile processing up --build
 ```
+
+Compose mounts this directory read-only into both Core and the worker. Core
+resolves `token_file` relative to the TOML; the worker reads the same file
+through `PROCESSING_WORKER_TOKEN_FILE`.
 
 The local profile gives `/work` a bounded tmpfs and runs bubblewrap as a
 non-root user. Its repository AppArmor policy permits namespace setup and then
@@ -134,9 +151,10 @@ produce a smaller Typst-only frontend without the browser LaTeX worker, CodeMirr
 LaTeX language bundle, or BusyTeX WASM/data files.
 
 The final image sets `TOSS_CONFIG` to the matching in-image distribution. An
-operator may override it only with a capability-compatible config. Use immutable
-commit-derived image tags in deployment manifests; do not infer a tag from a
-different repository's commit.
+operator may override it only with project types and frontend features present
+in the checked web build manifest; Core rejects an incompatible pairing. Use
+immutable commit-derived image tags in deployment manifests; do not infer a tag
+from a different repository's commit.
 
 `workers/latex/Dockerfile` builds the optional worker separately. Its TeX Live
 base is pinned by digest, and `toss-latex-worker contract` prints the exact
@@ -184,6 +202,7 @@ production deployment must provide:
 - a high-entropy `SESSION_SECRET`;
 - `COOKIE_SECURE=true` behind HTTPS;
 - `TOSS_CONFIG` if the in-image default is not used;
+- `TOSS_DEPLOYMENT_CONFIG` if `/app/config/deployment.toml` is not used;
 - persistent `DATA_DIR`/`GIT_STORAGE_PATH`;
 - the selected authentication configuration.
 
@@ -191,10 +210,10 @@ OIDC deployments additionally configure `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
 `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, the groups claim, and user-facing
 `IDENTITY_PROVIDER_ID`/`IDENTITY_PROVIDER_DISPLAY_NAME` metadata.
 
-External repository support is optional. Set `EXTERNAL_GIT_CONFIG` to the
-public provider-registry TOML, provide one deployment encryption key and the
-derived per-instance client-secret variables, and register one callback per
-instance. Generic OIDC credentials are never reused for repository access.
+External repository support is optional. Add providers under `external_git` in
+the deployment TOML, provide one deployment encryption key and the derived
+per-instance client-secret variables, and register one callback per instance.
+Generic OIDC credentials are never reused for repository access.
 Provider schemas, callback paths, scopes, brand rules, and secret names have one
 canonical reference: [External Git configuration](../configuration/external-git.md).
 
@@ -223,15 +242,14 @@ Each matching account is promoted after successful authentication. Remove the
 bootstrap value after verifying administrator access if ongoing promotion is
 not desired.
 
-Document Processing is optional. Core's
-`PROCESSING_WORKER_IDENTITIES_JSON` is deployment policy, not distribution
-configuration: each entry contains a lowercase identity, a unique secret token,
-and exact operation/processor-contract allowlists. The worker receives the same
-token through `PROCESSING_WORKER_TOKEN_FILE` (preferred when the platform can
-mount a secret file) or `PROCESSING_WORKER_TOKEN`. Never place these values in
-distribution JSON, an image layer, logs, or source control. Rotate by admitting
-a second identity/token, rolling capacity to it, draining the old worker, and
-then removing the old identity.
+Document Processing is optional. Core reads lowercase identities, token-file
+references, and exact operation/processor-contract allowlists from the
+`document_processing` deployment section. The worker reads the matching token
+through `PROCESSING_WORKER_TOKEN_FILE`; `PROCESSING_WORKER_TOKEN` remains a
+standalone SDK fallback, not Core configuration. Never place token contents in
+distribution JSON, deployment TOML, an image layer, logs, or source control.
+Rotate by admitting a second identity/token file, rolling capacity to it,
+draining the old worker, and then removing the old identity.
 
 Distribution JSON is not a secret store. Keep passwords, OAuth secrets, token
 encryption keys, S3 credentials, and session keys in Kubernetes Secrets or an
@@ -259,14 +277,10 @@ mirror; see
 [Community LaTeX runtime](../runtimes/latex.md). These settings have no effect
 in a Typst-only distribution.
 
-Durable processing limits use `PROCESSING_MAX_QUEUED_JOBS`,
-`PROCESSING_MAX_ACTIVE_JOBS_PER_USER`,
-`PROCESSING_MAX_ACTIVE_JOBS_PER_PROJECT`, `PROCESSING_MAX_INPUT_BYTES`,
-`PROCESSING_MAX_OUTPUT_BYTES`, `PROCESSING_MAX_DIAGNOSTIC_BYTES`,
-`PROCESSING_JOB_WALL_SECONDS`, `PROCESSING_QUEUE_WAIT_SECONDS`,
-`PROCESSING_RETENTION_SECONDS`, and the lease/transfer durations in
-`.env.example`. Review PostgreSQL growth, worker CPU/memory, `/work` ephemeral
-storage, ingress timeouts, and termination grace together before raising them.
+Durable processing limits and lease/transfer durations live under
+`document_processing` in the deployment TOML. Review PostgreSQL growth, worker
+CPU/memory, `/work` ephemeral storage, ingress timeouts, and termination grace
+together before raising them.
 
 External Git checkpoints and branch imports are asynchronous: each request
 records a durable queue item instead of keeping an HTTP request open for a

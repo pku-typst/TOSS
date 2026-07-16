@@ -240,9 +240,10 @@ async function selectedDistributionEnablesLatex() {
     ? path.resolve(process.cwd(), configured)
     : path.join(root, "distributions", "community", "toss.json");
   const distribution = await readJson(configPath);
-  const projectTypes = distribution?.capabilities?.project_types;
-  if (!Array.isArray(projectTypes)) fail(`Invalid distribution capabilities: ${configPath}`);
-  return projectTypes.includes("latex");
+  if (distribution?.schema !== 6 || !distribution?.project_types?.typst) {
+    fail(`Invalid distribution project types: ${configPath}`);
+  }
+  return distribution.project_types.latex != null;
 }
 
 const command = process.argv[2] ?? "all";

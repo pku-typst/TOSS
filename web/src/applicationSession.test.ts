@@ -30,6 +30,7 @@ vi.mock("@/lib/api", () => ({
 const authConfig: AuthConfig = {
   accent_color: "#76b900",
   accent_text_color: "#000000",
+  ai_assistant: null,
   allow_local_login: false,
   allow_local_registration: false,
   allow_oidc: true,
@@ -38,7 +39,7 @@ const authConfig: AuthConfig = {
   brand_mark: "N",
   client_id: "client-a",
   distribution_id: "community",
-  enabled_processing_operations: [],
+  enabled_frontend_features: [],
   enabled_project_types: ["typst"],
   external_git_providers: [],
   groups_claim: "groups",

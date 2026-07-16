@@ -22,6 +22,7 @@ vi.mock("@/components/ui", () => ({
 const baseConfig: AuthConfig = {
   accent_color: "#76b900",
   accent_text_color: "#000000",
+  ai_assistant: null,
   allow_local_login: false,
   allow_local_registration: false,
   allow_oidc: true,
@@ -30,7 +31,7 @@ const baseConfig: AuthConfig = {
   brand_mark: "T",
   client_id: null,
   distribution_id: "community",
-  enabled_processing_operations: [],
+  enabled_frontend_features: [],
   enabled_project_types: ["typst"],
   external_git_providers: [],
   groups_claim: "groups",

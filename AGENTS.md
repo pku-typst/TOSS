@@ -22,6 +22,7 @@ and downstream policy remain separate concerns.
 | `workers/` | Public processing SDK and independently deployed, sandboxed processor implementations |
 | `protocol/` | Checked-in public and worker OpenAPI contracts plus the isolated browser TypeScript generator toolchain |
 | `distributions/community/` | Neutral product configuration, Help content, starter templates, and public Typst catalog |
+| `config/` | Safe default deployment topology; secrets are mounted separately and never tracked |
 | `prebuilt/` | Reproducible browser-runtime provenance and ignored, fetched package caches |
 | `third-party/typst.ts/` | Public Apache-2.0 source submodule pinned to an exact revision |
 | `docs/community/` | Public engineering Wiki and accepted architecture decisions |

@@ -5,5 +5,11 @@
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "vite.ai-runtime.config.ts",
+    "vitest.config.ts",
+    "distributionBuildConfig.ts",
+    "aiRuntimeBuildConfig.ts"
+  ]
 }

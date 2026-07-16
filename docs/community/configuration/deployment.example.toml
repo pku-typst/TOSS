@@ -1,0 +1,44 @@
+# Structured deployment topology. Keep credentials in environment variables or
+# mounted secret files; this TOML is safe to store in deployment configuration.
+schema = 1
+
+[frontend]
+enabled_features = []
+
+[external_git]
+
+[[external_git.providers]]
+id = "gitlab"
+kind = "gitlab"
+brand = "gitlab"
+display_name = "GitLab"
+base_url = "https://gitlab.example.com"
+api_url = "https://gitlab.example.com/api/v4"
+client_id = "replace-with-gitlab-oauth-application-id"
+redirect_uri = "https://typst.example.com/v1/external-git/providers/gitlab/callback"
+login_enabled = true
+
+[document_processing]
+max_queued_jobs = 100
+max_active_jobs_per_user = 4
+max_active_jobs_per_project = 2
+max_input_bytes = 134217728
+max_output_bytes = 67108864
+max_diagnostic_bytes = 65536
+job_wall_seconds = 300
+queue_wait_seconds = 86400
+retention_seconds = 604800
+claim_lease_seconds = 45
+session_lease_seconds = 60
+transfer_seconds = 300
+finalization_lease_seconds = 60
+
+[[document_processing.worker_identities]]
+id = "community-latex"
+token_file = "worker.token"
+
+[[document_processing.worker_identities.operations]]
+id = "latex.compile.pdf/v1"
+processor_contracts = [
+  "sha256:replace-with-the-contract-printed-by-the-worker-image"
+]

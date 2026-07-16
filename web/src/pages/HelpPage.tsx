@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
+import "@/pages/help.css";
+import "@/pages/public-pages.css";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Search } from "lucide-react";
+import { BookOpen, CircleAlert, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSearchParams } from "react-router-dom";
 import { ExperienceResourceLink } from "@/components/ExperienceResourceLink";
-import { UiButton, UiInput } from "@/components/ui";
+import { UiButton, UiEmptyState, UiInput, UiPageHeading } from "@/components/ui";
 import { getHelpContent } from "@/lib/api";
 import { localizedText } from "@/lib/experience";
 import type { Translator, UiLocale } from "@/lib/i18n";
@@ -54,24 +56,23 @@ export function HelpPage({
 
   return (
     <section className="help-page app-page">
-      <header className="help-page-header">
-        <span className="help-page-header-icon" aria-hidden>
-          <BookOpen size={24} />
-        </span>
-        <div>
-          <h1>{t("help.title")}</h1>
-          <p>{t("help.subtitle")}</p>
-        </div>
-      </header>
+      <UiPageHeading
+        icon={<BookOpen size={24} />}
+        title={t("help.title")}
+        description={t("help.subtitle")}
+      />
 
       {helpQuery.isPending && <div className="help-state" role="status">{t("help.loading")}</div>}
       {helpQuery.isError && !content && (
-        <div className="help-state is-error" role="alert">
-          <p>
-            {helpQuery.error instanceof Error ? helpQuery.error.message : t("help.loadFailed")}
-          </p>
-          <UiButton onClick={() => void helpQuery.refetch()}>{t("common.retry")}</UiButton>
-        </div>
+        <UiEmptyState
+          className="help-state"
+          role="alert"
+          icon={<CircleAlert size={24} />}
+          iconFrame
+          title={t("help.loadFailed")}
+          description={helpQuery.error instanceof Error ? helpQuery.error.message : undefined}
+          actions={<UiButton onClick={() => void helpQuery.refetch()}>{t("common.retry")}</UiButton>}
+        />
       )}
 
       {content && (

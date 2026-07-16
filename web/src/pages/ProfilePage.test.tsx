@@ -29,6 +29,7 @@ import type { Translator } from "@/lib/i18n";
 import { ProfilePage } from "@/pages/ProfilePage";
 
 vi.mock("@/components/ui", () => ({
+  UiBadge: ({ children }: PropsWithChildren) => <span>{children}</span>,
   UiButton: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   ),
@@ -44,6 +45,7 @@ vi.mock("@/components/ui", () => ({
         {actions}
       </div>
     ) : null,
+  UiEmptyState: ({ description }: { description?: ReactNode }) => <div>{description}</div>,
   UiHelpTooltip: () => null,
   UiIconButton: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
@@ -53,6 +55,22 @@ vi.mock("@/components/ui", () => ({
       {label}
       <input {...props} />
     </label>
+  ),
+  UiPageHeading: ({ title }: { title: ReactNode }) => <h1>{title}</h1>,
+  UiSectionHeading: ({
+    title,
+    description,
+    actions
+  }: {
+    title: ReactNode;
+    description?: ReactNode;
+    actions?: ReactNode;
+  }) => (
+    <div>
+      <h2>{title}</h2>
+      {description}
+      {actions}
+    </div>
   ),
   UiSelect: ({
     label,

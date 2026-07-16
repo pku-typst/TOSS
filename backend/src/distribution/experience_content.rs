@@ -1,11 +1,14 @@
 //! Distribution-provided landing, resource, and help content.
 
 use super::file_format::ExperienceFile;
+use super::FrontendFeature;
 use super::{
     resolve_distribution_file, validate_localized_text, validate_slug, LocalizedText,
     MAX_HELP_TOPIC_BYTES,
 };
+use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
+use crate::workspace::ProjectType;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -46,11 +49,22 @@ pub struct ExperienceHelpTopic {
     pub summary: LocalizedText,
     pub content: LocalizedText,
     pub visibility: ExperienceVisibility,
+    pub availability: HelpAvailability,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HelpAvailability {
+    pub project_types: Vec<ProjectType>,
+    pub frontend_features: Vec<FrontendFeature>,
+    pub processing_operations: Vec<ProcessingOperation>,
 }
 
 pub(super) fn load_experience(
     base_dir: &Path,
     configured: ExperienceFile,
+    project_types: &[ProjectType],
+    frontend_features: &[FrontendFeature],
+    processing_operations: &[ProcessingOperation],
 ) -> Result<ExperienceConfig, String> {
     if configured.landing.highlights.is_empty() || configured.landing.highlights.len() > 6 {
         return Err("experience.landing.highlights must contain between 1 and 6 items".to_string());
@@ -128,6 +142,23 @@ pub(super) fn load_experience(
                 topic.id
             ));
         }
+        let availability = HelpAvailability {
+            project_types: validate_requirements(
+                topic.availability.project_types,
+                project_types,
+                "experience.help.topics[].availability.project_types",
+            )?,
+            frontend_features: validate_requirements(
+                topic.availability.frontend_features,
+                frontend_features,
+                "experience.help.topics[].availability.frontend_features",
+            )?,
+            processing_operations: validate_requirements(
+                topic.availability.processing_operations,
+                processing_operations,
+                "experience.help.topics[].availability.processing_operations",
+            )?,
+        };
         help_topics.push(ExperienceHelpTopic {
             id: topic.id,
             title: validate_localized_text(topic.title, "experience.help.topics[].title", 100)?,
@@ -149,6 +180,7 @@ pub(super) fn load_experience(
                 )?,
             },
             visibility: topic.visibility,
+            availability,
         });
     }
 
@@ -157,6 +189,26 @@ pub(super) fn load_experience(
         resources,
         help_topics,
     })
+}
+
+fn validate_requirements<T: Copy + std::fmt::Display + PartialEq>(
+    configured: Vec<T>,
+    available: &[T],
+    field: &str,
+) -> Result<Vec<T>, String> {
+    let mut normalized = Vec::with_capacity(configured.len());
+    for value in configured {
+        if normalized.contains(&value) {
+            return Err(format!("{field} must not contain duplicates"));
+        }
+        if !available.contains(&value) {
+            return Err(format!(
+                "{field} requires {value}, which is not provided by the distribution"
+            ));
+        }
+        normalized.push(value);
+    }
+    Ok(normalized)
 }
 
 fn validate_experience_url(raw: &str, id: &str) -> Result<String, String> {

@@ -236,7 +236,9 @@ async function assertWorkspaceLayout(page) {
     const editorContent = document.querySelector(".panel-editor .panel-content");
     const previewContent = document.querySelector(".panel-preview .panel-content")?.getBoundingClientRect();
     const previewFrame = document.querySelector(".pdf-frame")?.getBoundingClientRect();
-    const toggles = document.querySelectorAll(".workspace-icon-toggles .icon-toggle").length;
+    const toggles = document.querySelectorAll(
+      '.workspace-icon-toggles nve-button[aria-pressed]'
+    ).length;
     const rootHeight = document.documentElement.clientHeight;
     const editor = document.querySelector(".cm-editor");
     const editorScroller = document.querySelector(".cm-scroller");
@@ -283,7 +285,9 @@ async function assertWorkspaceLayout(page) {
     const accountLabelRect = accountLabel?.getBoundingClientRect();
     const accountButtonRect = accountButton?.getBoundingClientRect();
     const workspaceButtonRect = workspaceButton?.getBoundingClientRect();
-    const activeToggle = document.querySelector("nve-button.icon-toggle.active");
+    const activeToggle = document.querySelector(
+      '.workspace-icon-toggles nve-button[aria-pressed="true"]'
+    );
     const activeToggleInternal = activeToggle?.shadowRoot?.querySelector("[internal-host]");
     const selectedTreeNode = document.querySelector(".tree-node.active");
     const activeEditorLine = document.querySelector(".cm-activeLine");

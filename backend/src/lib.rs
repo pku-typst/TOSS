@@ -3,6 +3,7 @@ mod app_state;
 mod audit;
 mod collaboration;
 mod database_error;
+mod deployment_config;
 mod distribution;
 mod document_processing;
 mod experience;

@@ -7,15 +7,13 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use reqwest::redirect::Policy;
 use serde::Deserialize;
-use std::env;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProviderRegistryDocument {
-    schema: u32,
+pub(crate) struct ExternalGitConfigFile {
+    #[serde(default)]
     providers: Vec<ProviderInstanceDocument>,
 }
 
@@ -34,18 +32,10 @@ struct ProviderInstanceDocument {
     login_enabled: bool,
 }
 
-fn provider_registry_from_toml(
-    document: &str,
+pub(crate) fn external_git_provider_registry_from_config(
+    document: ExternalGitConfigFile,
     environment: &dyn Fn(&str) -> Option<String>,
 ) -> Result<ExternalGitProviderRegistry, String> {
-    let document: ProviderRegistryDocument = toml::from_str(document)
-        .map_err(|error| format!("EXTERNAL_GIT_CONFIG must be valid TOML: {error}"))?;
-    if document.schema != 1 {
-        return Err(format!(
-            "EXTERNAL_GIT_CONFIG schema {} is unsupported; expected 1",
-            document.schema
-        ));
-    }
     if document.providers.is_empty() {
         return Ok(ExternalGitProviderRegistry::default());
     }
@@ -294,32 +284,6 @@ fn provider_http_client(
         })
 }
 
-fn provider_registry_from_path(
-    path: Option<&Path>,
-    environment: &dyn Fn(&str) -> Option<String>,
-) -> Result<ExternalGitProviderRegistry, String> {
-    let Some(path) = path else {
-        return Ok(ExternalGitProviderRegistry::default());
-    };
-    let document = std::fs::read_to_string(path).map_err(|error| {
-        format!(
-            "external Git provider config '{}' could not be read: {error}",
-            path.display()
-        )
-    })?;
-    provider_registry_from_toml(&document, environment)
-}
-
-pub(crate) fn external_git_provider_registry_from_env(
-) -> Result<ExternalGitProviderRegistry, String> {
-    let path = env::var("EXTERNAL_GIT_CONFIG")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
-    provider_registry_from_path(path.as_deref(), &|name| env::var(name).ok())
-}
-
 fn normalize_service_url(raw: &str, variable: &str) -> Result<String, String> {
     let mut url = reqwest::Url::parse(raw).map_err(|_| format!("{variable} is not a valid URL"))?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -393,6 +357,29 @@ pub(crate) fn external_git_url_has_same_origin(base_url: &str, candidate_url: &s
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct StandaloneProviderRegistryDocument {
+        schema: u32,
+        #[serde(flatten)]
+        config: ExternalGitConfigFile,
+    }
+
+    fn provider_registry_from_toml(
+        document: &str,
+        environment: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<ExternalGitProviderRegistry, String> {
+        let document: StandaloneProviderRegistryDocument = toml::from_str(document)
+            .map_err(|error| format!("external Git config must be valid TOML: {error}"))?;
+        if document.schema != 1 {
+            return Err(format!(
+                "external Git config schema {} is unsupported; expected 1",
+                document.schema
+            ));
+        }
+        external_git_provider_registry_from_config(document.config, environment)
+    }
 
     #[test]
     fn api_url_must_share_the_provider_origin() {
@@ -854,17 +841,6 @@ login_enabled = true
                 .find_map(|(key, value)| (key == "scope").then(|| value.into_owned())),
             Some("openid profile email write:user write:repository write:organization".to_string())
         );
-        Ok(())
-    }
-
-    #[test]
-    fn registry_file_is_optional_but_invalid_paths_fail() -> Result<(), String> {
-        let registry = provider_registry_from_path(None, &|_| None)?;
-        assert!(registry.is_empty());
-
-        let missing = std::path::Path::new("/definitely/missing/external-git.toml");
-        assert!(provider_registry_from_path(Some(missing), &|_| None)
-            .is_err_and(|error| error.contains("could not be read")));
         Ok(())
     }
 }

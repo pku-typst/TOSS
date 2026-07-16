@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import "@/pages/admin.css";
 import {
   Building2,
   KeyRound,
@@ -10,7 +11,6 @@ import {
   ShieldCheck,
   ShieldCog,
   Trash2,
-  TriangleAlert,
   UserRoundPlus,
   UsersRound
 } from "lucide-react";
@@ -21,9 +21,12 @@ import {
   UiCard,
   UiCheckbox,
   UiDialog,
+  UiEmptyState,
   UiHelpTooltip,
   UiIconButton,
   UiInput,
+  UiPageHeading,
+  UiSectionHeading,
   UiSelect
 } from "@/components/ui";
 import {
@@ -233,22 +236,19 @@ export function AdminPage({ t }: { t: Translator }) {
 
   return (
     <section className="app-page admin-page" nve-layout="column gap:lg pad:md @md|pad:xl">
-      <header className="admin-page-header">
-        <span className="admin-page-icon" aria-hidden>
-          <ShieldCog size={24} />
-        </span>
-        <h1 nve-text="heading xl">{t("admin.title")}</h1>
-      </header>
+      <UiPageHeading
+        icon={<ShieldCog size={24} />}
+        title={t("admin.title")}
+      />
 
       <div className="admin-content">
-        <UiCard className="admin-auth-card">
-          <div className="admin-card-header">
-            <span className="admin-card-icon" aria-hidden>
-              <ShieldCheck size={18} />
-            </span>
-            <h2>{t("admin.authSettings")}</h2>
-            <UiHelpTooltip content={t("admin.authDescription")} />
-          </div>
+        <UiCard className="admin-auth-card" accented>
+          <UiSectionHeading
+            headingLevel={2}
+            icon={<ShieldCheck size={18} />}
+            title={t("admin.authSettings")}
+            actions={<UiHelpTooltip content={t("admin.authDescription")} />}
+          />
 
           {settings ? (
             <>
@@ -274,10 +274,11 @@ export function AdminPage({ t }: { t: Translator }) {
               </div>
 
               <section className="admin-settings-section">
-                <div className="admin-section-heading">
-                  <KeyRound size={16} aria-hidden />
-                  <h3>{t("admin.signInMethods")}</h3>
-                </div>
+                <UiSectionHeading
+                  className="admin-settings-heading"
+                  icon={<KeyRound size={16} />}
+                  title={t("admin.signInMethods")}
+                />
                 <div className="admin-signin-methods">
                   <UiCheckbox
                     label={t("admin.allowLocalLogin")}
@@ -314,11 +315,12 @@ export function AdminPage({ t }: { t: Translator }) {
               </section>
 
               <section className="admin-settings-section admin-oidc-section">
-                <div className="admin-section-heading admin-section-heading-with-help">
-                  <Network size={16} aria-hidden />
-                  <h3>{t("admin.oidcTitle")}</h3>
-                  <UiHelpTooltip content={t("admin.oidcDescription")} />
-                </div>
+                <UiSectionHeading
+                  className="admin-settings-heading"
+                  icon={<Network size={16} />}
+                  title={t("admin.oidcTitle")}
+                  actions={<UiHelpTooltip content={t("admin.oidcDescription")} />}
+                />
                 <div className="admin-fields-grid admin-oidc-grid">
                   <UiInput
                     className="admin-oidc-discovery"
@@ -378,21 +380,22 @@ export function AdminPage({ t }: { t: Translator }) {
         </UiCard>
 
         <UiCard className="admin-organizations-card">
-          <div className="admin-card-header">
-            <span className="admin-card-icon" aria-hidden>
-              <Building2 size={18} />
-            </span>
-            <h2>{t("admin.organizations")}</h2>
-            <div className="admin-card-header-actions">
-              <span
-                className="admin-count"
-                aria-label={t("admin.organizationCount", { count: organizations.length })}
-              >
-                {organizations.length}
-              </span>
-              <UiHelpTooltip content={t("admin.organizationsDescription")} />
-            </div>
-          </div>
+          <UiSectionHeading
+            headingLevel={2}
+            icon={<Building2 size={18} />}
+            title={t("admin.organizations")}
+            actions={
+              <>
+                <UiBadge
+                  tone="neutral"
+                  aria-label={t("admin.organizationCount", { count: organizations.length })}
+                >
+                  {organizations.length}
+                </UiBadge>
+                <UiHelpTooltip content={t("admin.organizationsDescription")} />
+              </>
+            }
+          />
           <div className="admin-organization-create">
             <UiInput
               label={t("admin.newOrganization")}
@@ -434,18 +437,19 @@ export function AdminPage({ t }: { t: Translator }) {
         </UiCard>
 
         <UiCard className="admin-mapping-card">
-          <div className="admin-card-header">
-            <span className="admin-card-icon" aria-hidden>
-              <UsersRound size={18} />
-            </span>
-            <h2>{t("admin.groupMapping")}</h2>
-            <div className="admin-card-header-actions">
-              <span className="admin-count" aria-label={t("admin.mappingCount", { count: mappings.length })}>
-                {mappings.length}
-              </span>
-              <UiHelpTooltip content={t("admin.groupMappingDescription")} />
-            </div>
-          </div>
+          <UiSectionHeading
+            headingLevel={2}
+            icon={<UsersRound size={18} />}
+            title={t("admin.groupMapping")}
+            actions={
+              <>
+                <UiBadge tone="neutral" aria-label={t("admin.mappingCount", { count: mappings.length })}>
+                  {mappings.length}
+                </UiBadge>
+                <UiHelpTooltip content={t("admin.groupMappingDescription")} />
+              </>
+            }
+          />
 
           <div className="admin-mapping-form">
             <UiInput
@@ -502,21 +506,20 @@ export function AdminPage({ t }: { t: Translator }) {
               </article>
             ))}
             {mappings.length === 0 ? (
-              <div className="admin-mapping-empty">
-                <span className="admin-mapping-empty-icon" aria-hidden>
-                  <UsersRound size={21} />
-                </span>
-                <span>{t("admin.noMappings")}</span>
-              </div>
+              <UiEmptyState
+                className="admin-mapping-empty"
+                icon={<UsersRound size={21} />}
+                iconFrame
+                description={t("admin.noMappings")}
+              />
             ) : null}
           </div>
         </UiCard>
 
         {error ? (
-          <div className="admin-error" role="alert">
-            <TriangleAlert size={15} aria-hidden />
+          <nve-alert status="danger" role="alert">
             <span>{error}</span>
-          </div>
+          </nve-alert>
         ) : null}
       </div>
 

@@ -90,6 +90,7 @@ async function loadRuntimeConfig() {
   const config = await readJson(runtimeConfigPath);
   if (
     config.schema !== 1 ||
+    config.typst_language_version !== "0.15.0" ||
     typeof config.runtime_version !== "string" ||
     !config.runtime_version ||
     config.compiler?.package !== COMPILER_PACKAGE_NAME ||
