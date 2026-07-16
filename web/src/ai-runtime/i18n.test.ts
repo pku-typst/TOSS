@@ -34,6 +34,9 @@ describe("AI Runtime system prompt", () => {
     expect(prompt).toContain("including document metadata");
     expect(prompt).toContain("compiler-checked example");
     expect(prompt).toContain("pinned to Typst 0.15.0");
+    expect(prompt).toContain("inline mathematical notation as `$...$`");
+    expect(prompt).toContain("opening and closing `$$` delimiters on their own lines");
+    expect(prompt).toContain("Typst or LaTeX source in fenced code blocks");
     expect(prompt).not.toContain("granted tools are read-only");
   });
 

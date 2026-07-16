@@ -3324,6 +3324,23 @@ nve-button.icon-toggle:not(.active):hover {
   border: var(--nve-ref-border-width-sm) solid var(--toss-border-subtle);
 }
 
+.ai-markdown .katex {
+  font-size: 1.05em;
+}
+
+.ai-markdown .katex-display {
+  max-width: 100%;
+  margin: 0.75em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15em 0;
+}
+
+.ai-markdown .katex-error {
+  color: var(--toss-danger);
+  overflow-wrap: anywhere;
+}
+
 .ai-activity-group {
   overflow: hidden;
   border: var(--nve-ref-border-width-sm) solid var(--toss-border-subtle);

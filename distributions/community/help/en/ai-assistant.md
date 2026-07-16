@@ -42,8 +42,9 @@ exact or newer project data.
 For Typst projects, the assistant also has a local `query_typst_docs` tool. It
 searches a bundled Typst 0.15.0 API index and a small set of compile-verified
 recipes for topics such as document metadata, content versus strings, set/show
-rules, arrays, and imports. The reference is loaded only when requested; it is
-not added to every conversation turn and does not contact `typst.app` or any
+rules, arrays, and imports. A Typst Runtime loads and validates the reference
+during its isolated startup, then searches it from private memory; it is not
+added to every conversation turn and does not contact `typst.app` or any
 backend. Model-facing queries and returned reference text are English, while
 the assistant still answers in your language. Compilation and human review
 remain authoritative because documentation lookup cannot prove that a proposed
@@ -80,9 +81,12 @@ Anonymous conversations remain only while the project page stays open. A reload
 restores signed-in conversation history but not the credential.
 
 Answers stream into the conversation and support Markdown, code blocks, tables,
-and copying the final answer. Press Enter to send, Shift+Enter for a newline,
-or **Stop** to cancel the current run. Automatic scrolling follows new content
-only while you are near the bottom; otherwise use **Jump to latest**.
+baseline KaTeX math (`$...$` inline, or opening and closing `$$` delimiters on
+their own lines for a display block), and
+copying the final answer. Typst or LaTeX source remains fenced code rather than
+rendered math. Press Enter to send, Shift+Enter for a newline, or **Stop** to
+cancel the current run. Automatic scrolling follows new content only while you
+are near the bottom; otherwise use **Jump to latest**.
 
 System instructions plus all model-visible tool and parameter descriptions are
 defined once in English, independently of the selected UI locale. Presentation

@@ -538,10 +538,15 @@ a state. Reasoning is labeled as model-provided, rendered as untrusted plain
 text, and kept visually separate from the final Markdown answer; raw tool JSON
 is never shown. File references expose only validated path/range summaries.
 
-Assistant text is rendered incrementally as Markdown with fenced code and
-tables. The host batches high-frequency view updates to an animation frame and
-uses a separate coarse live region so streaming does not announce every token.
-Copy applies only to the final answer, not reasoning or tool data.
+Assistant text is rendered incrementally as Markdown with fenced code, GFM
+tables, and baseline KaTeX math using `$...$` inline or opening and closing
+`$$` display delimiters on their own lines. The Markdown pipeline keeps raw HTML disabled and configures KaTeX
+with `trust: false`; CSS and fonts are local build assets rather than CDN
+resources. Typst and LaTeX source remains fenced code. Display math scrolls
+horizontally inside a narrow panel. The host batches high-frequency view updates
+to an animation frame and uses a separate coarse live region so streaming does
+not announce every token. Copy applies only to the final answer, not reasoning
+or tool data.
 
 The composer supports a multiline prompt, Enter to send, Shift+Enter for a
 newline, and a Stop action while the run is active. It shows explicit context

@@ -22,9 +22,8 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { UiButton, UiCheckbox, UiDialog, UiInput, UiSelect } from "@/components/ui";
+import { AssistantMarkdown } from "@/features/ai/AssistantMarkdown";
 import {
   createStoredAiConnection,
   defaultAiConnectionDraft,
@@ -200,33 +199,6 @@ function compilationLabel(context: AiWorkspaceContextSnapshot, t: Translator) {
   return t("ai.context.compileIdle");
 }
 
-function MarkdownContent({ children }: { children: string }) {
-  return (
-    <div className="ai-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children: linkChildren, ...props }) => {
-            const external = href?.startsWith("https://") || href?.startsWith("http://");
-            return (
-              <a
-                {...props}
-                href={href}
-                target={external ? "_blank" : undefined}
-                rel={external ? "noreferrer" : undefined}
-              >
-                {linkChildren}
-              </a>
-            );
-          }
-        }}
-      >
-        {children}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
 function ToolActivity({ part, t }: { part: AiTranscriptToolPart; t: Translator }) {
   const running = part.state === "running";
   const failed = part.state === "error" || part.state === "cancelled" ||
@@ -346,7 +318,9 @@ function TranscriptMessage({ message, t }: { message: AiTranscriptMessage; t: Tr
       ) : (
         <>
           {groups.map((group) => group.type === "text" ? (
-            group.part.text && <MarkdownContent key={group.part.id}>{group.part.text}</MarkdownContent>
+            group.part.text && (
+              <AssistantMarkdown key={group.part.id}>{group.part.text}</AssistantMarkdown>
+            )
           ) : (
             <AssistantActivityGroup key={group.id} parts={group.parts} t={t} />
           ))}

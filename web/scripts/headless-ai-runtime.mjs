@@ -154,6 +154,8 @@ async function startMockProvider() {
     } else {
       const content = turn === 4
         ? "Workspace tool read main.typ and the reviewed metadata patch was accepted."
+        : turn === 5
+          ? "Mock provider turn 5 completed. Inline math: $E = mc^2$.\n\n$$\n\\int_0^1 x\\,dx = \\frac{1}{2}\n$$"
         : turn === 7
           ? "Typst documentation query completed."
         : `Mock provider turn ${turn} completed.`;
@@ -625,6 +627,14 @@ async function verifyBrowserBoundary(projectId, provider) {
     const secondResponse = await waitForAssistant(1, "second pi Runtime response");
     if (provider.kind === "mock") {
       assert(secondResponse.includes("Mock provider turn 5 completed."), "unexpected mock second response");
+      assert(
+        await assistantMessages.nth(1).locator(".katex").count() >= 2,
+        "assistant response did not render inline and display math with KaTeX"
+      );
+      assert(
+        await assistantMessages.nth(1).locator(".katex-display").count() === 1,
+        "assistant response did not render exactly one display-math block"
+      );
       assert(provider.requests.length === 5, "mock provider did not receive the compile/revise/review loop and second turn");
       assert(
         provider.requests.every((request) => request.origin === "null"),

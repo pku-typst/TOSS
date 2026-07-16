@@ -36,6 +36,9 @@ try {
   if (assets.some((name) => name.startsWith("AssistantPanel-"))) {
     throw new Error("AI-excluded build contains an AssistantPanel chunk");
   }
+  if (assets.some((name) => name.startsWith("KaTeX_"))) {
+    throw new Error("AI-excluded build contains KaTeX font assets");
+  }
   try {
     await fs.access(path.join(outputDir, "_ai-runtime"));
     throw new Error("AI-excluded build contains an AI Runtime artifact");
@@ -43,7 +46,7 @@ try {
     if (error?.code !== "ENOENT") throw error;
   }
 
-  console.log("[ai-excluded-build] no Assistant chunk or Runtime artifact");
+  console.log("[ai-excluded-build] no Assistant chunk, KaTeX font, or Runtime artifact");
 } finally {
   if (previousConfig === undefined) delete process.env.TOSS_CONFIG;
   else process.env.TOSS_CONFIG = previousConfig;
