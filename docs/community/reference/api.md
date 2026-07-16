@@ -68,9 +68,11 @@ including `distribution_id`, `enabled_project_types`, product branding,
 anonymous-access policy, an ordered `identity_providers` list, and nullable
 `ai_assistant` connection-policy display metadata. A user-defined policy returns
 only its kind. A managed policy returns provider ID/label, effective default
-profile ID, and effective model-profile IDs/upstream IDs/labels. It deliberately
-omits the managed base URL, credential label, protocol details, context/output
-limits, reasoning flags, request overrides, live catalog, and user selection.
+recommendation ID, effective recommendation IDs/upstream IDs/labels, and the
+non-secret custom-profile defaults, limits, catalog-match rule, and saved-count
+bound. It deliberately omits the managed base URL, credential label, protocol
+details, recommendation execution parameters, live catalog, user selection,
+and saved personal profiles.
 It never returns config paths, client secrets, token encryption keys, or
 credentials.
 

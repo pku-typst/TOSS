@@ -56,7 +56,7 @@ rationale may later be promoted into an ADR.
 | --- | --- |
 | Runtime | The provider connection and agent loop run in a browser AI Runtime isolated as a unique opaque-origin iframe. TOSS Core does not proxy or execute model requests. |
 | User-provided AI | BYOK includes cloud API credentials, short-lived tokens, user-controlled gateways, OpenAI-compatible endpoints, and local services such as Ollama, LM Studio, or vLLM. |
-| Connections | Community uses `user_defined`: a user defines the non-secret connection metadata. A downstream distribution may instead use `managed_catalog`: the distribution fixes one provider endpoint/protocol and approved model profiles while the user chooses an available model. A build contains exactly one policy. |
+| Connections | Community uses `user_defined`: a user defines the non-secret connection metadata. A downstream distribution may instead use `managed_catalog`: the distribution fixes one provider endpoint/protocol, supplies verified recommendation profiles, and may let users save custom profiles for other models returned by the authenticated live catalog. A build contains exactly one policy. |
 | Credentials | The user enters a credential into the sandboxed Runtime surface, and it exists only in that Runtime instance's memory. The host application, TOSS Core, and project never receive it. Reload, tab close, logout, account change, or endpoint change clears it. |
 | Conversations | A project owns zero or more local browser conversations and one active-conversation pointer. Conversations never cross an account or project boundary. Switching conversations resets the Runtime Agent context but keeps the current in-memory credential. |
 | Conversation persistence | For signed-in accounts, the host persists a bounded, sanitized transcript projection in IndexedDB. It never persists credentials, reasoning, system prompts, raw tool results, source excerpts, or patches. Anonymous conversations remain component-memory only. TOSS Core does not store them. |
@@ -106,15 +106,16 @@ slices are implemented. They contain:
   maximum output tokens; anonymous
   sessions keep the same metadata in component memory only;
 - a distribution-owned `user_defined | managed_catalog` connection policy,
-  artifact-policy matching, deployment-only managed-profile narrowing, and a
+  artifact-policy matching, deployment-only recommendation narrowing, and a
   sanitized host projection that never discloses the managed endpoint or
   Provider request parameters;
-- account-scoped personal AI settings for the selected managed model and
-  bounded request/turn/catalog limits; these settings are memory-only for an
-  anonymous session and never contain a credential;
+- account-scoped personal AI settings for the selected managed model, bounded
+  custom profiles, and request/turn/catalog limits; these settings are
+  memory-only for an anonymous session and never contain a credential;
 - authenticated managed-model discovery through the Runtime-owned credential,
-  intersection with the approved profile set, stale-request fencing, and
-  in-place model switching without recreating the credential-holding iframe;
+  verified-recommendation intersection, bounded live-catalog custom profiles,
+  stale-request fencing, and in-place model switching without recreating the
+  credential-holding iframe;
 - project-bound multiple conversations with create, select, rename, and delete
   controls; authenticated conversations use a bounded account/project-scoped
   IndexedDB store, while anonymous conversations remain in memory;
@@ -127,7 +128,8 @@ slices are implemented. They contain:
 - exact `0.80.7` dependencies on `@earendil-works/pi-agent-core` and
   `@earendil-works/pi-ai`, a stateful streaming multi-turn `Agent`, cancellation,
   bounded provider requests, and generic model construction from either a
-  user-defined connection or an approved managed model profile; and
+  user-defined connection, verified managed recommendation, or validated
+  managed custom profile; and
 - lazy protocol adapters for OpenAI-compatible Chat Completions, OpenAI
   Responses, and Anthropic Messages, plus a full-base-URL fetch fence that
   forces omitted browser credentials, rejected redirects, and no referrer;
@@ -449,9 +451,10 @@ When unavailable, the toolbar entry does not render and the browser does not
 load the assistant chunk. An AI-excluded distribution additionally emits no
 Assistant chunk and no Runtime artifact. Under Community, protocol, endpoint,
 model, and credential choices are user-side feature state. Under a managed
-distribution, provider and model-profile definitions are distribution policy,
-the deployment may only narrow profiles, and the user still owns the selected
-profile and credential. None of these are backend processing capabilities.
+distribution, the provider, verified recommendations, and custom-profile
+bounds are distribution policy; the deployment may only narrow
+recommendations, while the user owns their selection, saved custom profiles,
+and credential. None of these are backend processing capabilities.
 
 An enabled build also includes the matching Runtime artifact and serves its
 reserved entry and asset routes with the required CSP, CORS, and isolation
@@ -482,10 +485,17 @@ anonymous session keeps the same values only in component memory.
 
 A downstream distribution may instead declare `managed_catalog`. That policy
 owns the immutable provider ID and labels, credential label, wire protocol,
-credential-free HTTPS base URL, catalog protocol, default model profile, and
-approved model profiles. Each profile owns its upstream model ID, localized
-label, context window, maximum output, reasoning-capability declaration, and
-exact bounded Provider request overrides. A representative shape is:
+credential-free HTTPS base URL, catalog protocol, default recommendation, and
+verified recommendation profiles. Each recommendation owns its upstream model
+ID, localized label, tested context/output defaults, reasoning-capability
+declaration, and exact bounded Provider request overrides.
+
+The same policy may enable personal custom profiles. It supplies editable
+defaults, distribution-owned hard bounds, and a saved-profile count. A custom profile
+can name only a model returned by the current credential-authenticated live
+catalog; it cannot replace the provider, endpoint, or protocol. The Runtime
+also applies catalog-advertised input/output caps when present. A representative
+shape is:
 
 ```json
 {
@@ -511,15 +521,33 @@ exact bounded Provider request overrides. A representative shape is:
           "reasoning": true,
           "request_overrides": {}
         }
-      ]
+      ],
+      "custom_profiles": {
+        "enabled": true,
+        "require_catalog_match": true,
+        "defaults": {
+          "context_window": 65536,
+          "max_output_tokens": 8192,
+          "reasoning": false,
+          "request_overrides": {}
+        },
+        "limits": {
+          "min_context_window": 8192,
+          "max_context_window": 4194304,
+          "min_output_tokens": 256,
+          "max_output_tokens": 1048576
+        },
+        "max_saved_profiles": 20
+      }
     }
   }
 }
 ```
 
 Deployment configuration cannot turn a user-defined build into managed mode,
-change a managed endpoint, add a model, or alter model metadata. It may only
-narrow the distribution allowlist and choose a default inside that subset:
+change a managed endpoint, add a recommendation, alter recommendation metadata,
+or change the custom-profile policy. It may only narrow the distribution's
+recommendations and choose a default inside that subset:
 
 ```toml
 [frontend]
@@ -530,39 +558,42 @@ enabled_model_profiles = ["example-model"]
 default_model_profile = "example-model"
 ```
 
-The effective managed choices are the ordered intersection of distribution
-profiles, the optional deployment subset, and the model IDs returned by the
-credential-authenticated live catalog. A missing live model is unavailable for
-that Runtime session; the live catalog is never treated as authority to add an
-unapproved model.
+The effective recommendations are the ordered intersection of distribution
+profiles, the optional deployment subset, and model IDs returned by the live
+catalog. When custom profiles are enabled, the remaining live catalog is also
+available as an unverified model directory. Choosing an entry creates a
+personal profile from distribution-policy defaults; changing any verified recommendation
+parameters likewise makes the result customized rather than verified. The
+catalog response itself remains ephemeral and is never copied to Local Storage.
 
 The build embeds only the policy kind and records it in both build manifests.
 Core refuses to start if the distribution, host artifact, and Runtime artifact
-do not agree. Core projects only safe display metadata—provider ID/label,
-default profile, and model IDs/labels—through `GET /v1/auth/config`. The full
-managed policy, including endpoint and request overrides, is serialized into
-the no-store Runtime entry and parsed only inside the isolated frame. This is a
-UI and least-disclosure boundary; the distribution file itself is still
-deployment-controlled configuration rather than a secret store.
+do not agree. Core projects only safe host metadata—provider ID/label, default
+recommendation, recommendation IDs/models/labels, and the non-secret custom
+profile defaults/limits—through `GET /v1/auth/config`. It omits the managed
+endpoint, credential label, and protocol details. The full managed policy is
+serialized into the no-store Runtime entry and parsed only inside the isolated
+frame. This is a UI and least-disclosure boundary; the distribution file itself
+is still deployment-controlled configuration rather than a secret store.
 
 Managed activation proceeds as follows:
 
 1. the Runtime accepts the API key into its own password field and memory;
 2. it performs authenticated `GET <base>/models` under a bounded timeout;
-3. it intersects returned model IDs with approved profiles and reports only
-   approved profile IDs to the host;
-4. it selects the user's preferred profile when available, otherwise the
-   effective default and then the first available profile;
+3. it reports bounded model IDs and optional advertised token caps plus the
+   available verified recommendation IDs to the host;
+4. it selects the user's preferred recommendation or custom profile when
+   valid, otherwise the effective default and then the first recommendation;
 5. model changes rebuild the in-frame Agent session without recreating the
    iframe, so the key remains in Runtime memory; and
 6. replacing, clearing, reloading, logging out, or changing accounts destroys
    the in-memory key.
 
-After discovery, the host renders only live approved profiles. When that list
-contains more than eight profiles, the model selector gains a local search
-field that matches both the localized display label and the exact upstream
-model ID; filtering never issues another Provider request or expands the
-allowlist.
+After discovery, the host groups verified recommendations, saved custom
+profiles, and the remaining live catalog. A local search appears for a large
+catalog and matches localized recommendation labels or exact upstream model
+IDs; filtering never issues another Provider request. Selecting a new catalog
+entry persists only that custom profile, not the catalog response.
 
 The credential surface uses the host's resolved portable design theme rather
 than the browser's `prefers-color-scheme` value or a duplicate Runtime palette.
@@ -578,7 +609,10 @@ must update this explicit contract rather than inherit ambient OS styling.
 Credential rejection clears the key and returns to credential entry. A
 transient catalog failure retains the key, exposes a retry action, and does not
 silently fall back to an unverified model. Epoch checks discard a response from
-an older credential or refresh attempt.
+an older credential or refresh attempt. If edited custom parameters exceed a
+live model cap, the Runtime rejects only that selection: the current Agent
+session and in-memory credential remain active, while the host reports the
+incompatible setting so the user can correct it.
 
 ## Personal AI settings
 
@@ -588,15 +622,18 @@ not conversation state and not deployment policy:
 | Value | Owner | Signed-in persistence | Anonymous persistence |
 | --- | --- | --- | --- |
 | User-defined connection name, protocol, endpoint, model metadata, and request overrides | Account | Account-scoped Local Storage | Component memory |
-| Managed selected model-profile ID | Account | Account-scoped Local Storage | Component memory |
+| Managed selected recommendation/custom-profile ID | Account | Account-scoped Local Storage | Component memory |
+| Managed custom model ID, context/output values, reasoning declaration, and bounded request overrides | Account | Account-scoped Local Storage | Component memory |
 | Provider request timeout, maximum Provider calls per turn, turn timeout, and catalog timeout | Account | Account-scoped Local Storage | Component memory |
 | API key or short-lived token | Isolated Runtime instance | Never | Never |
 | Live catalog response | Isolated Runtime instance | Never | Never |
 | Conversation transcript projection | Account + project + conversation | Bounded IndexedDB | Component memory |
 
 Personal numeric settings are strict integers inside hard safety bounds. The
-host sends them during bootstrap and may update them between turns with a typed
-`set_preferences` message. They do not recreate the iframe. Security
+effective saved-profile list also applies the distribution's count bound and
+drops profiles that no longer satisfy its numeric or request-override policy.
+The host sends them during bootstrap and may update them between turns with a
+typed `set_preferences` message. They do not recreate the iframe. Security
 invariants remain code-owned and are not user-configurable: exact managed URLs
 and methods, redirect rejection, omitted browser credentials, response/body
 bounds, protected request fields, protocol validation, and absolute numeric
@@ -612,9 +649,9 @@ but it must not become a path for credentials or conversation/source payloads.
 An **AI connection** is the only connection concept exposed by this feature.
 Under Community's user-defined policy it has a user-selected name, protocol,
 endpoint, model metadata, and optional credential. Under a managed policy it
-is one fixed distribution provider, one user-selected approved model profile,
-and a required user credential. A managed provider is not editable by the
-user.
+is one fixed distribution provider, one user-selected verified recommendation
+or bounded live-catalog custom profile, and a required user credential. A
+managed provider is not editable by the user.
 
 BYOK is the product umbrella for user-supplied AI access in both policies. It includes a static
 API key, a temporary token, a user-controlled gateway, an unauthenticated local
@@ -786,8 +823,9 @@ conversations; broader eligibility policy for shared projects remains open.
 ## User-defined AI connections
 
 This section applies to Community's `user_defined` policy. A managed build
-replaces the connection editor with its fixed provider identity, a selector
-containing only live approved profiles, and the Runtime-owned key surface.
+replaces the connection editor with its fixed provider identity, a grouped
+selector for verified recommendations and live-catalog custom models, and the
+Runtime-owned key surface.
 
 The first-run panel shows one `Add AI connection` action. Connection creation
 uses one progressively disclosed dialog rather than a wizard. There is no
@@ -1484,8 +1522,9 @@ Vitest should cover:
   endpoint sanitization, full-base-URL binding, and memory-only credential
   lifetime and clearing;
 - managed-policy validation, deployment subset/default constraints, build and
-  Runtime policy matching, account-scoped selected-model/preferences storage,
-  live-catalog allowlist intersection, authentication/transient failures,
+  Runtime policy matching, account-scoped selected-model/custom-profile/
+  preferences storage, verified-recommendation intersection, live-catalog and
+  advertised-cap validation, authentication/transient failures,
   credential-epoch races, and model switching without iframe recreation;
 - IndexedDB conversation schema validation, account/project isolation, size and
   count bounds, sanitized persistence, interrupted-turn projection, serialized

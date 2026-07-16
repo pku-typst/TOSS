@@ -47,6 +47,7 @@ import {
 } from "@/features/ai/conversationStore";
 import {
   AI_RUNTIME_ENTRY_PATH,
+  type AiRuntimeManagedModelSelection,
   type AiRuntimeTokenUsage
 } from "@/features/ai/protocol";
 import {
@@ -65,10 +66,16 @@ import type { Translator, UiLocale } from "@/lib/i18n";
 import type { AuthConfig } from "@/lib/api/types";
 import { BUILD_AI_CONNECTION_POLICY } from "@/features/ai/buildPolicy";
 import {
+  filterManagedCatalogModels,
   filterManagedModelProfiles,
   localizedAiText,
   shouldShowManagedModelSearch
 } from "@/features/ai/managedModelSelection";
+import {
+  createManagedCustomProfile,
+  managedCustomProfilesForConfig,
+  requestedManagedSelection
+} from "@/features/ai/managedCustomProfiles";
 
 type AiAssistantClientConfig = NonNullable<AuthConfig["ai_assistant"]>;
 type ManagedAiAssistantClientConfig = Extract<
@@ -442,6 +449,7 @@ export default function AssistantPanel({
   }));
   const [promptDraft, setPromptDraft] = useState("");
   const [managedModelQuery, setManagedModelQuery] = useState("");
+  const [managedModelError, setManagedModelError] = useState<string | null>(null);
   const [renameConversation, setRenameConversation] = useState<{
     id: string;
     title: string;
@@ -453,32 +461,62 @@ export default function AssistantPanel({
   const appliedConversationId = useRef<string | null>(null);
   const connection = useMemo(() => activeStoredAiConnection(stored), [stored]);
   const appliedConnection = useRef(connection);
-  const requestedManagedProfileId = managedConfig && accountSettings.managedModelProfileId &&
-    managedProfile(managedConfig, accountSettings.managedModelProfileId)
-    ? accountSettings.managedModelProfileId
-    : managedConfig?.default_model_profile ?? null;
+  const appliedManagedSelection = useRef<string | null>(null);
+  const requestedSelection = useMemo(() => managedConfig
+    ? requestedManagedSelection(managedConfig, accountSettings)
+    : null, [accountSettings, managedConfig]);
   const client = runtime.client;
   const snapshot = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
-  const selectedManagedProfileId = snapshot.managedCatalog?.selectedModelProfileId ??
-    requestedManagedProfileId;
-  const selectedManagedProfile = managedConfig && selectedManagedProfileId
-    ? managedProfile(managedConfig, selectedManagedProfileId)
-    : null;
-  const availableManagedProfiles = useMemo(() => {
+  const selectedManagedModel = snapshot.managedCatalog?.selectedModel ??
+    (requestedSelection ? {
+      kind: requestedSelection.kind,
+      profileId: requestedSelection.profileId
+    } : null);
+  const availableRecommendedProfiles = useMemo(() => {
     if (!managedConfig || !snapshot.managedCatalog) return [];
-    const available = new Set(snapshot.managedCatalog.availableModelProfileIds);
+    const available = new Set(snapshot.managedCatalog.availableRecommendedProfileIds);
     return managedConfig.model_profiles.filter((profile) => available.has(profile.id));
   }, [managedConfig, snapshot.managedCatalog]);
-  const managedModelSearchVisible = shouldShowManagedModelSearch(
-    availableManagedProfiles.length
+  const savedCustomProfiles = useMemo(() => managedConfig
+    ? managedCustomProfilesForConfig(managedConfig, accountSettings)
+    : [], [accountSettings, managedConfig]);
+  const availableCatalogModels = useMemo(
+    () => snapshot.managedCatalog?.models ?? [],
+    [snapshot.managedCatalog]
   );
-  const visibleManagedProfiles = useMemo(() => {
+  const managedModelSearchVisible = shouldShowManagedModelSearch(
+    availableRecommendedProfiles.length + availableCatalogModels.length
+  );
+  const visibleRecommendedProfiles = useMemo(() => {
     return filterManagedModelProfiles(
-      availableManagedProfiles,
+      availableRecommendedProfiles,
       managedModelSearchVisible ? managedModelQuery : "",
       locale
     );
-  }, [availableManagedProfiles, locale, managedModelQuery, managedModelSearchVisible]);
+  }, [availableRecommendedProfiles, locale, managedModelQuery, managedModelSearchVisible]);
+  const visibleSavedCustomProfiles = useMemo(() => {
+    const available = new Set(availableCatalogModels.map((model) => model.id));
+    const query = managedModelSearchVisible ? managedModelQuery.trim().toLocaleLowerCase(locale) : "";
+    return savedCustomProfiles.filter((profile) =>
+      available.has(profile.model) &&
+      (!query || profile.model.toLocaleLowerCase(locale).includes(query))
+    );
+  }, [availableCatalogModels, locale, managedModelQuery, managedModelSearchVisible, savedCustomProfiles]);
+  const visibleCatalogModels = useMemo(() => {
+    const savedModels = new Set(savedCustomProfiles.map((profile) => profile.model));
+    return filterManagedCatalogModels(
+      availableCatalogModels.filter((model) => !savedModels.has(model.id)),
+      managedModelSearchVisible ? managedModelQuery : "",
+      locale
+    );
+  }, [availableCatalogModels, locale, managedModelQuery, managedModelSearchVisible, savedCustomProfiles]);
+  const selectedManagedValue = selectedManagedModel
+    ? `${selectedManagedModel.kind}:${selectedManagedModel.profileId}`
+    : "";
+  const managedCatalogError = snapshot.managedCatalog?.errorCode ===
+    "managed_model_selection_unavailable"
+    ? "ai.managed.modelSelectionUnavailable"
+    : null;
   const connectionAvailable = policyMatchesBuild && (
     managedConfig !== null || connection !== null
   );
@@ -505,6 +543,9 @@ export default function AssistantPanel({
   }, [accountSettings.runtime, conversations.activeConversation, locale, workspacePort]);
 
   useEffect(() => () => client.dispose(), [client]);
+  useEffect(() => {
+    appliedManagedSelection.current = null;
+  }, [client]);
   useEffect(() => client.setLocale(locale), [client, locale]);
   useEffect(() => {
     if (snapshot.status === "running" || snapshot.status === "handshaking") return;
@@ -558,38 +599,113 @@ export default function AssistantPanel({
   useEffect(() => {
     if (
       !managedConfig ||
-      !requestedManagedProfileId ||
+      !requestedSelection ||
       !snapshot.managedCatalog ||
-      snapshot.managedCatalog.selectedModelProfileId === requestedManagedProfileId ||
       snapshot.status === "running" ||
       snapshot.status === "handshaking"
     ) return;
-    if (!snapshot.managedCatalog.availableModelProfileIds.includes(requestedManagedProfileId)) {
-      const selected = snapshot.managedCatalog.selectedModelProfileId;
-      if (selected && accountSettings.managedModelProfileId !== selected) {
-        setAccountSettings({ ...accountSettings, managedModelProfileId: selected });
+    const available = requestedSelection.kind === "recommended"
+      ? snapshot.managedCatalog.availableRecommendedProfileIds.includes(
+          requestedSelection.profileId
+        )
+      : managedConfig.custom_profiles.enabled &&
+        snapshot.managedCatalog.models.some((model) => model.id === requestedSelection.model);
+    if (!available) {
+      const selected = snapshot.managedCatalog.selectedModel;
+      const storedSelection = accountSettings.managedModelSelection;
+      if (selected && (!storedSelection ||
+        storedSelection.kind !== selected.kind ||
+        storedSelection.profileId !== selected.profileId)) {
+        setAccountSettings({ ...accountSettings, managedModelSelection: selected });
       }
       return;
     }
-    client.selectManagedModel(requestedManagedProfileId);
+    const fingerprint = JSON.stringify(requestedSelection);
+    if (
+      appliedManagedSelection.current === null &&
+      snapshot.managedCatalog.selectedModel?.kind === requestedSelection.kind &&
+      snapshot.managedCatalog.selectedModel.profileId === requestedSelection.profileId
+    ) {
+      appliedManagedSelection.current = fingerprint;
+      return;
+    }
+    if (appliedManagedSelection.current === fingerprint) return;
+    if (client.selectManagedModel(requestedSelection)) {
+      appliedManagedSelection.current = fingerprint;
+    }
   }, [
     accountSettings,
     client,
     managedConfig,
-    requestedManagedProfileId,
+    requestedSelection,
     setAccountSettings,
     snapshot.managedCatalog,
     snapshot.status
   ]);
 
-  function selectManagedModel(profileId: string) {
-    if (!managedConfig || !managedProfile(managedConfig, profileId)) return;
-    if (!client.selectManagedModel(profileId)) return;
-    setAccountSettings({
-      ...accountSettings,
-      managedModelProfileId: profileId
-    });
-    setManagedModelQuery("");
+  function applyManagedSelection(selection: AiRuntimeManagedModelSelection) {
+    if (!client.selectManagedModel(selection)) return false;
+    try {
+      setAccountSettings({
+        ...accountSettings,
+        managedModelSelection: {
+          kind: selection.kind,
+          profileId: selection.profileId
+        }
+      });
+      appliedManagedSelection.current = JSON.stringify(selection);
+      setManagedModelError(null);
+      setManagedModelQuery("");
+      return true;
+    } catch {
+      setManagedModelError("ai.managed.customProfileInvalid");
+      return false;
+    }
+  }
+
+  function selectManagedModel(value: string) {
+    if (!managedConfig) return;
+    const separator = value.indexOf(":");
+    if (separator < 0) return;
+    const kind = value.slice(0, separator);
+    const id = value.slice(separator + 1);
+    if (kind === "recommended") {
+      if (!managedProfile(managedConfig, id)) return;
+      applyManagedSelection({ kind: "recommended", profileId: id });
+      return;
+    }
+    if (kind === "custom") {
+      const profile = savedCustomProfiles.find((candidate) => candidate.profileId === id);
+      if (profile) applyManagedSelection({ kind: "custom", ...profile });
+      return;
+    }
+    if (kind !== "catalog" || !managedConfig.custom_profiles.enabled) return;
+    const model = availableCatalogModels.find((candidate) => candidate.id === id);
+    if (!model) return;
+    const profile = createManagedCustomProfile(managedConfig, model);
+    if (!profile) {
+      setManagedModelError("ai.managed.customProfileUnsupported");
+      return;
+    }
+    const profiles = savedCustomProfiles;
+    if (profiles.length >= managedConfig.custom_profiles.max_saved_profiles) {
+      setManagedModelError("ai.managed.customProfileLimit");
+      return;
+    }
+    const selection = { kind: "custom" as const, ...profile };
+    if (!client.selectManagedModel(selection)) return;
+    try {
+      setAccountSettings({
+        ...accountSettings,
+        managedModelSelection: { kind: "custom", profileId: profile.profileId },
+        managedCustomProfiles: [...profiles, profile]
+      });
+      appliedManagedSelection.current = JSON.stringify(selection);
+      setManagedModelError(null);
+      setManagedModelQuery("");
+    } catch {
+      setManagedModelError("ai.managed.customProfileInvalid");
+    }
   }
 
   function submitPrompt(event: FormEvent) {
@@ -828,10 +944,15 @@ export default function AssistantPanel({
               {t("ai.conversation.storageConflict")}
             </p>
           )}
-          {managedConfig && selectedManagedProfile ? (
+          {managedConfig ? (
             <div className="ai-connection-summary ai-managed-connection-summary">
               <div>
                 <strong>{localizedAiText(managedConfig.provider.label, locale)}</strong>
+                {selectedManagedModel && (
+                  <small>{selectedManagedModel.kind === "recommended"
+                    ? t("ai.managed.recommended")
+                    : t("ai.managed.customized")}</small>
+                )}
               </div>
               <div className="ai-managed-model-picker">
                 <span>{t("ai.managed.model")}</span>
@@ -841,32 +962,64 @@ export default function AssistantPanel({
                     value={managedModelQuery}
                     placeholder={t("ai.managed.searchModels")}
                     aria-label={t("ai.managed.searchModels")}
-                    disabled={snapshot.status !== "ready"}
+                    disabled={snapshot.status === "running" || snapshot.status === "handshaking"}
                     onChange={(event) => setManagedModelQuery(event.target.value)}
                   />
                 )}
                 <UiSelect
                   aria-label={t("ai.managed.model")}
-                  value={visibleManagedProfiles.some(
-                    (profile) => profile.id === selectedManagedProfile.id
-                  ) ? selectedManagedProfile.id : ""}
+                  value={selectedManagedValue}
                   disabled={
-                    snapshot.status !== "ready" ||
+                    snapshot.status === "running" ||
+                    snapshot.status === "handshaking" ||
                     !snapshot.managedCatalog ||
-                    snapshot.managedCatalog.availableModelProfileIds.length === 0
+                    (
+                      snapshot.managedCatalog.availableRecommendedProfileIds.length === 0 &&
+                      (!managedConfig.custom_profiles.enabled ||
+                        snapshot.managedCatalog.models.length === 0)
+                    )
                   }
                   onChange={(event) => selectManagedModel(event.target.value)}
                 >
-                  {visibleManagedProfiles.length === 0 && (
+                  {visibleRecommendedProfiles.length === 0 &&
+                    visibleSavedCustomProfiles.length === 0 &&
+                    visibleCatalogModels.length === 0 && (
                     <option value="" disabled>{t("ai.managed.noModelsFound")}</option>
                   )}
-                  {visibleManagedProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {localizedAiText(profile.label, locale)}
-                    </option>
-                  ))}
+                  {visibleRecommendedProfiles.length > 0 && (
+                    <optgroup label={t("ai.managed.recommendedModels")}>
+                      {visibleRecommendedProfiles.map((profile) => (
+                        <option key={profile.id} value={`recommended:${profile.id}`}>
+                          {localizedAiText(profile.label, locale)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {visibleSavedCustomProfiles.length > 0 && (
+                    <optgroup label={t("ai.managed.savedCustomModels")}>
+                      {visibleSavedCustomProfiles.map((profile) => (
+                        <option key={profile.profileId} value={`custom:${profile.profileId}`}>
+                          {profile.model}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {managedConfig.custom_profiles.enabled && visibleCatalogModels.length > 0 && (
+                    <optgroup label={t("ai.managed.allModels")}>
+                      {visibleCatalogModels.map((model) => (
+                        <option key={model.id} value={`catalog:${model.id}`}>
+                          {model.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </UiSelect>
               </div>
+              {(managedModelError || managedCatalogError) && (
+                <p className="ai-runtime-error" role="alert">
+                  {t(managedModelError ?? managedCatalogError!)}
+                </p>
+              )}
             </div>
           ) : connection ? (
             <div className="ai-connection-summary">
@@ -890,8 +1043,8 @@ export default function AssistantPanel({
               title={t("ai.connection.frameTitle")}
               onLoad={(event) => client.connect(
                 event.currentTarget,
-                managedConfig && requestedManagedProfileId
-                  ? { kind: "managed", modelProfileId: requestedManagedProfileId }
+                managedConfig && requestedSelection
+                  ? { kind: "managed", selection: requestedSelection }
                   : connection
                     ? toRuntimeConnection(connection)
                     : { kind: "fake" },

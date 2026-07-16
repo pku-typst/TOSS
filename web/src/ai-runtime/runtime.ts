@@ -7,6 +7,8 @@ import {
   type AiRuntimeBootstrapInit,
   type AiRuntimeError,
   type AiRuntimeLocale,
+  type AiRuntimeManagedCatalogModel,
+  type AiRuntimeManagedModelSelection,
   type AiRuntimeTokenUsage,
   type AiRuntimeToHostMessage
 } from "@/features/ai/protocol";
@@ -16,9 +18,10 @@ import type {
   AiRuntimeServerPolicy
 } from "@/features/ai/runtimeConfig";
 import {
-  discoverManagedModelProfiles,
+  discoverManagedCatalog,
   ManagedCatalogError
 } from "@/ai-runtime/managedCatalog";
+import { isManagedCustomSelectionAvailable } from "@/ai-runtime/managedCustomSelection";
 import type { AiWorkspaceContextSnapshot } from "@/features/ai/toolContract";
 import {
   AiAgentSession,
@@ -230,11 +233,14 @@ function post(port: MessagePort, message: AiRuntimeToHostMessage) {
 
 function managedEndpointConnection(
   policy: ManagedPolicy,
-  profile: AiRuntimeManagedModelProfile
+  selection: AiRuntimeManagedModelSelection,
+  recommendedProfile: AiRuntimeManagedModelProfile | null
 ): EndpointConnection {
+  const profile = selection.kind === "recommended" ? recommendedProfile : selection;
+  if (!profile) throw new Error("managed_model_profile_missing");
   return {
     kind: "endpoint",
-    connectionId: `${policy.provider.id}:${profile.id}`,
+    connectionId: `${policy.provider.id}:${selection.kind}:${selection.profileId}`,
     protocol: policy.provider.protocol,
     baseUrl: policy.provider.baseUrl,
     model: profile.model,
@@ -293,9 +299,11 @@ export function startRuntime(
   let agentSession: AiAgentSession | null = null;
   let credential: string | null = null;
   let credentialEpoch = 0;
-  let availableModelProfileIds: string[] = [];
-  let selectedModelProfileId = init.connection.kind === "managed"
-    ? init.connection.modelProfileId
+  let catalogRequestEpoch = 0;
+  let availableRecommendedProfileIds: string[] = [];
+  let availableModels: AiRuntimeManagedCatalogModel[] = [];
+  let selectedModel = init.connection.kind === "managed"
+    ? init.connection.selection
     : null;
   let preferences = { ...init.preferences };
   let currentWorkspaceContext: AiWorkspaceContextSnapshot | null = null;
@@ -342,8 +350,14 @@ export function startRuntime(
     post(port, {
       type: "toss.ai.runtime.managed_catalog",
       sessionId: init.sessionId,
-      availableModelProfileIds: [...availableModelProfileIds],
-      ...(selectedModelProfileId ? { selectedModelProfileId } : {}),
+      availableRecommendedProfileIds: [...availableRecommendedProfileIds],
+      models: availableModels.map((model) => ({ ...model })),
+      ...(selectedModel ? {
+        selectedModel: {
+          kind: selectedModel.kind,
+          profileId: selectedModel.profileId
+        }
+      } : {}),
       ...(errorCode ? { errorCode } : {})
     });
   };
@@ -426,26 +440,33 @@ export function startRuntime(
       return;
     }
     credentialEpoch += 1;
+    catalogRequestEpoch += 1;
     credential = null;
-    availableModelProfileIds = [];
+    availableRecommendedProfileIds = [];
+    availableModels = [];
     agentSession?.dispose();
     agentSession = null;
     postManagedCatalog();
     requestManagedCredential();
   }
 
-  function activateManagedProfile(profileId: string) {
-    if (
-      !managedPolicy ||
-      !credential ||
-      !availableModelProfileIds.includes(profileId)
-    ) return false;
-    const profile = managedProfile(profileId);
-    if (!profile) return false;
+  function activateManagedSelection(selection: AiRuntimeManagedModelSelection) {
+    if (!managedPolicy || !credential) return false;
+    const profile = selection.kind === "recommended"
+      ? managedProfile(selection.profileId)
+      : null;
+    if (selection.kind === "recommended" && (
+      !profile || !availableRecommendedProfileIds.includes(selection.profileId)
+    )) return false;
+    if (selection.kind === "custom" && !isManagedCustomSelectionAvailable(
+      managedPolicy,
+      availableModels,
+      selection
+    )) return false;
     try {
-      selectedModelProfileId = profile.id;
+      selectedModel = selection;
       createAgentSession(
-        managedEndpointConnection(managedPolicy, profile),
+        managedEndpointConnection(managedPolicy, selection, profile),
         credential
       );
       setRuntimeStatus("readyConnection");
@@ -476,30 +497,42 @@ export function startRuntime(
       requestManagedCredential();
       return;
     }
-    const requestEpoch = credentialEpoch;
+    const requestCredentialEpoch = credentialEpoch;
+    const requestCatalogEpoch = ++catalogRequestEpoch;
     const activeCredential = credential;
     agentSession?.dispose();
     agentSession = null;
+    availableRecommendedProfileIds = [];
+    availableModels = [];
+    postManagedCatalog();
     setRuntimeStatus("discoveringModels");
     postConnectionState("discovering_models");
     removeRuntimeControls();
     try {
-      const discovered = await discoverManagedModelProfiles(
+      const discovered = await discoverManagedCatalog(
         managedPolicy,
         activeCredential,
         preferences
       );
-      if (requestEpoch !== credentialEpoch || credential !== activeCredential) return;
-      availableModelProfileIds = discovered;
-      const nextProfileId = [
-        selectedModelProfileId,
-        managedPolicy.defaultModelProfileId,
-        ...availableModelProfileIds
-      ].find((profileId): profileId is string => (
-        !!profileId && availableModelProfileIds.includes(profileId)
-      )) ?? null;
-      selectedModelProfileId = nextProfileId;
-      if (nextProfileId && activateManagedProfile(nextProfileId)) return;
+      if (
+        requestCredentialEpoch !== credentialEpoch ||
+        requestCatalogEpoch !== catalogRequestEpoch ||
+        credential !== activeCredential
+      ) return;
+      availableModels = discovered.models;
+      availableRecommendedProfileIds = discovered.availableRecommendedProfileIds;
+      const candidates: AiRuntimeManagedModelSelection[] = [
+        ...(selectedModel ? [selectedModel] : []),
+        { kind: "recommended", profileId: managedPolicy.defaultModelProfileId },
+        ...availableRecommendedProfileIds.map((profileId) => ({
+          kind: "recommended" as const,
+          profileId
+        }))
+      ];
+      selectedModel = null;
+      for (const candidate of candidates) {
+        if (activateManagedSelection(candidate)) return;
+      }
       postManagedCatalog();
       setRuntimeStatus("modelRequired");
       postConnectionState("model_required");
@@ -508,8 +541,13 @@ export function startRuntime(
         changeCredential: changeManagedCredential
       });
     } catch (error) {
-      if (requestEpoch !== credentialEpoch || credential !== activeCredential) return;
-      availableModelProfileIds = [];
+      if (
+        requestCredentialEpoch !== credentialEpoch ||
+        requestCatalogEpoch !== catalogRequestEpoch ||
+        credential !== activeCredential
+      ) return;
+      availableRecommendedProfileIds = [];
+      availableModels = [];
       const code = error instanceof ManagedCatalogError
         ? error.code
         : "managed_catalog_request_failed";
@@ -676,8 +714,12 @@ export function startRuntime(
         return;
       }
       currentConversation = message.conversation;
-      if (!managedPolicy || !activateManagedProfile(message.modelProfileId)) {
+      if (!managedPolicy) {
         fail("runtime_managed_model_unavailable", aiRuntimeMessages(runtimeLocale).errors.notConfigured);
+        return;
+      }
+      if (!activateManagedSelection(message.selection)) {
+        postManagedCatalog("managed_model_selection_unavailable");
       }
       return;
     }
@@ -762,8 +804,14 @@ export function startRuntime(
       fail("runtime_managed_provider_unavailable", aiRuntimeMessages(runtimeLocale).errors.providerFailed);
       return;
     }
-    if (!managedProfile(selectedModelProfileId)) {
-      selectedModelProfileId = managedPolicy.defaultModelProfileId;
+    if (
+      selectedModel?.kind === "recommended" &&
+      !managedProfile(selectedModel.profileId)
+    ) {
+      selectedModel = {
+        kind: "recommended",
+        profileId: managedPolicy.defaultModelProfileId
+      };
     }
     requestManagedCredential();
     return;

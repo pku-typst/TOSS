@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  discoverManagedModelProfiles,
+  discoverManagedCatalog,
   ManagedCatalogError
 } from "@/ai-runtime/managedCatalog";
 import type { AiRuntimeServerPolicy } from "@/features/ai/runtimeConfig";
@@ -36,7 +36,24 @@ const policy: Extract<AiRuntimeServerPolicy, { kind: "managed_catalog" }> = {
       reasoning: true,
       requestOverrides: {}
     }
-  ]
+  ],
+  customProfiles: {
+    enabled: true,
+    requireCatalogMatch: true,
+    defaults: {
+      contextWindow: 65_536,
+      maxOutputTokens: 8_192,
+      reasoning: false,
+      requestOverrides: {}
+    },
+    limits: {
+      minContextWindow: 8_192,
+      maxContextWindow: 4_194_304,
+      minOutputTokens: 256,
+      maxOutputTokens: 1_048_576
+    },
+    maxSavedProfiles: 20
+  }
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -46,19 +63,32 @@ describe("managed model catalog", () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({
       object: "list",
       data: [
-        { id: "vendor/model-two", object: "model" },
+        {
+          id: "vendor/model-two",
+          object: "model",
+          max_input_tokens: 65_536,
+          max_output_tokens: 8_192
+        },
         { id: "unapproved/model", object: "model" }
       ]
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetch);
 
-    await expect(discoverManagedModelProfiles(
+    await expect(discoverManagedCatalog(
       policy,
       "test-key",
       DEFAULT_AI_RUNTIME_PREFERENCES
-    )).resolves.toEqual([
-      "model-two"
-    ]);
+    )).resolves.toEqual({
+      availableRecommendedProfileIds: ["model-two"],
+      models: [
+        {
+          id: "vendor/model-two",
+          maxInputTokens: 65_536,
+          maxOutputTokens: 8_192
+        },
+        { id: "unapproved/model" }
+      ]
+    });
     expect(fetch).toHaveBeenCalledWith(
       "https://models.example.test/v1/models",
       expect.objectContaining({
@@ -70,7 +100,7 @@ describe("managed model catalog", () => {
 
   it("distinguishes rejected credentials from invalid catalog responses", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
-    await expect(discoverManagedModelProfiles(
+    await expect(discoverManagedCatalog(
       policy,
       "bad-key",
       DEFAULT_AI_RUNTIME_PREFERENCES
@@ -79,7 +109,7 @@ describe("managed model catalog", () => {
     } satisfies Partial<ManagedCatalogError>);
 
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
-    await expect(discoverManagedModelProfiles(
+    await expect(discoverManagedCatalog(
       policy,
       "test-key",
       DEFAULT_AI_RUNTIME_PREFERENCES

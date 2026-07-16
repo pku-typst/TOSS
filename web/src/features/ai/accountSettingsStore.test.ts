@@ -19,7 +19,7 @@ describe("AI account settings storage", () => {
     };
     const settings = {
       ...defaultAiAccountSettings(),
-      managedModelProfileId: "model-one",
+      managedModelSelection: { kind: "recommended" as const, profileId: "model-one" },
       runtime: {
         providerRequestTimeoutMs: 90_000,
         maxProviderCallsPerTurn: 8,
@@ -33,6 +33,29 @@ describe("AI account settings storage", () => {
     expect(loadAiAccountSettings("account-1", storage)).toEqual(settings);
     expect(loadAiAccountSettings("account-2", storage)).toEqual(defaultAiAccountSettings());
     expect(values.get(aiAccountSettingsStorageKey("account-1"))).not.toContain("credential");
+  });
+
+  it("persists validated custom managed profiles without credentials", () => {
+    const settings = {
+      ...defaultAiAccountSettings(),
+      managedModelSelection: { kind: "custom" as const, profileId: "custom-1" },
+      managedCustomProfiles: [{
+        profileId: "custom-1",
+        model: "vendor/model",
+        contextWindow: 65_536,
+        maxOutputTokens: 8_192,
+        reasoning: true,
+        requestOverrides: { reasoning_effort: "high" }
+      }]
+    };
+    expect(parseAiAccountSettings(JSON.stringify(settings))).toEqual(settings);
+    expect(parseAiAccountSettings(JSON.stringify({
+      ...settings,
+      managedCustomProfiles: [{
+        ...settings.managedCustomProfiles[0],
+        requestOverrides: { api_key: "must-not-persist" }
+      }]
+    }))).toBeNull();
   });
 
   it("keeps anonymous settings in memory and removes corrupt account data", () => {

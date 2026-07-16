@@ -25,11 +25,17 @@ export class ManagedCatalogError extends Error {
   }
 }
 
-function parseCatalogModelIds(value: unknown) {
+function optionalPositiveInteger(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  return Number.isSafeInteger(value) && Number(value) > 0 ? Number(value) : null;
+}
+
+function parseCatalogModels(value: unknown) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const data = (value as { data?: unknown }).data;
   if (!Array.isArray(data) || data.length > MAX_DISCOVERED_MODELS) return null;
   const ids = new Set<string>();
+  const models = [];
   for (const entry of data) {
     if (
       typeof entry !== "object" || entry === null || Array.isArray(entry) ||
@@ -37,12 +43,25 @@ function parseCatalogModelIds(value: unknown) {
     ) return null;
     const id = (entry as { id: string }).id;
     if (id.length === 0 || id.length > 256 || /[\s\u0000-\u001f\u007f]/u.test(id)) return null;
+    if (ids.has(id)) return null;
+    const maxInputTokens = optionalPositiveInteger(
+      (entry as { max_input_tokens?: unknown }).max_input_tokens
+    );
+    const maxOutputTokens = optionalPositiveInteger(
+      (entry as { max_output_tokens?: unknown }).max_output_tokens
+    );
+    if (maxInputTokens === null || maxOutputTokens === null) return null;
     ids.add(id);
+    models.push({
+      id,
+      ...(maxInputTokens === undefined ? {} : { maxInputTokens }),
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens })
+    });
   }
-  return ids;
+  return { ids, models };
 }
 
-export async function discoverManagedModelProfiles(
+export async function discoverManagedCatalog(
   policy: ManagedPolicy,
   credential: string,
   preferences: AiRuntimePreferences
@@ -87,13 +106,16 @@ export async function discoverManagedModelProfiles(
     } catch {
       throw new ManagedCatalogError("managed_catalog_invalid_response", response.status);
     }
-    const discovered = parseCatalogModelIds(value);
+    const discovered = parseCatalogModels(value);
     if (!discovered) {
       throw new ManagedCatalogError("managed_catalog_invalid_response", response.status);
     }
-    return policy.modelProfiles
-      .filter((profile) => discovered.has(profile.model))
-      .map((profile) => profile.id);
+    return {
+      models: discovered.models,
+      availableRecommendedProfileIds: policy.modelProfiles
+        .filter((profile) => discovered.ids.has(profile.model))
+        .map((profile) => profile.id)
+    };
   } catch (error) {
     if (error instanceof ManagedCatalogError) throw error;
     throw new ManagedCatalogError("managed_catalog_request_failed");

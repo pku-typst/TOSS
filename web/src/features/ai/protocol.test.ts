@@ -179,6 +179,53 @@ describe("AI Runtime protocol validation", () => {
     })).toBe(false);
   });
 
+  it("validates managed custom selections and live catalog metadata", () => {
+    const selection = {
+      kind: "custom" as const,
+      profileId: "custom-one",
+      model: "vendor/model-one",
+      contextWindow: 65_536,
+      maxOutputTokens: 8_192,
+      reasoning: true,
+      requestOverrides: { reasoning_effort: "high" }
+    };
+    expect(isAiRuntimeBootstrapInit({
+      ...bootstrap,
+      connection: { kind: "managed", selection }
+    })).toBe(true);
+    expect(isAiHostToRuntimeMessage({
+      type: "toss.ai.host.select_managed_model",
+      sessionId: "session-1",
+      selection,
+      conversation: bootstrap.conversation
+    })).toBe(true);
+    expect(isAiHostToRuntimeMessage({
+      type: "toss.ai.host.select_managed_model",
+      sessionId: "session-1",
+      selection: {
+        ...selection,
+        requestOverrides: { api_key: "must-not-cross-the-boundary" }
+      },
+      conversation: bootstrap.conversation
+    })).toBe(false);
+    const catalog = {
+      type: "toss.ai.runtime.managed_catalog",
+      sessionId: "session-1",
+      availableRecommendedProfileIds: ["recommended-one"],
+      models: [{
+        id: "vendor/model-one",
+        maxInputTokens: 65_536,
+        maxOutputTokens: 8_192
+      }],
+      selectedModel: { kind: "custom", profileId: "custom-one" }
+    };
+    expect(isAiRuntimeToHostMessage(catalog)).toBe(true);
+    expect(isAiRuntimeToHostMessage({
+      ...catalog,
+      models: [...catalog.models, ...catalog.models]
+    })).toBe(false);
+  });
+
   it("bounds prompts, deltas, and errors", () => {
     expect(
       isAiRuntimeToHostMessage({

@@ -5,6 +5,15 @@ schema = 1
 [frontend]
 enabled_features = []
 
+# If the selected downstream distribution uses managed_catalog, change the
+# line above to enabled_features = ["ai_assistant"]. The deployment may narrow
+# only the distribution's verified recommendations; personal custom profiles
+# remain browser account settings and API keys remain Runtime-memory-only.
+#
+# [frontend.ai_assistant]
+# enabled_model_profiles = ["example-model"]
+# default_model_profile = "example-model"
+
 [external_git]
 
 [[external_git.providers]]

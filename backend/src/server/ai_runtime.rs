@@ -55,6 +55,8 @@ enum AiRuntimePolicy<'a> {
         default_model_profile_id: &'a str,
         #[serde(rename = "modelProfiles")]
         model_profiles: Vec<AiRuntimeManagedModelProfile<'a>>,
+        #[serde(rename = "customProfiles")]
+        custom_profiles: AiRuntimeManagedCustomProfiles<'a>,
     },
 }
 
@@ -79,6 +81,34 @@ struct AiRuntimeManagedModelProfile<'a> {
     max_output_tokens: u64,
     reasoning: bool,
     request_overrides: &'a serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeManagedCustomProfiles<'a> {
+    enabled: bool,
+    require_catalog_match: bool,
+    defaults: AiRuntimeManagedCustomProfileDefaults<'a>,
+    limits: AiRuntimeManagedCustomProfileLimits,
+    max_saved_profiles: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeManagedCustomProfileDefaults<'a> {
+    context_window: u64,
+    max_output_tokens: u64,
+    reasoning: bool,
+    request_overrides: &'a serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiRuntimeManagedCustomProfileLimits {
+    min_context_window: u64,
+    max_context_window: u64,
+    min_output_tokens: u64,
+    max_output_tokens: u64,
 }
 
 fn runtime_policy(policy: &AiAssistantConfig) -> Result<(String, String), String> {
@@ -120,6 +150,23 @@ fn serialize_managed_policy(catalog: &ManagedAiCatalogConfig) -> Result<Vec<u8>,
                 request_overrides: &profile.request_overrides,
             })
             .collect(),
+        custom_profiles: AiRuntimeManagedCustomProfiles {
+            enabled: catalog.custom_profiles.enabled,
+            require_catalog_match: catalog.custom_profiles.require_catalog_match,
+            defaults: AiRuntimeManagedCustomProfileDefaults {
+                context_window: catalog.custom_profiles.defaults.context_window,
+                max_output_tokens: catalog.custom_profiles.defaults.max_output_tokens,
+                reasoning: catalog.custom_profiles.defaults.reasoning,
+                request_overrides: &catalog.custom_profiles.defaults.request_overrides,
+            },
+            limits: AiRuntimeManagedCustomProfileLimits {
+                min_context_window: catalog.custom_profiles.limits.min_context_window,
+                max_context_window: catalog.custom_profiles.limits.max_context_window,
+                min_output_tokens: catalog.custom_profiles.limits.min_output_tokens,
+                max_output_tokens: catalog.custom_profiles.limits.max_output_tokens,
+            },
+            max_saved_profiles: catalog.custom_profiles.max_saved_profiles,
+        },
     };
     serde_json::to_vec(&policy)
         .map_err(|error| format!("failed to serialize managed AI Runtime policy: {error}"))

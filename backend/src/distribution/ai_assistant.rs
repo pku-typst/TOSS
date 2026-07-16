@@ -9,6 +9,7 @@ use url::Url;
 use utoipa::ToSchema;
 
 const MAX_MODEL_PROFILES: usize = 128;
+const MAX_SAVED_CUSTOM_PROFILES: usize = 32;
 const MAX_REQUEST_OVERRIDE_BYTES: usize = 16_384;
 const MAX_REQUEST_OVERRIDE_DEPTH: usize = 8;
 const MAX_REQUEST_OVERRIDE_ENTRIES: usize = 128;
@@ -49,6 +50,7 @@ pub struct ManagedAiCatalogConfig {
     pub provider: ManagedAiProviderConfig,
     pub default_model_profile: String,
     pub model_profiles: Vec<ManagedAiModelProfile>,
+    pub custom_profiles: ManagedAiCustomProfilesConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -71,6 +73,53 @@ pub struct ManagedAiModelProfile {
     pub max_output_tokens: u64,
     pub reasoning: bool,
     pub request_overrides: Map<String, Value>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ManagedAiCustomProfilesConfig {
+    pub enabled: bool,
+    pub require_catalog_match: bool,
+    pub defaults: ManagedAiCustomProfileDefaults,
+    pub limits: ManagedAiCustomProfileLimits,
+    pub max_saved_profiles: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ManagedAiCustomProfileDefaults {
+    pub context_window: u64,
+    pub max_output_tokens: u64,
+    pub reasoning: bool,
+    pub request_overrides: Map<String, Value>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ManagedAiCustomProfileLimits {
+    pub min_context_window: u64,
+    pub max_context_window: u64,
+    pub min_output_tokens: u64,
+    pub max_output_tokens: u64,
+}
+
+impl Default for ManagedAiCustomProfilesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            require_catalog_match: true,
+            defaults: ManagedAiCustomProfileDefaults {
+                context_window: 65_536,
+                max_output_tokens: 8_192,
+                reasoning: false,
+                request_overrides: Map::new(),
+            },
+            limits: ManagedAiCustomProfileLimits {
+                min_context_window: MIN_CONTEXT_WINDOW,
+                max_context_window: MAX_CONTEXT_WINDOW,
+                min_output_tokens: MIN_MAX_OUTPUT_TOKENS,
+                max_output_tokens: MAX_MAX_OUTPUT_TOKENS,
+            },
+            max_saved_profiles: 20,
+        }
+    }
 }
 
 pub(super) fn load_ai_assistant(
@@ -97,6 +146,7 @@ fn load_connection_policy(file: AiConnectionPolicyFile) -> Result<AiAssistantCon
             provider,
             default_model_profile,
             model_profiles,
+            custom_profiles,
         } => {
             if model_profiles.is_empty() || model_profiles.len() > MAX_MODEL_PROFILES {
                 return Err(format!(
@@ -164,6 +214,58 @@ fn load_connection_policy(file: AiConnectionPolicyFile) -> Result<AiAssistantCon
                         .to_string(),
                 );
             }
+            let custom_profiles = custom_profiles
+                .map(|config| {
+                    let limits = ManagedAiCustomProfileLimits {
+                        min_context_window: config.limits.min_context_window,
+                        max_context_window: config.limits.max_context_window,
+                        min_output_tokens: config.limits.min_output_tokens,
+                        max_output_tokens: config.limits.max_output_tokens,
+                    };
+                    validate_custom_profile_limits(&limits)?;
+                    validate_token_budget(
+                        config.defaults.context_window,
+                        config.defaults.max_output_tokens,
+                    )?;
+                    if config.defaults.context_window < limits.min_context_window
+                        || config.defaults.context_window > limits.max_context_window
+                        || config.defaults.max_output_tokens < limits.min_output_tokens
+                        || config.defaults.max_output_tokens > limits.max_output_tokens
+                    {
+                        return Err(
+                            "ai_assistant managed_catalog custom profile defaults must be within configured limits"
+                                .to_string(),
+                        );
+                    }
+                    if !config.require_catalog_match {
+                        return Err(
+                            "ai_assistant managed_catalog custom profiles must require a live catalog match"
+                                .to_string(),
+                        );
+                    }
+                    if config.max_saved_profiles == 0
+                        || config.max_saved_profiles > MAX_SAVED_CUSTOM_PROFILES
+                    {
+                        return Err(format!(
+                            "ai_assistant managed_catalog max_saved_profiles must be between 1 and {MAX_SAVED_CUSTOM_PROFILES}"
+                        ));
+                    }
+                    validate_request_overrides(&config.defaults.request_overrides)?;
+                    Ok(ManagedAiCustomProfilesConfig {
+                        enabled: config.enabled,
+                        require_catalog_match: config.require_catalog_match,
+                        defaults: ManagedAiCustomProfileDefaults {
+                            context_window: config.defaults.context_window,
+                            max_output_tokens: config.defaults.max_output_tokens,
+                            reasoning: config.defaults.reasoning,
+                            request_overrides: config.defaults.request_overrides,
+                        },
+                        limits,
+                        max_saved_profiles: config.max_saved_profiles,
+                    })
+                })
+                .transpose()?
+                .unwrap_or_default();
             Ok(AiAssistantConfig::ManagedCatalog(Box::new(
                 ManagedAiCatalogConfig {
                     provider: ManagedAiProviderConfig {
@@ -177,6 +279,7 @@ fn load_connection_policy(file: AiConnectionPolicyFile) -> Result<AiAssistantCon
                     },
                     default_model_profile,
                     model_profiles: normalized_profiles,
+                    custom_profiles,
                 },
             )))
         }
@@ -244,6 +347,22 @@ fn validate_token_budget(context_window: u64, max_output_tokens: u64) -> Result<
     {
         return Err(
             "ai_assistant managed_catalog model token budget is outside supported bounds"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_custom_profile_limits(limits: &ManagedAiCustomProfileLimits) -> Result<(), String> {
+    if limits.min_context_window < MIN_CONTEXT_WINDOW
+        || limits.max_context_window > MAX_CONTEXT_WINDOW
+        || limits.min_context_window > limits.max_context_window
+        || limits.min_output_tokens < MIN_MAX_OUTPUT_TOKENS
+        || limits.max_output_tokens > MAX_MAX_OUTPUT_TOKENS
+        || limits.min_output_tokens > limits.max_output_tokens
+    {
+        return Err(
+            "ai_assistant managed_catalog custom profile limits are outside supported bounds"
                 .to_string(),
         );
     }
@@ -354,6 +473,86 @@ fn validate_json_value(value: &Value, depth: usize, entries: &mut usize) -> Resu
                 validate_json_value(item, depth + 1, entries)?;
             }
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_connection_policy, AiAssistantConfig};
+    use crate::distribution::file_format::{
+        AiConnectionPolicyFile, LocalizedTextFile, ManagedAiCustomProfileDefaultsFile,
+        ManagedAiCustomProfileLimitsFile, ManagedAiCustomProfilesFile, ManagedAiModelProfileFile,
+        ManagedAiProviderFile,
+    };
+    use serde_json::Map;
+
+    fn localized(en: &str, zh_cn: &str) -> LocalizedTextFile {
+        LocalizedTextFile {
+            en: en.to_string(),
+            zh_cn: zh_cn.to_string(),
+        }
+    }
+
+    fn managed_policy(require_catalog_match: bool) -> AiConnectionPolicyFile {
+        AiConnectionPolicyFile::ManagedCatalog {
+            provider: Box::new(ManagedAiProviderFile {
+                id: "managed-provider".to_string(),
+                label: localized("Provider", "提供方"),
+                credential_label: localized("API key", "API 密钥"),
+                protocol: "openai-completions".to_string(),
+                base_url: "https://models.example.test/v1".to_string(),
+                catalog: "openai-models".to_string(),
+            }),
+            default_model_profile: "recommended-one".to_string(),
+            model_profiles: vec![ManagedAiModelProfileFile {
+                id: "recommended-one".to_string(),
+                model: "vendor/recommended-one".to_string(),
+                label: localized("Recommended", "推荐"),
+                context_window: 65_536,
+                max_output_tokens: 8_192,
+                reasoning: false,
+                request_overrides: Map::new(),
+            }],
+            custom_profiles: Some(ManagedAiCustomProfilesFile {
+                enabled: true,
+                require_catalog_match,
+                defaults: ManagedAiCustomProfileDefaultsFile {
+                    context_window: 70_000,
+                    max_output_tokens: 5_000,
+                    reasoning: true,
+                    request_overrides: Map::new(),
+                },
+                limits: ManagedAiCustomProfileLimitsFile {
+                    min_context_window: 8_192,
+                    max_context_window: 1_000_000,
+                    min_output_tokens: 256,
+                    max_output_tokens: 128_000,
+                },
+                max_saved_profiles: 20,
+            }),
+        }
+    }
+
+    #[test]
+    fn managed_catalog_accepts_editable_custom_profile_defaults() -> Result<(), String> {
+        let loaded = load_connection_policy(managed_policy(true))?;
+        let catalog = match loaded {
+            AiAssistantConfig::ManagedCatalog(catalog) => catalog,
+            AiAssistantConfig::UserDefined => return Err("expected managed catalog".to_string()),
+        };
+        assert!(catalog.custom_profiles.enabled);
+        assert_eq!(catalog.custom_profiles.defaults.context_window, 70_000);
+        assert_eq!(catalog.custom_profiles.defaults.max_output_tokens, 5_000);
+        Ok(())
+    }
+
+    #[test]
+    fn managed_catalog_custom_models_must_come_from_the_live_catalog() -> Result<(), String> {
+        match load_connection_policy(managed_policy(false)) {
+            Err(error) if error.contains("must require a live catalog match") => Ok(()),
+            Err(error) => Err(format!("unexpected validation error: {error}")),
+            Ok(_) => Err("policy without catalog matching was accepted".to_string()),
         }
     }
 }

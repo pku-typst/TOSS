@@ -87,10 +87,13 @@ When `frontend_features.included` contains `ai_assistant`, the top-level
 `ai_assistant.connection_policy` is required. Community uses
 `{"kind":"user_defined"}`. A downstream `managed_catalog` policy fixes one
 credential-free HTTPS provider base URL, the `openai-completions` wire protocol,
-`openai-models` discovery, and one or more approved model profiles. Profiles
-carry stable IDs, upstream model IDs, localized labels, context/output limits,
-reasoning capability, and bounded request overrides. Duplicate IDs/models,
-unsafe URLs or request fields, invalid token budgets, and missing defaults fail
+`openai-models` discovery, and one or more verified recommendation profiles.
+Profiles carry stable IDs, upstream model IDs, localized labels,
+context/output defaults, reasoning capability, and bounded request overrides.
+The policy may additionally enable custom profiles for other live-catalog
+models, with editable defaults, strict numeric limits, mandatory catalog
+matching, and a saved-profile bound. Duplicate IDs/models, unsafe URLs or
+request fields, invalid token budgets/limits, and missing defaults fail
 distribution loading. See the complete shape and ownership rules in
 [Browser AI assistant](../architecture/browser-ai-assistant.md#connection-policy-ownership).
 

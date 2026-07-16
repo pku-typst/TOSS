@@ -9,6 +9,9 @@ import {
   type AiRuntimeConversationContext,
   type AiRuntimeConversationHistoryMessage,
   type AiRuntimeLocale,
+  type AiRuntimeManagedCatalogModel,
+  type AiRuntimeManagedModelSelection,
+  type AiRuntimeManagedSelectionIdentity,
   type AiRuntimeTokenUsage,
   type AiRuntimeToolCall,
   type AiRuntimeToHostMessage
@@ -89,8 +92,9 @@ export type AiRuntimeSnapshot = {
   errorMessage: string | null;
   usage: AiRuntimeTokenUsage | null;
   managedCatalog: {
-    availableModelProfileIds: readonly string[];
-    selectedModelProfileId: string | null;
+    availableRecommendedProfileIds: readonly string[];
+    models: readonly AiRuntimeManagedCatalogModel[];
+    selectedModel: AiRuntimeManagedSelectionIdentity | null;
     errorCode: string | null;
   } | null;
   persistenceRevision: number;
@@ -329,7 +333,7 @@ export class AiRuntimeClient {
     return true;
   }
 
-  selectManagedModel(modelProfileId: string) {
+  selectManagedModel(selection: AiRuntimeManagedModelSelection) {
     if (
       this.connectionKind !== "managed" ||
       this.snapshot.status === "running" ||
@@ -340,7 +344,7 @@ export class AiRuntimeClient {
     const message: AiHostToRuntimeMessage = {
       type: "toss.ai.host.select_managed_model",
       sessionId: this.sessionId,
-      modelProfileId,
+      selection,
       conversation: {
         conversationId: this.conversation.conversationId,
         history: this.conversation.history.map((item) => ({ ...item }))
@@ -563,8 +567,9 @@ export class AiRuntimeClient {
       }
       this.setSnapshot({
         managedCatalog: {
-          availableModelProfileIds: [...message.availableModelProfileIds],
-          selectedModelProfileId: message.selectedModelProfileId ?? null,
+          availableRecommendedProfileIds: [...message.availableRecommendedProfileIds],
+          models: message.models.map((model) => ({ ...model })),
+          selectedModel: message.selectedModel ? { ...message.selectedModel } : null,
           errorCode: message.errorCode ?? null
         }
       });

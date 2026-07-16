@@ -29,6 +29,24 @@ export type AiRuntimeManagedModelProfile = {
   requestOverrides: AiProviderRequestOverrides;
 };
 
+export type AiRuntimeManagedCustomProfiles = {
+  enabled: boolean;
+  requireCatalogMatch: boolean;
+  defaults: {
+    contextWindow: number;
+    maxOutputTokens: number;
+    reasoning: boolean;
+    requestOverrides: AiProviderRequestOverrides;
+  };
+  limits: {
+    minContextWindow: number;
+    maxContextWindow: number;
+    minOutputTokens: number;
+    maxOutputTokens: number;
+  };
+  maxSavedProfiles: number;
+};
+
 export type AiRuntimeServerPolicy =
   | { kind: "user_defined" }
   | {
@@ -36,6 +54,7 @@ export type AiRuntimeServerPolicy =
       provider: AiRuntimeManagedProvider;
       defaultModelProfileId: string;
       modelProfiles: AiRuntimeManagedModelProfile[];
+      customProfiles: AiRuntimeManagedCustomProfiles;
     };
 
 const MAX_POLICY_BYTES = 256 * 1024;
@@ -103,6 +122,56 @@ function isManagedModelProfile(value: unknown): value is AiRuntimeManagedModelPr
     isAiProviderRequestOverrides(value.requestOverrides);
 }
 
+function isManagedCustomProfiles(value: unknown): value is AiRuntimeManagedCustomProfiles {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "enabled",
+    "requireCatalogMatch",
+    "defaults",
+    "limits",
+    "maxSavedProfiles"
+  ])) return false;
+  const defaults = value.defaults;
+  const limits = value.limits;
+  if (
+    typeof value.enabled !== "boolean" ||
+    value.requireCatalogMatch !== true ||
+    !Number.isSafeInteger(value.maxSavedProfiles) ||
+    Number(value.maxSavedProfiles) < 1 || Number(value.maxSavedProfiles) > 32 ||
+    !isRecord(defaults) || !hasExactKeys(defaults, [
+      "contextWindow",
+      "maxOutputTokens",
+      "reasoning",
+      "requestOverrides"
+    ]) ||
+    !isAiRuntimeModelTokenBudget(defaults.contextWindow, defaults.maxOutputTokens) ||
+    typeof defaults.reasoning !== "boolean" ||
+    !isAiProviderRequestOverrides(defaults.requestOverrides) ||
+    !isRecord(limits) || !hasExactKeys(limits, [
+      "minContextWindow",
+      "maxContextWindow",
+      "minOutputTokens",
+      "maxOutputTokens"
+    ])
+  ) return false;
+  const values = [
+    limits.minContextWindow,
+    limits.maxContextWindow,
+    limits.minOutputTokens,
+    limits.maxOutputTokens
+  ];
+  if (!values.every(Number.isSafeInteger)) return false;
+  return Number(limits.minContextWindow) >= 8_192 &&
+    Number(limits.minContextWindow) <= Number(limits.maxContextWindow) &&
+    Number(limits.maxContextWindow) <= 4_194_304 &&
+    Number(limits.minOutputTokens) >= 256 &&
+    Number(limits.minOutputTokens) <= Number(limits.maxOutputTokens) &&
+    Number(limits.maxOutputTokens) <= 1_048_576 &&
+    Number(defaults.contextWindow) >= Number(limits.minContextWindow) &&
+    Number(defaults.contextWindow) <= Number(limits.maxContextWindow) &&
+    Number(defaults.maxOutputTokens) >= Number(limits.minOutputTokens) &&
+    Number(defaults.maxOutputTokens) <= Number(limits.maxOutputTokens);
+}
+
 export function parseAiRuntimeServerPolicy(value: unknown): AiRuntimeServerPolicy | null {
   if (!isRecord(value) || (value.kind !== "user_defined" && value.kind !== "managed_catalog")) {
     return null;
@@ -117,9 +186,11 @@ export function parseAiRuntimeServerPolicy(value: unknown): AiRuntimeServerPolic
       "kind",
       "provider",
       "defaultModelProfileId",
-      "modelProfiles"
+      "modelProfiles",
+      "customProfiles"
     ]) ||
     !isManagedProvider(value.provider) ||
+    !isManagedCustomProfiles(value.customProfiles) ||
     typeof value.defaultModelProfileId !== "string" ||
     !Array.isArray(value.modelProfiles) ||
     value.modelProfiles.length === 0 || value.modelProfiles.length > 128

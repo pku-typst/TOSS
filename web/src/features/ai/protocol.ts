@@ -79,7 +79,7 @@ export type AiRuntimeConnection =
   | { kind: "fake" }
   | {
       kind: "managed";
-      modelProfileId: string;
+      selection: AiRuntimeManagedModelSelection;
     }
   | {
       kind: "endpoint";
@@ -92,6 +92,29 @@ export type AiRuntimeConnection =
       reasoning: boolean;
       requestOverrides: AiProviderRequestOverrides;
     };
+
+export type AiRuntimeManagedCustomModelProfile = {
+  profileId: string;
+  model: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  reasoning: boolean;
+  requestOverrides: AiProviderRequestOverrides;
+};
+
+export type AiRuntimeManagedModelSelection =
+  | { kind: "recommended"; profileId: string }
+  | ({ kind: "custom" } & AiRuntimeManagedCustomModelProfile);
+
+export type AiRuntimeManagedSelectionIdentity =
+  | { kind: "recommended"; profileId: string }
+  | { kind: "custom"; profileId: string };
+
+export type AiRuntimeManagedCatalogModel = {
+  id: string;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+};
 
 export type AiRuntimeConversationHistoryMessage = {
   role: "user" | "assistant";
@@ -167,8 +190,9 @@ export type AiRuntimeConnectionState = {
 export type AiRuntimeManagedCatalog = {
   type: "toss.ai.runtime.managed_catalog";
   sessionId: string;
-  availableModelProfileIds: string[];
-  selectedModelProfileId?: string;
+  availableRecommendedProfileIds: string[];
+  models: AiRuntimeManagedCatalogModel[];
+  selectedModel?: AiRuntimeManagedSelectionIdentity;
   errorCode?: string;
 };
 
@@ -280,7 +304,7 @@ export type AiRuntimeSetLocale = {
 export type AiRuntimeSelectManagedModel = {
   type: "toss.ai.host.select_managed_model";
   sessionId: string;
-  modelProfileId: string;
+  selection: AiRuntimeManagedModelSelection;
   conversation: AiRuntimeConversationContext;
 };
 
@@ -341,8 +365,8 @@ function isRuntimeConnection(value: unknown): value is AiRuntimeConnection {
   if (!isRecord(value) || !isBoundedString(value.kind, 32)) return false;
   if (value.kind === "fake") return hasExactKeys(value, ["kind"]);
   if (value.kind === "managed") {
-    return hasExactKeys(value, ["kind", "modelProfileId"]) &&
-      isBoundedString(value.modelProfileId, MAX_ID_LENGTH);
+    return hasExactKeys(value, ["kind", "selection"]) &&
+      isAiRuntimeManagedModelSelection(value.selection);
   }
   return (
     value.kind === "endpoint" &&
@@ -365,6 +389,59 @@ function isRuntimeConnection(value: unknown): value is AiRuntimeConnection {
     typeof value.reasoning === "boolean" &&
     isAiProviderRequestOverrides(value.requestOverrides)
   );
+}
+
+export function isAiRuntimeManagedModelSelection(
+  value: unknown
+): value is AiRuntimeManagedModelSelection {
+  if (!isRecord(value) || !isBoundedString(value.kind, 32)) return false;
+  if (value.kind === "recommended") {
+    return hasExactKeys(value, ["kind", "profileId"]) &&
+      isBoundedString(value.profileId, MAX_ID_LENGTH);
+  }
+  return value.kind === "custom" &&
+    hasExactKeys(value, [
+      "kind",
+      "profileId",
+      "model",
+      "contextWindow",
+      "maxOutputTokens",
+      "reasoning",
+      "requestOverrides"
+    ]) &&
+    isBoundedString(value.profileId, MAX_ID_LENGTH) &&
+    isBoundedString(value.model, 256) &&
+    !/[\s\u0000-\u001f\u007f]/u.test(value.model) &&
+    isAiRuntimeModelTokenBudget(value.contextWindow, value.maxOutputTokens) &&
+    typeof value.reasoning === "boolean" &&
+    isAiProviderRequestOverrides(value.requestOverrides);
+}
+
+function isAiRuntimeManagedSelectionIdentity(
+  value: unknown
+): value is AiRuntimeManagedSelectionIdentity {
+  return isRecord(value) &&
+    hasExactKeys(value, ["kind", "profileId"]) &&
+    (value.kind === "recommended" || value.kind === "custom") &&
+    isBoundedString(value.profileId, MAX_ID_LENGTH);
+}
+
+function isAiRuntimeManagedCatalogModel(value: unknown): value is AiRuntimeManagedCatalogModel {
+  if (!isRecord(value)) return false;
+  const expected = [
+    "id",
+    ...(value.maxInputTokens === undefined ? [] : ["maxInputTokens"]),
+    ...(value.maxOutputTokens === undefined ? [] : ["maxOutputTokens"])
+  ];
+  return hasExactKeys(value, expected) &&
+    isBoundedString(value.id, 256) &&
+    !/[\s\u0000-\u001f\u007f]/u.test(value.id) &&
+    (value.maxInputTokens === undefined || (
+      Number.isSafeInteger(value.maxInputTokens) && Number(value.maxInputTokens) > 0
+    )) &&
+    (value.maxOutputTokens === undefined || (
+      Number.isSafeInteger(value.maxOutputTokens) && Number(value.maxOutputTokens) > 0
+    ));
 }
 
 export function isAiRuntimeConversationContext(
@@ -475,9 +552,9 @@ export function isAiHostToRuntimeMessage(value: unknown): value is AiHostToRunti
   }
   if (value.type === "toss.ai.host.select_managed_model") {
     return (
-      hasExactKeys(value, ["type", "sessionId", "modelProfileId", "conversation"]) &&
+      hasExactKeys(value, ["type", "sessionId", "selection", "conversation"]) &&
       isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
-      isBoundedString(value.modelProfileId, MAX_ID_LENGTH) &&
+      isAiRuntimeManagedModelSelection(value.selection) &&
       isAiRuntimeConversationContext(value.conversation)
     );
   }
@@ -554,21 +631,26 @@ export function isAiRuntimeToHostMessage(value: unknown): value is AiRuntimeToHo
     const allowedKeys = [
       "type",
       "sessionId",
-      "availableModelProfileIds",
-      ...(value.selectedModelProfileId === undefined ? [] : ["selectedModelProfileId"]),
+      "availableRecommendedProfileIds",
+      "models",
+      ...(value.selectedModel === undefined ? [] : ["selectedModel"]),
       ...(value.errorCode === undefined ? [] : ["errorCode"])
     ];
     return (
       hasExactKeys(value, allowedKeys) &&
       isBoundedString(value.sessionId, MAX_ID_LENGTH) &&
-      Array.isArray(value.availableModelProfileIds) &&
-      value.availableModelProfileIds.length <= 128 &&
-      new Set(value.availableModelProfileIds).size === value.availableModelProfileIds.length &&
-      value.availableModelProfileIds.every((id) => isBoundedString(id, MAX_ID_LENGTH)) &&
-      (
-        value.selectedModelProfileId === undefined ||
-        isBoundedString(value.selectedModelProfileId, MAX_ID_LENGTH)
+      Array.isArray(value.availableRecommendedProfileIds) &&
+      value.availableRecommendedProfileIds.length <= 128 &&
+      new Set(value.availableRecommendedProfileIds).size ===
+        value.availableRecommendedProfileIds.length &&
+      value.availableRecommendedProfileIds.every((id) =>
+        isBoundedString(id, MAX_ID_LENGTH)
       ) &&
+      Array.isArray(value.models) && value.models.length <= 4_096 &&
+      value.models.every(isAiRuntimeManagedCatalogModel) &&
+      new Set(value.models.map((model) => model.id)).size === value.models.length &&
+      (value.selectedModel === undefined ||
+        isAiRuntimeManagedSelectionIdentity(value.selectedModel)) &&
       (value.errorCode === undefined || isBoundedString(value.errorCode, 64))
     );
   }

@@ -4816,6 +4816,7 @@
               "provider",
               "default_model_profile",
               "model_profiles",
+              "custom_profiles",
               "kind"
             ],
             "properties": {
@@ -4830,6 +4831,9 @@
                 "items": {
                   "$ref": "#/components/schemas/ManagedAiModelProfileResponse"
                 }
+              },
+              "custom_profiles": {
+                "$ref": "#/components/schemas/ManagedAiCustomProfilesResponse"
               },
               "kind": {
                 "type": "string",
@@ -6544,6 +6548,90 @@
           },
           "zh-CN": {
             "type": "string"
+          }
+        }
+      },
+      "ManagedAiCustomProfileDefaultsResponse": {
+        "type": "object",
+        "required": [
+          "context_window",
+          "max_output_tokens",
+          "reasoning",
+          "request_overrides"
+        ],
+        "properties": {
+          "context_window": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reasoning": {
+            "type": "boolean"
+          },
+          "request_overrides": {}
+        }
+      },
+      "ManagedAiCustomProfileLimitsResponse": {
+        "type": "object",
+        "required": [
+          "min_context_window",
+          "max_context_window",
+          "min_output_tokens",
+          "max_output_tokens"
+        ],
+        "properties": {
+          "min_context_window": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_context_window": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "min_output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ManagedAiCustomProfilesResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "require_catalog_match",
+          "defaults",
+          "limits",
+          "max_saved_profiles"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "require_catalog_match": {
+            "type": "boolean"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/ManagedAiCustomProfileDefaultsResponse"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/ManagedAiCustomProfileLimitsResponse"
+          },
+          "max_saved_profiles": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

@@ -12,6 +12,81 @@ import { DEFAULT_RUNTIME_DESIGN_THEME } from "@/design/runtimeTheme";
 
 const channels: MessageChannel[] = [];
 
+function managedPolicy(customProfilesEnabled = true) {
+  return {
+    kind: "managed_catalog" as const,
+    provider: {
+      id: "managed-provider",
+      label: { en: "Provider", "zh-CN": "Provider" },
+      credentialLabel: { en: "API key", "zh-CN": "API key" },
+      protocol: "openai-completions" as const,
+      baseUrl: "https://models.example.test/v1/",
+      catalog: "openai-models" as const
+    },
+    defaultModelProfileId: "model-one",
+    modelProfiles: [{
+      id: "model-one",
+      model: "vendor/model-one",
+      label: { en: "Model one", "zh-CN": "Model one" },
+      contextWindow: 32_768,
+      maxOutputTokens: 4_096,
+      reasoning: false,
+      requestOverrides: {}
+    }],
+    customProfiles: {
+      enabled: customProfilesEnabled,
+      requireCatalogMatch: true,
+      defaults: {
+        contextWindow: 65_536,
+        maxOutputTokens: 8_192,
+        reasoning: false,
+        requestOverrides: {}
+      },
+      limits: {
+        minContextWindow: 8_192,
+        maxContextWindow: 4_194_304,
+        minOutputTokens: 256,
+        maxOutputTokens: 1_048_576
+      },
+      maxSavedProfiles: 20
+    }
+  };
+}
+
+function managedInit(id: string): AiRuntimeBootstrapInit {
+  return {
+    type: "toss.ai.runtime.initialize",
+    protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
+    buildId: AI_RUNTIME_BUILD_ID,
+    sessionId: `session-${id}`,
+    nonce: `nonce-${id}`,
+    parentOrigin: "https://toss.example.test",
+    locale: "en",
+    theme: DEFAULT_RUNTIME_DESIGN_THEME,
+    preferences: {
+      providerRequestTimeoutMs: 120_000,
+      maxProviderCallsPerTurn: 12,
+      maxTurnMs: 300_000,
+      catalogRequestTimeoutMs: 20_000
+    },
+    connection: {
+      kind: "managed",
+      selection: { kind: "recommended", profileId: "model-one" }
+    },
+    conversation: { conversationId: `conversation-${id}`, history: [] },
+    workspace: null
+  };
+}
+
+const managedEndpoint = {
+  baseUrl: "https://models.example.test/v1/",
+  origin: "https://models.example.test"
+};
+
+const unexpectedProviderStream = (() => {
+  throw new Error("provider stream should not start without a turn");
+}) as StreamFn;
+
 afterEach(() => {
   for (const channel of channels.splice(0)) {
     channel.port1.close();
@@ -90,64 +165,27 @@ describe("AI connection surface", () => {
     prepareRuntimeSurface("test-nonce", "en");
     const fetch = vi.fn(async () => new Response(JSON.stringify({
       object: "list",
-      data: [{ id: "vendor/model-one", object: "model" }]
+      data: [{
+        id: "vendor/model-one",
+        object: "model",
+        max_input_tokens: 32_768,
+        max_output_tokens: 4_096
+      }]
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetch);
 
     const channel = new MessageChannel();
     channels.push(channel);
-    const policy = {
-      kind: "managed_catalog" as const,
-      provider: {
-        id: "managed-provider",
-        label: { en: "Provider", "zh-CN": "Provider" },
-        credentialLabel: { en: "API key", "zh-CN": "API key" },
-        protocol: "openai-completions" as const,
-        baseUrl: "https://models.example.test/v1/",
-        catalog: "openai-models" as const
-      },
-      defaultModelProfileId: "model-one",
-      modelProfiles: [{
-        id: "model-one",
-        model: "vendor/model-one",
-        label: { en: "Model one", "zh-CN": "Model one" },
-        contextWindow: 32_768,
-        maxOutputTokens: 4_096,
-        reasoning: false,
-        requestOverrides: {}
-      }]
-    };
-    const init: AiRuntimeBootstrapInit = {
-      type: "toss.ai.runtime.initialize",
-      protocolVersion: AI_RUNTIME_PROTOCOL_VERSION,
-      buildId: AI_RUNTIME_BUILD_ID,
-      sessionId: "session-2",
-      nonce: "nonce-2",
-      parentOrigin: "https://toss.example.test",
-      locale: "en",
-      theme: DEFAULT_RUNTIME_DESIGN_THEME,
-      preferences: {
-        providerRequestTimeoutMs: 120_000,
-        maxProviderCallsPerTurn: 12,
-        maxTurnMs: 300_000,
-        catalogRequestTimeoutMs: 20_000
-      },
-      connection: { kind: "managed", modelProfileId: "model-one" },
-      conversation: { conversationId: "conversation-2", history: [] },
-      workspace: null
-    };
-
+    const runtimeMessages: unknown[] = [];
+    channel.port2.addEventListener("message", (event) => runtimeMessages.push(event.data));
+    channel.port2.start();
+    const init = managedInit("catalog-actions");
     startRuntime(
       channel.port1,
       init,
-      policy,
-      {
-        baseUrl: "https://models.example.test/v1/",
-        origin: "https://models.example.test"
-      },
-      (() => {
-        throw new Error("provider stream should not start without a turn");
-      }) as StreamFn
+      managedPolicy(),
+      managedEndpoint,
+      unexpectedProviderStream
     );
 
     const input = document.querySelector<HTMLInputElement>("input[type='password']")!;
@@ -169,8 +207,53 @@ describe("AI connection surface", () => {
       expect(document.querySelectorAll(".managed-controls button")).toHaveLength(2);
     });
 
+    runtimeMessages.length = 0;
+    channel.port2.postMessage({
+      type: "toss.ai.host.select_managed_model",
+      sessionId: init.sessionId,
+      selection: {
+        kind: "custom",
+        profileId: "custom-too-large",
+        model: "vendor/model-one",
+        contextWindow: 65_536,
+        maxOutputTokens: 4_096,
+        reasoning: false,
+        requestOverrides: {}
+      },
+      conversation: init.conversation
+    });
+    await vi.waitFor(() => {
+      expect(runtimeMessages).toContainEqual(expect.objectContaining({
+        type: "toss.ai.runtime.managed_catalog",
+        errorCode: "managed_model_selection_unavailable"
+      }));
+    });
+    expect(runtimeMessages).not.toContainEqual(expect.objectContaining({
+      type: "toss.ai.runtime.error"
+    }));
+    expect(document.querySelectorAll(".managed-controls button")).toHaveLength(2);
+
     document.querySelector<HTMLButtonElement>("[data-action='change-credential']")!.click();
     expect(document.querySelectorAll(".managed-controls")).toHaveLength(0);
+    expect(document.querySelectorAll("input[type='password']")).toHaveLength(1);
+  });
+
+  it("keeps exactly one credential form after an empty managed submission", () => {
+    document.body.innerHTML = '<div id="ai-runtime-root"></div>';
+    prepareRuntimeSurface("test-nonce", "en");
+    const channel = new MessageChannel();
+    channels.push(channel);
+    startRuntime(
+      channel.port1,
+      managedInit("empty-key"),
+      managedPolicy(false),
+      managedEndpoint,
+      unexpectedProviderStream
+    );
+
+    document.querySelector<HTMLButtonElement>(".credential-form button")!.click();
+
+    expect(document.querySelectorAll(".credential-form")).toHaveLength(1);
     expect(document.querySelectorAll("input[type='password']")).toHaveLength(1);
   });
 });
