@@ -91,6 +91,27 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+pub(super) fn package_cache_config() -> PackageCacheConfig {
+    PackageCacheConfig {
+        root: env::var("TYPST_PACKAGE_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/tmp/typst-packages-cache")),
+        max_bytes: env_u64("TYPST_PACKAGE_CACHE_MAX_BYTES", DEFAULT_CACHE_MAX_BYTES),
+        limits: PackageLimits {
+            max_archive_bytes: env_u64(
+                "TYPST_PACKAGE_MAX_ARCHIVE_BYTES",
+                DEFAULT_MAX_ARCHIVE_BYTES,
+            ),
+            max_extracted_bytes: env_u64(
+                "TYPST_PACKAGE_MAX_EXTRACTED_BYTES",
+                DEFAULT_MAX_EXTRACTED_BYTES,
+            ),
+            max_file_bytes: env_u64("TYPST_PACKAGE_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES),
+            max_files: env_u64("TYPST_PACKAGE_MAX_FILES", DEFAULT_MAX_FILES),
+        },
+    }
+}
+
 pub(super) fn universe_config() -> Result<UniverseConfig, UniverseConfigError> {
     let raw_base = env::var("TYPST_UNIVERSE_BASE_URL")
         .unwrap_or_else(|_| "https://packages.typst.org".to_string());
@@ -109,24 +130,7 @@ pub(super) fn universe_config() -> Result<UniverseConfig, UniverseConfigError> {
     Ok(UniverseConfig {
         enabled: env_bool("TYPST_UNIVERSE_ENABLED", true),
         base_url,
-        cache: PackageCacheConfig {
-            root: env::var("TYPST_PACKAGE_CACHE_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("/tmp/typst-packages-cache")),
-            max_bytes: env_u64("TYPST_PACKAGE_CACHE_MAX_BYTES", DEFAULT_CACHE_MAX_BYTES),
-            limits: PackageLimits {
-                max_archive_bytes: env_u64(
-                    "TYPST_PACKAGE_MAX_ARCHIVE_BYTES",
-                    DEFAULT_MAX_ARCHIVE_BYTES,
-                ),
-                max_extracted_bytes: env_u64(
-                    "TYPST_PACKAGE_MAX_EXTRACTED_BYTES",
-                    DEFAULT_MAX_EXTRACTED_BYTES,
-                ),
-                max_file_bytes: env_u64("TYPST_PACKAGE_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES),
-                max_files: env_u64("TYPST_PACKAGE_MAX_FILES", DEFAULT_MAX_FILES),
-            },
-        },
+        cache: package_cache_config(),
     })
 }
 

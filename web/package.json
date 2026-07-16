@@ -51,6 +51,7 @@
     "codemirror-lang-typst": "^0.4.0",
     "katex": "^0.17.0",
     "lucide-react": "^1.24.0",
+    "nanotar": "0.3.0",
     "pdfjs-dist": "^6.1.200",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

@@ -1,6 +1,8 @@
 import {
   AI_WORKSPACE_TOOL_LIMITS,
   AI_WORKSPACE_TOOL_NAMES,
+  isAiTypstPackageToolName,
+  isAiTypstPackageToolRequest,
   isAiWorkspaceToolArguments,
   type AiApplyPatchArguments,
   type AiListProjectFilesArguments,
@@ -16,6 +18,10 @@ import {
   type AiWorkspaceToolResult,
   type AiWriteFileArguments
 } from "@/features/ai/toolContract";
+import {
+  BrowserTypstPackageInspector,
+  type AiTypstPackageInspector
+} from "@/features/ai/typstPackageInspector";
 import {
   createAssistantUnifiedDiff,
   parseAssistantUnifiedDiff,
@@ -50,6 +56,8 @@ export type AiWorkspacePortOptions = {
   projectType: "typst" | "latex";
   mode: "live" | "revision";
   allowEdits: boolean;
+  coreApiUrl?: string;
+  typstPackageInspector?: AiTypstPackageInspector;
   getContextSnapshot: () => AiWorkspaceContextSnapshot;
   getSource: () => AiWorkspaceToolSource;
   verifyCandidate: (
@@ -652,6 +660,8 @@ export function createAiWorkspacePort({
   projectType,
   mode,
   allowEdits,
+  coreApiUrl,
+  typstPackageInspector: providedTypstPackageInspector,
   getContextSnapshot,
   getSource,
   verifyCandidate,
@@ -659,16 +669,26 @@ export function createAiWorkspacePort({
   requestEditReview
 }: AiWorkspacePortOptions): AiWorkspaceToolPort {
   const fullReadSnapshots = new Map<string, string>();
+  const typstPackageInspector = projectType === "typst"
+    ? providedTypstPackageInspector ?? (
+        coreApiUrl === undefined ? null : new BrowserTypstPackageInspector(coreApiUrl)
+      )
+    : null;
   const capabilities: AiWorkspaceCapabilities = {
     project_type: projectType,
     mode,
     tools: AI_WORKSPACE_TOOL_NAMES.filter((tool) => (
-      tool !== "apply_patch" && tool !== "write_file"
-    ) || (allowEdits && mode === "live"))
+      isAiTypstPackageToolName(tool)
+        ? typstPackageInspector !== null
+        : (tool !== "apply_patch" && tool !== "write_file") || (allowEdits && mode === "live")
+    ))
   };
   return {
     capabilities,
     getContextSnapshot,
+    dispose() {
+      typstPackageInspector?.dispose();
+    },
     async execute(request: AiWorkspaceToolRequest, signal?: AbortSignal) {
       try {
         checkAbort(signal);
@@ -686,6 +706,25 @@ export function createAiWorkspacePort({
         ) {
           return toolError("workspace_scope_changed", "The Workspace scope changed before the tool ran.");
         }
+        if (isAiTypstPackageToolRequest(request)) {
+          if (!typstPackageInspector) {
+            return toolError(
+              "workspace_tool_not_available",
+              "Typst package inspection is not available."
+            );
+          }
+          const result = await typstPackageInspector.execute(
+            request,
+            signal
+          );
+          if (getSource().scopeId !== scopeId) {
+            return toolError(
+              "workspace_scope_changed",
+              "The Workspace scope changed while the package tool ran."
+            );
+          }
+          return result;
+        }
         if (request.tool === "list_project_files") {
           return listProjectFiles(source, request.arguments);
         }
@@ -697,6 +736,7 @@ export function createAiWorkspacePort({
           if (
             result.outcome === "success" &&
             "numbered_content" in result.result &&
+            "snapshot_id" in result.result &&
             result.result.start_line === 1 &&
             result.result.end_line === result.result.total_lines &&
             !result.result.has_more &&

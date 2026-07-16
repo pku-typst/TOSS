@@ -1,7 +1,8 @@
 use super::{
-    load_dynamic_package, read_cached_package, read_seed_package, sanitize_builtin_asset_path,
-    universe_config, FetchPackageError, LoadDynamicPackageError, PackagePayload, PackageSpec,
-    PackageValidationError, SeedPackageError, UniverseConfigError,
+    load_dynamic_package, package_cache_config, read_cached_package, read_catalog_package,
+    sanitize_builtin_asset_path, universe_config, CatalogPackageError, FetchPackageError,
+    LoadDynamicPackageError, PackagePayload, PackageSpec, PackageValidationError,
+    UniverseConfigError,
 };
 use crate::access::required_request_user_id;
 use crate::app_state::AppState;
@@ -67,61 +68,61 @@ fn universe_config_error_response(failure: UniverseConfigError) -> Response {
     .into_response()
 }
 
-fn seed_package_error_response(failure: SeedPackageError) -> Response {
+fn catalog_package_error_response(failure: CatalogPackageError) -> Response {
     let (status, code, message) = match &failure {
-        SeedPackageError::ReadCatalog { .. } => (
+        CatalogPackageError::ReadCatalog { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
             "Built-in Typst catalog is unavailable",
         ),
-        SeedPackageError::ParseCatalog { .. } => (
+        CatalogPackageError::ParseCatalog { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
             "Built-in Typst catalog is invalid",
         ),
-        SeedPackageError::UnsupportedCatalogSchema { .. } => (
+        CatalogPackageError::UnsupportedCatalogSchema { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
             "Built-in Typst catalog schema is unsupported",
         ),
-        SeedPackageError::InvalidArtifactPath { .. } => (
+        CatalogPackageError::InvalidArtifactPath { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
-            "Typst package seed path is invalid",
+            "Typst package catalog artifact path is invalid",
         ),
-        SeedPackageError::ReadArtifact { .. } => (
+        CatalogPackageError::ReadArtifact { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
-            "Typst package seed is unavailable",
+            "Typst package catalog artifact is unavailable",
         ),
-        SeedPackageError::SizeMismatch { .. } => (
+        CatalogPackageError::SizeMismatch { .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
-            "Typst package seed size does not match its catalog",
+            "Typst package artifact size does not match its catalog",
         ),
-        SeedPackageError::Validation(PackageValidationError::ArchiveSize { .. }) => (
+        CatalogPackageError::Validation(PackageValidationError::ArchiveSize { .. }) => (
             StatusCode::PAYLOAD_TOO_LARGE,
             ApiErrorCode::PayloadTooLarge,
             "Typst package archive exceeds the configured limit",
         ),
-        SeedPackageError::Validation(PackageValidationError::InvalidArchive { .. }) => (
+        CatalogPackageError::Validation(PackageValidationError::InvalidArchive { .. }) => (
             StatusCode::BAD_GATEWAY,
             ApiErrorCode::BadGateway,
             "Typst package archive is invalid",
         ),
-        SeedPackageError::Validation(PackageValidationError::Worker { .. }) => (
+        CatalogPackageError::Validation(PackageValidationError::Worker { .. }) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
             "Typst package validation failed",
         ),
-        SeedPackageError::ChecksumMismatch => (
+        CatalogPackageError::ChecksumMismatch => (
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiErrorCode::InternalError,
-            "Typst package seed checksum does not match its catalog",
+            "Typst package artifact checksum does not match its catalog",
         ),
     };
     ApiError::new(status, code, message)
-        .with_diagnostic("built-in Typst package resolution failed", failure)
+        .with_diagnostic("catalog Typst package resolution failed", failure)
         .into_response()
 }
 
@@ -292,15 +293,24 @@ pub(crate) async fn typst_package_proxy(
         )
         .into_response();
     };
+    let package_cache = package_cache_config();
+    match read_catalog_package(&state.typst_builtin_dir, &spec, package_cache.limits).await {
+        Ok(Some(payload)) => return package_response(payload),
+        Ok(None) => {}
+        Err(error) => return catalog_package_error_response(error),
+    }
+    if spec.is_local() {
+        return ApiError::new(
+            StatusCode::NOT_FOUND,
+            ApiErrorCode::NotFound,
+            "Built-in Typst package was not found",
+        )
+        .into_response();
+    }
     let config = match universe_config() {
         Ok(value) => value,
         Err(error) => return universe_config_error_response(error),
     };
-    match read_seed_package(&state.typst_builtin_dir, &spec, config.cache.limits).await {
-        Ok(Some(payload)) => return package_response(payload),
-        Ok(None) => {}
-        Err(error) => return seed_package_error_response(error),
-    }
     if let Some(payload) = read_cached_package(&config.cache, &spec).await {
         return package_response(payload);
     }

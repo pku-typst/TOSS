@@ -2,11 +2,20 @@ export const AI_WORKSPACE_TOOL_NAMES = [
   "list_project_files",
   "read_project_file",
   "search_project_text",
+  "list_typst_package_files",
+  "read_typst_package_file",
+  "search_typst_package_text",
   "apply_patch",
   "write_file"
 ] as const;
 
 export type AiWorkspaceToolName = (typeof AI_WORKSPACE_TOOL_NAMES)[number];
+export type AiTypstPackageToolName = Extract<
+  AiWorkspaceToolName,
+  | "list_typst_package_files"
+  | "read_typst_package_file"
+  | "search_typst_package_text"
+>;
 export type AiWorkspaceProjectType = "typst" | "latex";
 export type AiWorkspaceMode = "live" | "revision";
 
@@ -18,6 +27,11 @@ export const AI_WORKSPACE_TOOL_LIMITS = {
   maxSearchQueryLength: 256,
   maxSearchMatches: 100,
   maxSearchExcerptLength: 1_024,
+  maxPackageSpecLength: 192,
+  maxPackageArchiveBytes: 64 * 1024 * 1024,
+  maxPackageExtractedBytes: 96 * 1024 * 1024,
+  maxPackageTextFileBytes: 1024 * 1024,
+  maxPackageSearchCharacters: 2_000_000,
   maxPatchCharacters: 131_072,
   maxPatchHunks: 64,
   maxPatchChangedLines: 2_000,
@@ -79,6 +93,28 @@ export type AiSearchProjectTextArguments = {
   max_results?: number;
 };
 
+export type AiListTypstPackageFilesArguments = {
+  package_spec: string;
+  path_prefix?: string;
+  offset?: number;
+  limit?: number;
+};
+
+export type AiReadTypstPackageFileArguments = {
+  package_spec: string;
+  path: string;
+  start_line?: number;
+  end_line?: number;
+};
+
+export type AiSearchTypstPackageTextArguments = {
+  package_spec: string;
+  query: string;
+  path_prefix?: string;
+  case_sensitive?: boolean;
+  max_results?: number;
+};
+
 export type AiApplyPatchArguments = {
   path: string;
   base_snapshot: string;
@@ -95,8 +131,16 @@ export type AiWorkspaceToolRequest =
   | { tool: "list_project_files"; arguments: AiListProjectFilesArguments }
   | { tool: "read_project_file"; arguments: AiReadProjectFileArguments }
   | { tool: "search_project_text"; arguments: AiSearchProjectTextArguments }
+  | { tool: "list_typst_package_files"; arguments: AiListTypstPackageFilesArguments }
+  | { tool: "read_typst_package_file"; arguments: AiReadTypstPackageFileArguments }
+  | { tool: "search_typst_package_text"; arguments: AiSearchTypstPackageTextArguments }
   | { tool: "apply_patch"; arguments: AiApplyPatchArguments }
   | { tool: "write_file"; arguments: AiWriteFileArguments };
+
+export type AiTypstPackageToolRequest = Extract<
+  AiWorkspaceToolRequest,
+  { tool: AiTypstPackageToolName }
+>;
 
 export type AiListProjectFilesResult = {
   project_type: AiWorkspaceProjectType;
@@ -124,6 +168,47 @@ export type AiReadProjectFileResult = {
 };
 
 export type AiSearchProjectTextResult = {
+  query: string;
+  case_sensitive: boolean;
+  files_searched: number;
+  matches: Array<{
+    path: string;
+    line: number;
+    column: number;
+    numbered_excerpt: string;
+  }>;
+  truncated: boolean;
+};
+
+export type AiListTypstPackageFilesResult = {
+  package_spec: string;
+  package_digest: string;
+  manifest_path: "typst.toml";
+  entries: Array<{
+    path: string;
+    kind: "directory" | "text" | "asset";
+    size_bytes: number | null;
+  }>;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+};
+
+export type AiReadTypstPackageFileResult = {
+  package_spec: string;
+  package_digest: string;
+  path: string;
+  start_line: number;
+  end_line: number;
+  total_lines: number;
+  has_more: boolean;
+  content_truncated: boolean;
+  numbered_content: string;
+};
+
+export type AiSearchTypstPackageTextResult = {
+  package_spec: string;
+  package_digest: string;
   query: string;
   case_sensitive: boolean;
   files_searched: number;
@@ -166,6 +251,9 @@ export type AiWorkspaceToolResult =
   | AiListProjectFilesResult
   | AiReadProjectFileResult
   | AiSearchProjectTextResult
+  | AiListTypstPackageFilesResult
+  | AiReadTypstPackageFileResult
+  | AiSearchTypstPackageTextResult
   | AiApplyPatchResult
   | AiWriteFileResult;
 
@@ -188,7 +276,17 @@ export const AI_WORKSPACE_TOOL_ERROR_CODES = [
   "workspace_tool_budget_exceeded",
   "workspace_tool_concurrency_exceeded",
   "workspace_tool_call_duplicate",
-  "workspace_tool_internal_error"
+  "workspace_tool_internal_error",
+  "typst_package_invalid_spec",
+  "typst_package_not_found",
+  "typst_package_access_denied",
+  "typst_package_unavailable",
+  "typst_package_archive_invalid",
+  "typst_package_invalid_path",
+  "typst_package_file_not_found",
+  "typst_package_file_not_text",
+  "typst_package_output_too_large",
+  "typst_package_internal_error"
 ] as const;
 
 export type AiWorkspaceToolErrorCode = (typeof AI_WORKSPACE_TOOL_ERROR_CODES)[number];
@@ -206,6 +304,7 @@ export type AiWorkspaceToolExecution =
 export interface AiWorkspaceToolPort {
   readonly capabilities: AiWorkspaceCapabilities;
   getContextSnapshot(): AiWorkspaceContextSnapshot;
+  dispose(): void;
   execute(
     request: AiWorkspaceToolRequest,
     signal?: AbortSignal
@@ -249,6 +348,18 @@ function isSafePositiveInteger(value: unknown): value is number {
 
 export function isAiWorkspaceToolName(value: unknown): value is AiWorkspaceToolName {
   return AI_WORKSPACE_TOOL_NAMES.some((name) => name === value);
+}
+
+export function isAiTypstPackageToolName(value: unknown): value is AiTypstPackageToolName {
+  return value === "list_typst_package_files" ||
+    value === "read_typst_package_file" ||
+    value === "search_typst_package_text";
+}
+
+export function isAiTypstPackageToolRequest(
+  request: AiWorkspaceToolRequest
+): request is AiTypstPackageToolRequest {
+  return isAiTypstPackageToolName(request.tool);
 }
 
 export function isAiWorkspaceToolErrorCode(value: unknown): value is AiWorkspaceToolErrorCode {
@@ -335,6 +446,52 @@ export function isAiWorkspaceToolArguments(
       isBoundedString(value.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
       (value.start_line === undefined || isSafePositiveInteger(value.start_line)) &&
       (value.end_line === undefined || isSafePositiveInteger(value.end_line))
+    );
+  }
+  if (tool === "list_typst_package_files") {
+    if (!hasOnlyKeys(
+      value,
+      ["package_spec", "path_prefix", "offset", "limit"],
+      ["package_spec"]
+    )) return false;
+    return (
+      isBoundedString(value.package_spec, AI_WORKSPACE_TOOL_LIMITS.maxPackageSpecLength) &&
+      (value.path_prefix === undefined ||
+        isBoundedString(value.path_prefix, AI_WORKSPACE_TOOL_LIMITS.maxPathLength, true)) &&
+      (value.offset === undefined || isSafeNonNegativeInteger(value.offset)) &&
+      (value.limit === undefined ||
+        (isSafePositiveInteger(value.limit) &&
+          value.limit <= AI_WORKSPACE_TOOL_LIMITS.maxListEntries))
+    );
+  }
+  if (tool === "read_typst_package_file") {
+    if (!hasOnlyKeys(
+      value,
+      ["package_spec", "path", "start_line", "end_line"],
+      ["package_spec", "path"]
+    )) return false;
+    return (
+      isBoundedString(value.package_spec, AI_WORKSPACE_TOOL_LIMITS.maxPackageSpecLength) &&
+      isBoundedString(value.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
+      (value.start_line === undefined || isSafePositiveInteger(value.start_line)) &&
+      (value.end_line === undefined || isSafePositiveInteger(value.end_line))
+    );
+  }
+  if (tool === "search_typst_package_text") {
+    if (!hasOnlyKeys(
+      value,
+      ["package_spec", "query", "path_prefix", "case_sensitive", "max_results"],
+      ["package_spec", "query"]
+    )) return false;
+    return (
+      isBoundedString(value.package_spec, AI_WORKSPACE_TOOL_LIMITS.maxPackageSpecLength) &&
+      isBoundedString(value.query, AI_WORKSPACE_TOOL_LIMITS.maxSearchQueryLength) &&
+      (value.path_prefix === undefined ||
+        isBoundedString(value.path_prefix, AI_WORKSPACE_TOOL_LIMITS.maxPathLength, true)) &&
+      (value.case_sensitive === undefined || typeof value.case_sensitive === "boolean") &&
+      (value.max_results === undefined ||
+        (isSafePositiveInteger(value.max_results) &&
+          value.max_results <= AI_WORKSPACE_TOOL_LIMITS.maxSearchMatches))
     );
   }
   if (tool === "apply_patch") {
@@ -452,6 +609,99 @@ function isSearchResult(value: unknown): value is AiSearchProjectTextResult {
   );
 }
 
+function isPackageIdentity(value: Record<string, unknown>) {
+  return (
+    isBoundedString(value.package_spec, AI_WORKSPACE_TOOL_LIMITS.maxPackageSpecLength) &&
+    typeof value.package_digest === "string" &&
+    /^sha256:[a-f0-9]{64}$/.test(value.package_digest)
+  );
+}
+
+function isPackageListResult(value: unknown): value is AiListTypstPackageFilesResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "package_spec",
+    "package_digest",
+    "manifest_path",
+    "entries",
+    "offset",
+    "total",
+    "next_offset"
+  ])) return false;
+  return (
+    isPackageIdentity(value) &&
+    value.manifest_path === "typst.toml" &&
+    Array.isArray(value.entries) &&
+    value.entries.length <= AI_WORKSPACE_TOOL_LIMITS.maxListEntries &&
+    value.entries.every((entry) => (
+      isRecord(entry) &&
+      hasExactKeys(entry, ["path", "kind", "size_bytes"]) &&
+      isBoundedString(entry.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
+      (entry.kind === "directory" || entry.kind === "text" || entry.kind === "asset") &&
+      (entry.size_bytes === null || isSafeNonNegativeInteger(entry.size_bytes))
+    )) &&
+    isSafeNonNegativeInteger(value.offset) &&
+    isSafeNonNegativeInteger(value.total) &&
+    (value.next_offset === null || isSafeNonNegativeInteger(value.next_offset))
+  );
+}
+
+function isPackageReadResult(value: unknown): value is AiReadTypstPackageFileResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "package_spec",
+    "package_digest",
+    "path",
+    "start_line",
+    "end_line",
+    "total_lines",
+    "has_more",
+    "content_truncated",
+    "numbered_content"
+  ])) return false;
+  return (
+    isPackageIdentity(value) &&
+    isBoundedString(value.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
+    isSafePositiveInteger(value.start_line) &&
+    isSafePositiveInteger(value.end_line) &&
+    isSafePositiveInteger(value.total_lines) &&
+    typeof value.has_more === "boolean" &&
+    typeof value.content_truncated === "boolean" &&
+    isBoundedString(value.numbered_content, AI_WORKSPACE_TOOL_LIMITS.maxReadCharacters, true)
+  );
+}
+
+function isPackageSearchResult(value: unknown): value is AiSearchTypstPackageTextResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "package_spec",
+    "package_digest",
+    "query",
+    "case_sensitive",
+    "files_searched",
+    "matches",
+    "truncated"
+  ])) return false;
+  return (
+    isPackageIdentity(value) &&
+    isBoundedString(value.query, AI_WORKSPACE_TOOL_LIMITS.maxSearchQueryLength) &&
+    typeof value.case_sensitive === "boolean" &&
+    isSafeNonNegativeInteger(value.files_searched) &&
+    Array.isArray(value.matches) &&
+    value.matches.length <= AI_WORKSPACE_TOOL_LIMITS.maxSearchMatches &&
+    value.matches.every((match) => (
+      isRecord(match) &&
+      hasExactKeys(match, ["path", "line", "column", "numbered_excerpt"]) &&
+      isBoundedString(match.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
+      isSafePositiveInteger(match.line) &&
+      isSafePositiveInteger(match.column) &&
+      isBoundedString(
+        match.numbered_excerpt,
+        AI_WORKSPACE_TOOL_LIMITS.maxSearchExcerptLength,
+        true
+      )
+    )) &&
+    typeof value.truncated === "boolean"
+  );
+}
+
 function isEditResult(value: unknown): value is AiEditResult {
   if (!isRecord(value) || !hasExactKeys(value, [
     "path",
@@ -514,6 +764,9 @@ export function isAiWorkspaceToolResult(
 ): value is AiWorkspaceToolResult {
   if (tool === "list_project_files") return isListResult(value);
   if (tool === "read_project_file") return isReadResult(value);
+  if (tool === "list_typst_package_files") return isPackageListResult(value);
+  if (tool === "read_typst_package_file") return isPackageReadResult(value);
+  if (tool === "search_typst_package_text") return isPackageSearchResult(value);
   if (tool === "apply_patch" || tool === "write_file") return isEditResult(value);
   return isSearchResult(value);
 }

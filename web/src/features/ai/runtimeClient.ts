@@ -163,12 +163,15 @@ function settleMessage(
 
 function toolPresentation(message: AiRuntimeToolCall) {
   const args = message.arguments as Record<string, unknown>;
+  const packageSpec = typeof args.package_spec === "string" ? args.package_spec : null;
   const explicitPath = typeof args.path === "string" ? args.path : null;
   const prefix = typeof args.path_prefix === "string" && args.path_prefix
     ? args.path_prefix
     : null;
   return {
-    path: explicitPath ?? prefix,
+    path: packageSpec
+      ? explicitPath ? `${packageSpec} · ${explicitPath}` : packageSpec
+      : explicitPath ?? prefix,
     query: typeof args.query === "string" ? args.query.slice(0, 256) : null,
     startLine: typeof args.start_line === "number" ? args.start_line : null,
     endLine: typeof args.end_line === "number" ? args.end_line : null

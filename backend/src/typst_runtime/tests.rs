@@ -1,5 +1,7 @@
 use super::archive::{archive_path_is_safe, validate_archive_contents};
-use super::catalog::{sanitize_builtin_asset_path, TypstCatalog, CATALOG_SCHEMA};
+use super::catalog::{
+    read_catalog_package, sanitize_builtin_asset_path, TypstCatalog, CATALOG_SCHEMA,
+};
 use super::package::{PackageLimits, PackageSpec};
 use super::universe::{
     DEFAULT_MAX_ARCHIVE_BYTES, DEFAULT_MAX_EXTRACTED_BYTES, DEFAULT_MAX_FILES,
@@ -7,6 +9,7 @@ use super::universe::{
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use sha2::Digest;
 use std::error::Error;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -56,6 +59,12 @@ fn package_specs_are_strict() {
     .is_some());
     assert!(PackageSpec::parse(
         "local".to_string(),
+        "fixture".to_string(),
+        "0.6.0".to_string()
+    )
+    .is_some());
+    assert!(PackageSpec::parse(
+        "private".to_string(),
         "fixture".to_string(),
         "0.6.0".to_string()
     )
@@ -154,6 +163,44 @@ fn community_catalog_is_a_valid_empty_fallback() -> Result<(), Box<dyn Error>> {
     let catalog: TypstCatalog =
         serde_json::from_slice(&std::fs::read(builtin_root.join("catalog.json"))?)?;
     assert_eq!(catalog.schema, CATALOG_SCHEMA);
+    assert!(catalog.local_packages.is_empty());
     assert!(catalog.universe_seeds.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn local_packages_are_served_from_the_catalog() -> Result<(), Box<dyn Error>> {
+    let root = tempfile::tempdir()?;
+    let artifact_path = root.path().join("packages/local/fixture-0.6.0.tar.gz");
+    std::fs::create_dir_all(artifact_path.parent().ok_or("missing package parent")?)?;
+    let bytes = package_archive("fixture", "0.6.0")?;
+    let sha256 = hex::encode(sha2::Sha256::digest(&bytes));
+    std::fs::write(&artifact_path, &bytes)?;
+    std::fs::write(
+        root.path().join("catalog.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": CATALOG_SCHEMA,
+            "local_packages": [{
+                "namespace": "local",
+                "name": "fixture",
+                "version": "0.6.0",
+                "artifact_path": "packages/local/fixture-0.6.0.tar.gz",
+                "sha256": sha256,
+                "size_bytes": bytes.len()
+            }],
+            "universe_seeds": []
+        }))?,
+    )?;
+    let spec = PackageSpec::parse(
+        "local".to_string(),
+        "fixture".to_string(),
+        "0.6.0".to_string(),
+    )
+    .ok_or("local package spec should be valid")?;
+    let payload = read_catalog_package(root.path(), &spec, test_limits())
+        .await?
+        .ok_or("local catalog package should resolve")?;
+    assert_eq!(payload.cache_status, "LOCAL");
+    assert_eq!(payload.bytes, bytes);
     Ok(())
 }

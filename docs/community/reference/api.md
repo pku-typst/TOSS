@@ -243,9 +243,12 @@ visible to the project owner.
 - `GET /v1/typst/builtin/{path}`
 - `GET /v1/latex/texlive/{path}`
 
-The package endpoint serves validated built-in/seeded archives before falling
-back to the configured Typst Universe source. The LaTeX TeXLive endpoint returns
-`404` when the active distribution does not enable LaTeX. Typst package,
+The package endpoint accepts exact `local` and `preview` package identities.
+`local` resolves only validated entries in the active distribution catalog and
+never falls back to a public registry. `preview` resolves an immutable catalog
+seed, then the validated cache, then the configured Typst Universe source when
+enabled. Successful responses include the archive SHA-256 digest. The LaTeX
+TeXLive endpoint returns `404` when the active distribution does not enable LaTeX. Typst package,
 built-in asset, and TeXLive requests require an authenticated user session; a
 named temporary guest session alone is not sufficient. See
 [Community LaTeX runtime](../runtimes/latex.md) for proxy/cache limits.

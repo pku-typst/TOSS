@@ -52,10 +52,18 @@ For `@preview/<name>:<version>` imports, resolution proceeds through:
 2. a validated entry in the persistent package cache;
 3. an on-demand fetch from Typst Universe when enabled.
 
-All seeded and dynamic Universe archives reach the browser through
-`/v1/typst/packages/preview/<name>/<version>`. The browser does not contact the
-upstream registry directly. Existing seeds and cached entries remain usable
-while the upstream is unavailable.
+For `@local/<name>:<version>` imports, resolution is intentionally narrower:
+the exact package must be listed in the active catalog's `local_packages`
+collection. A missing local package returns `404` and never falls through to
+Typst Universe.
+
+All local, seeded, and dynamic archives reach the browser through
+`/v1/typst/packages/<namespace>/<name>/<version>`. The browser does not contact
+the upstream registry directly. Existing local, seeded, and cached entries
+remain usable while the upstream is unavailable. The same generic runtime
+asset endpoint supports browser compilation and optional read-only package
+inspection; package archive parsing and search remain browser-side rather than
+forming an AI backend.
 
 Package and font endpoints require a signed-in account. A named guest session
 alone cannot fetch catalog resources. Supporting protected packages for

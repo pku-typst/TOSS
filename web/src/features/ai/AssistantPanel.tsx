@@ -175,6 +175,21 @@ function toolLabel(part: AiTranscriptToolPart, t: Translator) {
   if (part.tool === "search_project_text") {
     return t("ai.tool.search", { query: part.query ?? "" });
   }
+  if (part.tool === "list_typst_package_files") {
+    return t("ai.tool.packageList", { package: part.path ?? "" });
+  }
+  if (part.tool === "read_typst_package_file") {
+    const separator = part.path?.indexOf(" · ") ?? -1;
+    const packageSpec = separator >= 0 ? part.path!.slice(0, separator) : part.path ?? "";
+    const path = separator >= 0 ? part.path!.slice(separator + 3) : "";
+    return t("ai.tool.packageRead", { package: packageSpec, path });
+  }
+  if (part.tool === "search_typst_package_text") {
+    return t("ai.tool.packageSearch", {
+      package: part.path ?? "",
+      query: part.query ?? ""
+    });
+  }
   if (part.tool === "write_file") {
     return t("ai.tool.write", { path: part.path ?? "" });
   }

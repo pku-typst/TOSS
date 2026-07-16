@@ -89,6 +89,7 @@ export function createAiWorkspacePort(
       tools: []
     },
     getContextSnapshot: options.getContextSnapshot,
+    dispose() {},
     async execute() {
       return {
         outcome: "error",

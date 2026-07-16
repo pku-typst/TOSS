@@ -9,7 +9,7 @@ pub(super) struct PackageSpec {
 
 impl PackageSpec {
     pub(super) fn parse(namespace: String, name: String, version: String) -> Option<Self> {
-        if namespace != "preview" || !valid_package_name(&name) {
+        if !matches!(namespace.as_str(), "local" | "preview") || !valid_package_name(&name) {
             return None;
         }
         let parsed = Version::parse(&version).ok()?;
@@ -25,6 +25,10 @@ impl PackageSpec {
 
     pub(super) fn key(&self) -> String {
         format!("{}/{}/{}", self.namespace, self.name, self.version)
+    }
+
+    pub(super) fn is_local(&self) -> bool {
+        self.namespace == "local"
     }
 }
 

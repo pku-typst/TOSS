@@ -9,6 +9,8 @@ pub(super) const CATALOG_SCHEMA: u32 = 2;
 pub(super) struct TypstCatalog {
     pub(super) schema: u32,
     #[serde(default)]
+    pub(super) local_packages: Vec<CatalogPackage>,
+    #[serde(default)]
     pub(super) universe_seeds: Vec<CatalogPackage>,
 }
 
@@ -38,31 +40,35 @@ pub(super) fn sanitize_builtin_asset_path(root: &Path, raw: &str) -> Option<Path
     Some(root.join(relative))
 }
 
-pub(super) async fn read_seed_package(
+pub(super) async fn read_catalog_package(
     builtin_dir: &Path,
     spec: &PackageSpec,
     limits: PackageLimits,
-) -> Result<Option<PackagePayload>, SeedPackageError> {
+) -> Result<Option<PackagePayload>, CatalogPackageError> {
     let catalog_path = builtin_dir.join("catalog.json");
-    let catalog_bytes =
-        tokio::fs::read(&catalog_path)
-            .await
-            .map_err(|source| SeedPackageError::ReadCatalog {
-                path: catalog_path.clone(),
-                source,
-            })?;
+    let catalog_bytes = tokio::fs::read(&catalog_path).await.map_err(|source| {
+        CatalogPackageError::ReadCatalog {
+            path: catalog_path.clone(),
+            source,
+        }
+    })?;
     let catalog: TypstCatalog = serde_json::from_slice(&catalog_bytes).map_err(|source| {
-        SeedPackageError::ParseCatalog {
+        CatalogPackageError::ParseCatalog {
             path: catalog_path,
             source,
         }
     })?;
     if catalog.schema != CATALOG_SCHEMA {
-        return Err(SeedPackageError::UnsupportedCatalogSchema {
+        return Err(CatalogPackageError::UnsupportedCatalogSchema {
             schema: catalog.schema,
         });
     }
-    let Some(entry) = catalog.universe_seeds.into_iter().find(|entry| {
+    let (entries, cache_status) = if spec.is_local() {
+        (catalog.local_packages, "LOCAL")
+    } else {
+        (catalog.universe_seeds, "SEED")
+    };
+    let Some(entry) = entries.into_iter().find(|entry| {
         entry.namespace == spec.namespace
             && entry.name == spec.name
             && entry.version == spec.version
@@ -70,39 +76,38 @@ pub(super) async fn read_seed_package(
         return Ok(None);
     };
     let Some(artifact_path) = sanitize_builtin_asset_path(builtin_dir, &entry.artifact_path) else {
-        return Err(SeedPackageError::InvalidArtifactPath {
+        return Err(CatalogPackageError::InvalidArtifactPath {
             path: entry.artifact_path,
         });
     };
-    let bytes =
-        tokio::fs::read(&artifact_path)
-            .await
-            .map_err(|source| SeedPackageError::ReadArtifact {
-                path: artifact_path,
-                source,
-            })?;
+    let bytes = tokio::fs::read(&artifact_path).await.map_err(|source| {
+        CatalogPackageError::ReadArtifact {
+            path: artifact_path,
+            source,
+        }
+    })?;
     let actual_size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     if entry.size_bytes != actual_size {
-        return Err(SeedPackageError::SizeMismatch {
+        return Err(CatalogPackageError::SizeMismatch {
             expected: entry.size_bytes,
             actual: actual_size,
         });
     }
     let (bytes, sha256) = validate_package_bytes(bytes, spec.clone(), limits)
         .await
-        .map_err(SeedPackageError::Validation)?;
+        .map_err(CatalogPackageError::Validation)?;
     if sha256 != entry.sha256 {
-        return Err(SeedPackageError::ChecksumMismatch);
+        return Err(CatalogPackageError::ChecksumMismatch);
     }
     Ok(Some(PackagePayload {
         bytes,
         sha256,
-        cache_status: "SEED",
+        cache_status,
     }))
 }
 
 #[derive(Debug, Error)]
-pub(super) enum SeedPackageError {
+pub(super) enum CatalogPackageError {
     #[error("could not read built-in Typst catalog {path}", path = path.display())]
     ReadCatalog {
         path: PathBuf,

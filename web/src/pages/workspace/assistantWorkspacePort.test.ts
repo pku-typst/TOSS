@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createAiWorkspacePort,
   type AiWorkspaceCandidateCompileResult,
   type AiWorkspaceToolSource
 } from "@/pages/workspace/assistantWorkspacePort";
 import type { AssistantEditProposal } from "@/pages/workspace/assistantEditReview";
+import type { AiTypstPackageInspector } from "@/features/ai/typstPackageInspector";
 
 function source(): AiWorkspaceToolSource {
   return {
@@ -52,13 +53,15 @@ function portFor(
     diagnostics: []
   }),
   isCandidateRevisionCurrent: (revision: object) => boolean =
-    (revision) => revision === compileRevision
+    (revision) => revision === compileRevision,
+  typstPackageInspector?: AiTypstPackageInspector
 ) {
   return createAiWorkspacePort({
     scopeId: "generation-1:live",
     projectType: "typst",
     mode: "live",
     allowEdits,
+    typstPackageInspector,
     getContextSnapshot: () => ({
       schema: 1,
       project_name: "Example",
@@ -83,6 +86,43 @@ function portFor(
 const compileRevision = {};
 
 describe("AI Workspace tool port", () => {
+  it("composes read-only Typst package tools without exposing them to other projects", async () => {
+    const execute = vi.fn(async () => ({
+      outcome: "success" as const,
+      result: {
+        package_spec: "@preview/fixture:1.2.3",
+        package_digest: `sha256:${"a".repeat(64)}`,
+        manifest_path: "typst.toml" as const,
+        entries: [],
+        offset: 0,
+        total: 0,
+        next_offset: null
+      }
+    }));
+    const dispose = vi.fn();
+    const port = portFor(
+      source,
+      async () => "rejected",
+      true,
+      undefined,
+      undefined,
+      { execute, dispose }
+    );
+
+    expect(port.capabilities.tools).toEqual(expect.arrayContaining([
+      "list_typst_package_files",
+      "read_typst_package_file",
+      "search_typst_package_text"
+    ]));
+    await expect(port.execute({
+      tool: "list_typst_package_files",
+      arguments: { package_spec: "@preview/fixture:1.2.3" }
+    })).resolves.toMatchObject({ outcome: "success" });
+    expect(execute).toHaveBeenCalledOnce();
+    port.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it("exposes the Workspace-owned context projection", () => {
     const port = portFor(source);
     expect(port.getContextSnapshot()).toMatchObject({
