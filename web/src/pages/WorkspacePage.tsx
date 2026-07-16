@@ -940,6 +940,7 @@ function ResolvedWorkspacePage({
       projectType,
       mode: isRevisionMode ? "revision" : "live",
       allowEdits: aiWorkspaceAllowsEdits,
+      coreApiUrl: coreApiBaseUrl(),
       getContextSnapshot: getAiWorkspaceContext,
       getSource: getAiWorkspaceSource,
       verifyCandidate: verifyAiCandidate,
@@ -959,6 +960,7 @@ function ResolvedWorkspacePage({
       verifyAiCandidate
     ]
   );
+  useEffect(() => () => aiWorkspacePort.dispose(), [aiWorkspacePort]);
   const assistantEditProposalIsCurrent = !!assistantEditProposal &&
     aiWorkspaceAllowsEdits &&
     activeLiveDocReady &&

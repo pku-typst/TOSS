@@ -63,6 +63,17 @@ The assistant can use three bounded, read-only Workspace tools during its multi-
 - read a bounded range from one project text document; and
 - search literal text across project text documents.
 
+For Typst projects, three additional read-only tools can inspect an exact
+package version such as `@preview/cetz:0.4.2` or a deployment-provided
+`@local/name:version`: list its files, read bounded line-numbered text, and
+search literal text. Package lookup accepts only the exact Typst package
+reference; it cannot fetch an arbitrary URL. Archives are fetched through the
+authenticated Typst package endpoint, checked against its SHA-256 digest, and
+opened in a dedicated browser worker. Binary files are listed but never sent
+as text. Package source, manifests, README files, comments, and examples are
+untrusted content rather than instructions to the assistant. These tools do
+not modify a package or the current project.
+
 Reads use the current Workspace view. The active live document comes from the latest collaboration/editor projection, while revision mode reads the selected immutable revision. Source returned to the model is prefixed as `line | code`; that prefix is display metadata and is not part of the file. Switching the Workspace generation or selected revision reconnects the assistant to the new view so an older tool call cannot return into it. The selected project's local conversation remains available, but the credential must be entered again.
 
 In a writable live project, the assistant can also submit `apply_patch` for the current active text document. It must use the exact snapshot returned by a read and provide one contextual, single-file unified-diff proposal. Paths, old-file starts, context, and removed lines must match that snapshot exactly. Workspace derives the redundant hunk counts and new-file coordinates from the validated body; this does not enable fuzzy matching or automatic rebasing. Before review, Workspace builds an unpublished candidate World and compiles it in a dedicated, lazily started browser worker. A failed candidate is not shown for acceptance: bounded diagnostics return to the agent so it can revise the patch. A passing candidate opens the central Editor with the canonical diff, a compile-passed indicator, and **Reject** and **Accept changes** actions. Nothing changes before acceptance. Accept performs one final exact-content, compiler-World, and permission check, then writes through the existing collaborative document transaction. Any local or remote source change makes the proposal stale. Revision and read-only views do not expose this tool.
@@ -150,4 +161,4 @@ analytics service, and it does not infer price from them.
 
 ## Data flow
 
-Your browser sends the prompt and conversation context directly to the selected endpoint. When the model calls a Workspace tool, the bounded result—including requested project source excerpts—returns to the same in-browser connection and becomes part of the next provider request. TOSS displays only sanitized response content, bounded activity state, and token counts. The selected provider applies its own billing, retention, and privacy terms. TOSS Core does not proxy the credential or store the AI transcript or token usage; only the bounded local browser projection described above is retained.
+Your browser sends the prompt and conversation context directly to the selected endpoint. When the model calls a Workspace or package-inspection tool, the bounded result—including requested project or package source excerpts—returns to the same in-browser connection and becomes part of the next provider request. A package is not sent merely because the project imports it; only text explicitly requested through a tool enters model context. TOSS displays only sanitized response content, bounded activity state, and token counts. The selected provider applies its own billing, retention, and privacy terms. TOSS Core does not proxy the credential or store the AI transcript or token usage; only the bounded local browser projection described above is retained.

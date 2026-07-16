@@ -396,6 +396,46 @@ describe("AI Runtime protocol validation", () => {
       }
     })).toBe(false);
 
+    const packageCall = {
+      type: "toss.ai.runtime.tool_call",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      callId: "call-package",
+      tool: "read_typst_package_file",
+      arguments: {
+        package_spec: "@preview/fixture:1.2.3",
+        path: "src/lib.typ",
+        start_line: 1,
+        end_line: 20
+      }
+    } as const;
+    expect(isAiRuntimeToHostMessage(packageCall)).toBe(true);
+    expect(isAiRuntimeToHostMessage({
+      ...packageCall,
+      arguments: { ...packageCall.arguments, url: "https://example.com/package.tar.gz" }
+    })).toBe(false);
+    expect(isAiHostToRuntimeMessage({
+      type: "toss.ai.host.tool_result",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      callId: "call-package",
+      tool: "read_typst_package_file",
+      response: {
+        outcome: "success",
+        result: {
+          package_spec: "@preview/fixture:1.2.3",
+          package_digest: `sha256:${"a".repeat(64)}`,
+          path: "src/lib.typ",
+          start_line: 1,
+          end_line: 2,
+          total_lines: 2,
+          has_more: false,
+          content_truncated: false,
+          numbered_content: "1 | #let answer = 42\n2 | #let label = [Example]"
+        }
+      }
+    })).toBe(true);
+
     const patchCall = {
       type: "toss.ai.runtime.tool_call",
       sessionId: "session-1",

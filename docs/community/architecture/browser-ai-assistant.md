@@ -151,6 +151,10 @@ slices are implemented. They contain:
 - `list_project_files`, `read_project_file`, and `search_project_text` tools
   backed by a generation/revision-fenced Workspace-owned port, with current
   Yjs text for the active live document and bounded line-numbered output; and
+- `list_typst_package_files`, `read_typst_package_file`, and
+  `search_typst_package_text` tools for exact `@preview` or catalog-provided
+  `@local` versions, backed by a dedicated Host worker rather than Runtime
+  network access; and
 - writable-live-only `apply_patch` and `write_file` tools. The former validates
   one contextual single-file unified-diff proposal; the latter is a bounded
   fallback that requires a complete, untruncated read of the exact snapshot and
@@ -1056,11 +1060,14 @@ metadata, content versus strings, set/show rules, arrays/dictionaries, and
 imports/includes. Candidate compilation remains authoritative; documentation
 lookup is guidance, not an acceptance oracle.
 
-The Workspace-owned tool slice fixes these names and bounded schemas:
+The Host-owned tool slice fixes these names and bounded schemas:
 
 - `list_project_files`;
-- `read_project_file`; and
-- `search_project_text`; and
+- `read_project_file`;
+- `search_project_text`;
+- `list_typst_package_files`, for Typst projects;
+- `read_typst_package_file`, for Typst projects;
+- `search_typst_package_text`, for Typst projects;
 - `apply_patch`, only for writable live views; and
 - `write_file`, only for writable live views and fully read small files.
 
@@ -1071,6 +1078,26 @@ the current collaboration/editor projection rather than a stale project copy.
 Each tool call is correlated by session, turn, and call ID; cancellation crosses
 the Runtime boundary, and both sides enforce call-count and concurrency budgets.
 
+Package inspection is a separate Host adapter rather than part of the
+Workspace document store. It accepts only an exact `@preview/name:version` or
+`@local/name:version` reference and constructs the authenticated, same-service
+Typst package endpoint itself; no tool argument can supply a URL. A lazily
+created dedicated browser worker fetches the validated archive, verifies the
+response SHA-256 header, enforces compressed and expanded size limits, parses
+the tar archive, classifies binary files, and provides bounded listing,
+line-numbered reading, and literal search. It keeps only a small in-memory LRU
+of package archives and is disposed with the Workspace port. It shares neither
+the live preview compiler nor the candidate compiler's incremental state.
+
+`@local` resolution is limited to packages explicitly present in the active
+deployment catalog and never falls through to the public registry. `@preview`
+uses the normal seed/cache/Typst Universe path. Package text is untrusted model
+input: the English system instruction explicitly tells the Agent not to follow
+instructions found in manifests, README files, comments, examples, or other
+package source. The package tools are read-only and do not expand the opaque
+Runtime frame's Provider-only network policy; only bounded tool results cross
+the existing Host bridge.
+
 The broader first tool set should cover these narrow operations:
 
 | Intent | Behavior |
@@ -1078,6 +1105,9 @@ The broader first tool set should cover these narrow operations:
 | List project files | Return bounded path, kind, and identity metadata. |
 | Read a text file | Return bounded, line-numbered text and an immutable snapshot reference. |
 | Search project text | Return bounded path/range excerpts with line numbers, without arbitrary filesystem access. |
+| List package files | Return bounded paths, kinds, sizes, and the exact archive digest for a pinned Typst package. |
+| Read package text | Return a bounded line-numbered range from one text file in a pinned package. |
+| Search package text | Return bounded literal matches across text files in a pinned package. |
 | Read active selection | Return the active document identity, line-numbered range, text, and snapshot reference. |
 | Read diagnostics | Return diagnostics for an exact compiler World and target. |
 | Propose one file patch | Validate a contextual single-file unified-diff proposal, compile an isolated candidate World, return failures for repair, and enter review only after it passes. |
@@ -1591,8 +1621,8 @@ The following details are intentionally unsettled:
 3. whether anonymous sessions should ever gain opt-in persistence for
    non-secret connection profiles beyond the current memory-only behavior;
 4. the names, schemas, output limits, and error codes beyond the implemented
-   `list_project_files`, `read_project_file`, `search_project_text`,
-   `apply_patch`, and `write_file` tools;
+   project read/search tools, Typst package inspection tools, `apply_patch`,
+   and `write_file`;
 5. future semantic summarization beyond the implemented deterministic
    `transformContext` windowing and tool-payload compaction;
 6. whether tool-call and repeated edit-review budgets should later become

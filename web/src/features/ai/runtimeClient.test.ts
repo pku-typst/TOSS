@@ -485,6 +485,7 @@ describe("AiRuntimeClient", () => {
         tools: ["read_project_file"]
       },
       getContextSnapshot: () => workspaceContext,
+      dispose: vi.fn(),
       execute: vi.fn(async () => ({
         outcome: "success" as const,
         result: {
