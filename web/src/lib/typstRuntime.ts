@@ -1,3 +1,5 @@
+import runtimeConfig from "../../typst-runtime.config.json";
+
 export type TypstRuntimeModule = {
   url: string;
   sha256: string;
@@ -14,7 +16,17 @@ export type TypstRuntimeManifest = {
   renderer: TypstRuntimeModule;
 };
 
-export const TYPST_RUNTIME_MODULE_CACHE = "typst.runtime.modules.v2";
+// The wasm-bindgen glue lives in the application bundle. Key the manifest and
+// decoded module cache by every ABI pin so a retained service worker cannot
+// pair a new bundle with a previous compiler or renderer binary.
+export const TYPST_RUNTIME_BUILD_ID = [
+  runtimeConfig.runtime_version,
+  runtimeConfig.compiler.package_version,
+  runtimeConfig.compiler.source_revision,
+  runtimeConfig.renderer.package_version
+].join(":");
+
+export const TYPST_RUNTIME_MODULE_CACHE = `typst.runtime.modules.${TYPST_RUNTIME_BUILD_ID}`;
 
 function isRuntimeModule(value: unknown): value is TypstRuntimeModule {
   if (!value || typeof value !== "object") return false;
@@ -50,11 +62,22 @@ function parseRuntimeManifest(value: unknown): TypstRuntimeManifest {
   ) {
     throw new Error("Typst runtime manifest is incomplete");
   }
+  if (
+    manifest.typst_ts_version !== runtimeConfig.runtime_version ||
+    manifest.compiler_package_version !== runtimeConfig.compiler.package_version ||
+    manifest.compiler_source_revision !== runtimeConfig.compiler.source_revision ||
+    manifest.renderer_package_version !== runtimeConfig.renderer.package_version
+  ) {
+    throw new Error(
+      `Typst runtime manifest is incompatible with this application build: expected ${TYPST_RUNTIME_BUILD_ID}`
+    );
+  }
   return manifest as TypstRuntimeManifest;
 }
 
 export async function loadTypstRuntimeManifest(appOrigin: string): Promise<TypstRuntimeManifest> {
   const url = new URL("/typst-runtime/manifest.json", appOrigin);
+  url.searchParams.set("runtime", TYPST_RUNTIME_BUILD_ID);
   const response = await fetch(url, {
     cache: "no-store",
     credentials: "same-origin"

@@ -103,6 +103,16 @@ does not update the compiler used by the application. A runtime upgrade must
 build and publish the matching fork artifact, then update the submodule,
 runtime configuration, and manifests together.
 
+The wasm-bindgen JavaScript glue is part of the hashed application bundle, so
+its ABI must stay coupled to the fetched WASM. The browser derives a runtime
+build identity from the configured compiler and renderer pins, includes it in
+the manifest request and decoded-module cache, and rejects a manifest whose
+pins differ from the application build. The service worker caches only that
+versioned manifest request; the mutable unversioned manifest always bypasses
+its cache. Versioned WASM and font assets remain cache-first. This lets an
+upgrade retain the large runtime-asset cache without pairing a new application
+bundle with a stale compiler binary.
+
 ## Related
 
 - [Frontend architecture](../architecture/frontend.md)
