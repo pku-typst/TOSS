@@ -5,6 +5,7 @@ import {
   isAiTypstPackageToolRequest,
   isAiWorkspaceToolArguments,
   type AiApplyPatchArguments,
+  type AiInspectCompilationResult,
   type AiListProjectFilesArguments,
   type AiReadProjectFileArguments,
   type AiSearchProjectTextArguments,
@@ -29,7 +30,7 @@ import {
 } from "@/pages/workspace/assistantPatch";
 import type {
   AssistantEditProposal,
-  AssistantEditReviewDecision
+  AssistantEditReviewRequestResult
 } from "@/pages/workspace/assistantEditReview";
 import type { DocumentIdentity, ProjectNode } from "@/pages/workspace/types";
 
@@ -59,6 +60,7 @@ export type AiWorkspacePortOptions = {
   coreApiUrl?: string;
   typstPackageInspector?: AiTypstPackageInspector;
   getContextSnapshot: () => AiWorkspaceContextSnapshot;
+  getCompilationSnapshot: () => AiWorkspaceCompilationSnapshot;
   getSource: () => AiWorkspaceToolSource;
   verifyCandidate: (
     candidate: {
@@ -72,7 +74,20 @@ export type AiWorkspacePortOptions = {
   requestEditReview: (
     proposal: Omit<AssistantEditProposal, "id">,
     signal?: AbortSignal
-  ) => Promise<AssistantEditReviewDecision>;
+  ) => AssistantEditReviewRequestResult;
+};
+
+export type AiWorkspaceCompilationSnapshot = {
+  state: AiWorkspaceContextSnapshot["compilation"]["state"];
+  diagnosticsCurrent: boolean;
+  errors: readonly string[];
+  diagnostics: readonly {
+    severity: "error" | "warning" | "info";
+    message: string;
+    path?: string;
+    line?: number;
+    column?: number;
+  }[];
 };
 
 export type AiWorkspaceCandidateCompileResult =
@@ -141,14 +156,15 @@ function boundedCompileMessage(value: string) {
   return normalized.slice(0, AI_WORKSPACE_TOOL_LIMITS.maxCompileMessageLength);
 }
 
-function compileVerification(
-  result: Extract<AiWorkspaceCandidateCompileResult, { outcome: "completed" }>
-): AiPatchCompileVerification {
+function boundedCompilationProjection(
+  rawErrors: readonly string[],
+  rawDiagnostics: AiWorkspaceCompilationSnapshot["diagnostics"]
+) {
   let truncated =
-    result.errors.length > AI_WORKSPACE_TOOL_LIMITS.maxCompileErrors ||
-    result.diagnostics.length > AI_WORKSPACE_TOOL_LIMITS.maxCompileDiagnostics;
+    rawErrors.length > AI_WORKSPACE_TOOL_LIMITS.maxCompileErrors ||
+    rawDiagnostics.length > AI_WORKSPACE_TOOL_LIMITS.maxCompileDiagnostics;
   const errors: string[] = [];
-  for (const raw of result.errors) {
+  for (const raw of rawErrors) {
     const message = boundedCompileMessage(raw);
     if (!message) continue;
     if (raw.trim().length > message.length) truncated = true;
@@ -159,13 +175,16 @@ function compileVerification(
     errors.push(message);
   }
   const diagnostics: AiPatchCompileVerification["diagnostics"] = [];
-  for (const raw of result.diagnostics) {
+  for (const raw of rawDiagnostics) {
     const message = boundedCompileMessage(raw.message);
     if (!message) continue;
     if (raw.message.trim().length > message.length) truncated = true;
     if (diagnostics.length >= AI_WORKSPACE_TOOL_LIMITS.maxCompileDiagnostics) {
       truncated = true;
       break;
+    }
+    if (raw.path && raw.path.length > AI_WORKSPACE_TOOL_LIMITS.maxPathLength) {
+      truncated = true;
     }
     diagnostics.push({
       severity: raw.severity,
@@ -175,13 +194,34 @@ function compileVerification(
       column: Number.isSafeInteger(raw.column) && (raw.column ?? 0) > 0 ? raw.column! : null
     });
   }
+  return { errors, diagnostics, truncated };
+}
+
+function compileVerification(
+  result: Extract<AiWorkspaceCandidateCompileResult, { outcome: "completed" }>
+): AiPatchCompileVerification {
+  const projection = boundedCompilationProjection(result.errors, result.diagnostics);
   return {
-    status: errors.length > 0 || diagnostics.some(({ severity }) => severity === "error")
+    status: result.errors.some((error) => error.trim().length > 0) ||
+      result.diagnostics.some(({ severity }) => severity === "error")
       ? "failed"
       : "passed",
-    errors,
-    diagnostics,
-    truncated
+    ...projection
+  };
+}
+
+function inspectCompilation(
+  source: AiWorkspaceToolSource,
+  snapshot: AiWorkspaceCompilationSnapshot
+): AiInspectCompilationResult {
+  return {
+    project_type: source.projectType,
+    entry_file_path: source.entryFilePath,
+    active_path: source.activePath,
+    state: snapshot.state,
+    diagnostics_current: snapshot.diagnosticsCurrent &&
+      (snapshot.state === "succeeded" || snapshot.state === "failed"),
+    ...boundedCompilationProjection(snapshot.errors, snapshot.diagnostics)
   };
 }
 
@@ -542,11 +582,11 @@ async function completeCandidateEdit(
       path: edit.path,
       base_snapshot: edit.currentSnapshot,
       status: "compile_failed",
-      snapshot_id: null,
+      review_id: null,
       verification
     });
   }
-  const decision = await requestEditReview({
+  const review = requestEditReview({
     editKind,
     path: edit.path,
     baseSnapshot: edit.currentSnapshot,
@@ -559,10 +599,10 @@ async function completeCandidateEdit(
     verification,
     verificationRevision: compiled.revision
   }, signal);
-  if (decision === "cancelled") {
+  if (review.outcome === "cancelled") {
     return toolError("workspace_request_cancelled", "The edit review was cancelled.");
   }
-  if (decision === "busy") {
+  if (review.outcome === "busy") {
     return toolError(
       "workspace_review_in_progress",
       "Another edit is already waiting for review."
@@ -571,10 +611,8 @@ async function completeCandidateEdit(
   return toolSuccess({
     path: edit.path,
     base_snapshot: edit.currentSnapshot,
-    status: decision,
-    snapshot_id: decision === "accepted"
-      ? await snapshotId(source, edit.path, candidate.candidateText, signal)
-      : null,
+    status: "review_pending",
+    review_id: review.reviewId,
     verification
   });
 }
@@ -663,6 +701,7 @@ export function createAiWorkspacePort({
   coreApiUrl,
   typstPackageInspector: providedTypstPackageInspector,
   getContextSnapshot,
+  getCompilationSnapshot,
   getSource,
   verifyCandidate,
   isCandidateRevisionCurrent,
@@ -728,6 +767,9 @@ export function createAiWorkspacePort({
         if (request.tool === "list_project_files") {
           return listProjectFiles(source, request.arguments);
         }
+        if (request.tool === "inspect_compilation") {
+          return toolSuccess(inspectCompilation(source, getCompilationSnapshot()));
+        }
         if (request.tool === "read_project_file") {
           const result = await readProjectFile(source, request.arguments, signal);
           if (getSource().scopeId !== scopeId) {
@@ -769,12 +811,6 @@ export function createAiWorkspacePort({
               requestEditReview,
               signal
             );
-        if (
-          request.tool === "write_file" &&
-          result.outcome === "success" &&
-          "status" in result.result &&
-          result.result.status === "accepted"
-        ) fullReadSnapshots.delete(request.arguments.path);
         if (getSource().scopeId !== scopeId) {
           return toolError("workspace_scope_changed", "The Workspace scope changed while the tool ran.");
         }

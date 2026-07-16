@@ -4,7 +4,10 @@ import {
   type AiWorkspaceCandidateCompileResult,
   type AiWorkspaceToolSource
 } from "@/pages/workspace/assistantWorkspacePort";
-import type { AssistantEditProposal } from "@/pages/workspace/assistantEditReview";
+import type {
+  AssistantEditProposal,
+  AssistantEditReviewRequestResult
+} from "@/pages/workspace/assistantEditReview";
 import type { AiTypstPackageInspector } from "@/features/ai/typstPackageInspector";
 
 function source(): AiWorkspaceToolSource {
@@ -41,7 +44,10 @@ function portFor(
   requestEditReview: (
     proposal: Omit<AssistantEditProposal, "id">,
     signal?: AbortSignal
-  ) => Promise<"accepted" | "rejected" | "stale" | "cancelled" | "busy"> = async () => "rejected",
+  ) => AssistantEditReviewRequestResult = () => ({
+    outcome: "pending",
+    reviewId: "review-default"
+  }),
   allowEdits = true,
   verifyCandidate: (
     candidate: { path: string; baseText: string; candidateText: string },
@@ -74,7 +80,20 @@ function portFor(
       active_document_state: "ready",
       files: { total: 3, text: 2, assets: 1 },
       compilation: { state: "succeeded", errors: 0, warnings: 0 },
-      pending_edit_review: false
+      pending_edit_review: false,
+      last_edit_review: null
+    }),
+    getCompilationSnapshot: () => ({
+      state: "failed",
+      diagnosticsCurrent: true,
+      errors: ["main.typ:2: unexpected token"],
+      diagnostics: [{
+        severity: "error",
+        message: "unexpected token",
+        path: "main.typ",
+        line: 2,
+        column: 1
+      }]
     }),
     getSource,
     verifyCandidate,
@@ -86,6 +105,33 @@ function portFor(
 const compileRevision = {};
 
 describe("AI Workspace tool port", () => {
+  it("projects bounded current compilation diagnostics without starting a compile", async () => {
+    const port = portFor(source);
+
+    await expect(port.execute({
+      tool: "inspect_compilation",
+      arguments: {}
+    })).resolves.toEqual({
+      outcome: "success",
+      result: {
+        project_type: "typst",
+        entry_file_path: "main.typ",
+        active_path: "main.typ",
+        state: "failed",
+        diagnostics_current: true,
+        errors: ["main.typ:2: unexpected token"],
+        diagnostics: [{
+          severity: "error",
+          message: "unexpected token",
+          path: "main.typ",
+          line: 2,
+          column: 1
+        }],
+        truncated: false
+      }
+    });
+  });
+
   it("composes read-only Typst package tools without exposing them to other projects", async () => {
     const execute = vi.fn(async () => ({
       outcome: "success" as const,
@@ -102,7 +148,7 @@ describe("AI Workspace tool port", () => {
     const dispose = vi.fn();
     const port = portFor(
       source,
-      async () => "rejected",
+      () => ({ outcome: "pending", reviewId: "review-package" }),
       true,
       undefined,
       undefined,
@@ -254,10 +300,10 @@ describe("AI Workspace tool port", () => {
   it("validates a snapshot-bound unified diff before entering review", async () => {
     const events: string[] = [];
     let reviewed: Omit<AssistantEditProposal, "id"> | null = null;
-    const port = portFor(source, async (proposal) => {
+    const port = portFor(source, (proposal) => {
       events.push("review");
       reviewed = proposal;
-      return "accepted";
+      return { outcome: "pending", reviewId: "review-patch" };
     }, true, async ({ candidateText }) => {
       events.push("compile");
       expect(candidateText).toContain("Alice Author");
@@ -327,7 +373,8 @@ describe("AI Workspace tool port", () => {
       result: {
         path: "main.typ",
         base_snapshot: baseSnapshot,
-        status: "accepted",
+        status: "review_pending",
+        review_id: "review-patch",
         verification: {
           status: "passed",
           diagnostics: [{
@@ -340,19 +387,15 @@ describe("AI Workspace tool port", () => {
         }
       }
     });
-    if (response.outcome === "success" && "snapshot_id" in response.result) {
-      expect(response.result.snapshot_id).toMatch(/^sha256-[a-f0-9]{64}$/);
-      expect(response.result.snapshot_id).not.toBe(baseSnapshot);
-    }
   });
 
   it("replaces a fully read file through the shared compile and review pipeline", async () => {
     const events: string[] = [];
     let reviewed: Omit<AssistantEditProposal, "id"> | null = null;
-    const port = portFor(source, async (proposal) => {
+    const port = portFor(source, (proposal) => {
       events.push("review");
       reviewed = proposal;
-      return "accepted";
+      return { outcome: "pending", reviewId: "review-write" };
     }, true, async ({ candidateText }) => {
       events.push("compile");
       expect(candidateText).toContain("Alice Author");
@@ -400,7 +443,8 @@ describe("AI Workspace tool port", () => {
     expect(response).toMatchObject({
       outcome: "success",
       result: {
-        status: "accepted",
+        status: "review_pending",
+        review_id: "review-write",
         verification: { status: "passed" }
       }
     });
@@ -435,9 +479,9 @@ describe("AI Workspace tool port", () => {
       text: "#set document(title: [Current title])\nAlice Example\nCurrent body\n"
     };
     let candidate = "";
-    const port = portFor(() => current, async (proposal) => {
+    const port = portFor(() => current, (proposal) => {
       candidate = proposal.candidateText;
-      return "rejected";
+      return { outcome: "pending", reviewId: "review-newline" };
     });
     const read = await port.execute({
       tool: "read_project_file",
@@ -460,9 +504,9 @@ describe("AI Workspace tool port", () => {
 
   it("allows a full-file replacement to produce an empty file", async () => {
     let candidate = "not-reviewed";
-    const port = portFor(source, async (proposal) => {
+    const port = portFor(source, (proposal) => {
       candidate = proposal.candidateText;
-      return "rejected";
+      return { outcome: "pending", reviewId: "review-empty" };
     });
     const read = await port.execute({
       tool: "read_project_file",
@@ -483,15 +527,15 @@ describe("AI Workspace tool port", () => {
     expect(candidate).toBe("");
     expect(response).toMatchObject({
       outcome: "success",
-      result: { status: "rejected" }
+      result: { status: "review_pending", review_id: "review-empty" }
     });
   });
 
   it("returns candidate diagnostics to the agent without opening review", async () => {
     let reviews = 0;
-    const port = portFor(source, async () => {
+    const port = portFor(source, () => {
       reviews += 1;
-      return "accepted";
+      return { outcome: "pending", reviewId: "review-unexpected" };
     }, true, async () => ({
       outcome: "completed",
       revision: compileRevision,
@@ -533,7 +577,6 @@ describe("AI Workspace tool port", () => {
       outcome: "success",
       result: {
         status: "compile_failed",
-        snapshot_id: null,
         verification: {
           status: "failed",
           errors: ["main.typ:2: unexpected token"],
@@ -593,7 +636,11 @@ describe("AI Workspace tool port", () => {
       error: { code: "workspace_document_not_active" }
     });
 
-    const readOnlyPort = portFor(source, async () => "accepted", false);
+    const readOnlyPort = portFor(
+      source,
+      () => ({ outcome: "pending", reviewId: "review-read-only" }),
+      false
+    );
     expect(readOnlyPort.capabilities.tools).not.toContain("apply_patch");
     expect(readOnlyPort.capabilities.tools).not.toContain("write_file");
     await expect(readOnlyPort.execute({

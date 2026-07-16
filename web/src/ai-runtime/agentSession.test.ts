@@ -24,13 +24,17 @@ describe("AiAgentSession", () => {
       maxTokens: number;
       reasoning: boolean;
       requestedReasoning: string | undefined;
+      maxRetries: number | undefined;
+      maxRetryDelayMs: number | undefined;
     } | null = null;
     const stream: StreamFn = (model, _context, options) => {
       observedModel = {
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
         reasoning: model.reasoning,
-        requestedReasoning: options?.reasoning
+        requestedReasoning: options?.reasoning,
+        maxRetries: options?.maxRetries,
+        maxRetryDelayMs: options?.maxRetryDelayMs
       };
       const message = {
         ...fauxAssistantMessage("reported response"),
@@ -96,7 +100,9 @@ describe("AiAgentSession", () => {
       contextWindow: 131_072,
       maxTokens: 8_192,
       reasoning: false,
-      requestedReasoning: undefined
+      requestedReasoning: undefined,
+      maxRetries: 1,
+      maxRetryDelayMs: 2_000
     });
     expect(usage.at(-1)).toMatchObject({
       contextSource: "provider",
@@ -208,6 +214,72 @@ describe("AiAgentSession", () => {
       providerCalls: 0,
       reportedCalls: 0
     });
+    session.dispose();
+  });
+
+  it("rolls back a failed turn with no semantic output before an explicit retry", async () => {
+    const faux = createFauxCore({ tokensPerSecond: 100_000 });
+    faux.setResponses([fauxAssistantMessage("recovered")]);
+    const observedRoles: string[][] = [];
+    const observedUserPrompts: string[][] = [];
+    let callCount = 0;
+    const stream: StreamFn = (model, context, options) => {
+      observedRoles.push(context.messages.map((message) => message.role));
+      observedUserPrompts.push(context.messages
+        .filter((message) => message.role === "user")
+        .map((message) => typeof message.content === "string"
+          ? message.content
+          : message.content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("")));
+      callCount += 1;
+      if (callCount > 1) return faux.streamSimple(model, context, options);
+      const failed = {
+        ...fauxAssistantMessage(""),
+        content: [],
+        stopReason: "error" as const,
+        errorMessage: "provider_request_failed"
+      };
+      const events = createAssistantMessageEventStream();
+      queueMicrotask(() => {
+        events.push({ type: "error", reason: "error", error: failed });
+        events.end(failed);
+      });
+      return events;
+    };
+    const session = new AiAgentSession({
+      connection: {
+        kind: "endpoint",
+        connectionId: "connection-retry",
+        protocol: "openai-completions",
+        baseUrl: "https://models.example.test/v1",
+        model: "model-retry",
+        contextWindow: 32_768,
+        maxOutputTokens: 4_096,
+        reasoning: false,
+        requestOverrides: {}
+      },
+      credential: "credential-in-runtime-memory",
+      conversationId: "conversation-retry",
+      history: [],
+      stream,
+      systemPrompt: "test-system-prompt",
+      onContent: () => undefined
+    });
+
+    await expect(session.prompt("turn-failed", "retry this request")).resolves.toEqual({
+      outcome: "failed",
+      code: "provider_request_failed"
+    });
+    await expect(session.prompt("turn-retry", "retry this request")).resolves.toEqual({
+      outcome: "completed"
+    });
+    expect(observedRoles).toEqual([["user"], ["user"]]);
+    expect(observedUserPrompts).toEqual([
+      ["retry this request"],
+      ["retry this request"]
+    ]);
     session.dispose();
   });
 
@@ -467,5 +539,107 @@ describe("AiAgentSession", () => {
       "connection-switch:conversation-2"
     ]);
     session.dispose();
+  });
+
+  it("ends the Agent loop after a compiled edit transfers to Workspace review", async () => {
+    const faux = createFauxCore({ tokensPerSecond: 100_000 });
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall("inspect_compilation", {}, { id: "model-compile-1" }),
+          fauxToolCall("apply_patch", {
+            path: "main.typ",
+            base_snapshot: "sha256-base",
+            patch: "--- a/main.typ\n+++ b/main.typ\n@@ -1 +1 @@\n-= Old\n+= New"
+          }, { id: "model-edit-1" })
+        ],
+        { stopReason: "toolUse" }
+      ),
+      fauxAssistantMessage("This response must not be requested before review.")
+    ]);
+    const channel = new MessageChannel();
+    const bridge = new AiRuntimeToolBridge(channel.port1, "session-review");
+    channel.port1.addEventListener("message", (event) => {
+      bridge.handleResult(event.data as AiHostToolResult);
+    });
+    channel.port1.start();
+    channel.port2.addEventListener("message", (event) => {
+      const message = event.data as AiRuntimeToolCall;
+      if (message.type !== "toss.ai.runtime.tool_call") return;
+      const response = message.tool === "inspect_compilation"
+        ? {
+            outcome: "success" as const,
+            result: {
+              project_type: "typst" as const,
+              entry_file_path: "main.typ",
+              active_path: "main.typ",
+              state: "succeeded" as const,
+              diagnostics_current: true,
+              errors: [],
+              diagnostics: [],
+              truncated: false
+            }
+          }
+        : {
+            outcome: "success" as const,
+            result: {
+              path: "main.typ",
+              base_snapshot: "sha256-base",
+              status: "review_pending" as const,
+              review_id: "review-1",
+              verification: {
+                status: "passed" as const,
+                errors: [],
+                diagnostics: [],
+                truncated: false
+              }
+            }
+          };
+      channel.port2.postMessage({
+        type: "toss.ai.host.tool_result",
+        sessionId: message.sessionId,
+        turnId: message.turnId,
+        callId: message.callId,
+        tool: message.tool,
+        response
+      });
+    });
+    channel.port2.start();
+    const session = new AiAgentSession({
+      connection: {
+        kind: "endpoint",
+        connectionId: "connection-review",
+        protocol: "openai-completions",
+        baseUrl: "https://models.example.test/v1",
+        model: "model-review",
+        contextWindow: 32_768,
+        maxOutputTokens: 4_096,
+        reasoning: false,
+        requestOverrides: {}
+      },
+      credential: "credential-in-runtime-memory",
+      conversationId: "conversation-review",
+      history: [],
+      stream: faux.streamSimple,
+      systemPrompt: "Propose a reviewed edit.",
+      tools: createAiWorkspaceTools({
+        project_type: "typst",
+        mode: "live",
+        tools: ["inspect_compilation", "apply_patch"]
+      }, bridge),
+      onContent: () => undefined
+    });
+
+    bridge.beginTurn("turn-review");
+    await expect(session.prompt("turn-review", "update the title")).resolves.toEqual({
+      outcome: "completed"
+    });
+    bridge.endTurn("turn-review");
+    expect(faux.state.callCount).toBe(1);
+
+    session.dispose();
+    bridge.dispose();
+    channel.port1.close();
+    channel.port2.close();
   });
 });

@@ -21,6 +21,7 @@ import {
   isAiWorkspaceContextSnapshot,
   isAiWorkspaceToolExecution,
   type AiWorkspaceContextSnapshot,
+  type AiWorkspaceEditReviewOutcome,
   type AiWorkspaceToolErrorCode,
   type AiWorkspaceToolExecution,
   type AiWorkspaceToolName,
@@ -41,6 +42,8 @@ export type AiRuntimeStatus =
   | "running"
   | "error";
 
+export type AiTurnRecovery = "retry" | "continue";
+
 export type AiTranscriptContentPart = {
   id: string;
   type: "text" | "reasoning";
@@ -52,9 +55,11 @@ export type AiTranscriptContentPart = {
 
 export type AiTranscriptToolOutcome =
   | "success"
+  | "review_pending"
   | "accepted"
   | "rejected"
   | "stale"
+  | "cancelled"
   | "compile_failed";
 
 export type AiTranscriptToolPart = {
@@ -65,6 +70,7 @@ export type AiTranscriptToolPart = {
   query: string | null;
   startLine: number | null;
   endLine: number | null;
+  reviewId: string | null;
   state: "running" | "complete" | "error" | "cancelled";
   outcome: AiTranscriptToolOutcome | null;
   errorCode: AiWorkspaceToolErrorCode | null;
@@ -97,6 +103,8 @@ export type AiRuntimeSnapshot = {
     selectedModel: AiRuntimeManagedSelectionIdentity | null;
     errorCode: string | null;
   } | null;
+  queuedPrompt: string | null;
+  recovery: AiTurnRecovery | null;
   persistenceRevision: number;
 };
 
@@ -135,6 +143,38 @@ function contentLength(message: AiTranscriptMessage) {
     0
   );
 }
+
+function hasPendingEditReview(messages: readonly AiTranscriptMessage[]) {
+  return messages.some((message) => message.parts.some((part) => (
+    part.type === "tool" && part.outcome === "review_pending"
+  )));
+}
+
+function reconcilePendingEditReviews(
+  messages: readonly AiTranscriptMessage[],
+  workspace: AiWorkspaceContextSnapshot
+) {
+  if (workspace.pending_edit_review || !hasPendingEditReview(messages)) {
+    return { messages, changed: false };
+  }
+  let changed = false;
+  const reconciled = messages.map((message) => ({
+    ...message,
+    parts: message.parts.map((part) => {
+      if (part.type !== "tool" || part.outcome !== "review_pending") return part;
+      changed = true;
+      return {
+        ...part,
+        outcome: workspace.last_edit_review?.review_id === part.reviewId
+          ? workspace.last_edit_review.decision
+          : "cancelled" as const
+      };
+    })
+  }));
+  return { messages: reconciled, changed };
+}
+
+const MAX_BUFFERED_REVIEW_OUTCOMES = 32;
 
 function settleMessage(
   message: AiTranscriptMessage,
@@ -189,6 +229,8 @@ export class AiRuntimeClient {
     errorMessage: null,
     usage: null,
     managedCatalog: null,
+    queuedPrompt: null,
+    recovery: null,
     persistenceRevision: 0
   };
   private readonly listeners = new Set<() => void>();
@@ -215,6 +257,10 @@ export class AiRuntimeClient {
   private readonly pendingContentDeltas = new Map<
     string,
     { turnId: string; blockId: string; text: string }
+  >();
+  private readonly reviewOutcomes = new Map<
+    string,
+    AiWorkspaceEditReviewOutcome["decision"]
   >();
   private toolCallsThisTurn = 0;
 
@@ -362,8 +408,22 @@ export class AiRuntimeClient {
     messages: readonly AiTranscriptMessage[],
     history: readonly AiRuntimeConversationHistoryMessage[]
   ) {
-    if (this.snapshot.status === "running" || this.snapshot.status === "handshaking") return false;
-    this.setConversationState({ conversationId, messages, history });
+    if (
+      this.snapshot.status === "running" ||
+      this.snapshot.status === "handshaking" ||
+      this.snapshot.queuedPrompt !== null ||
+      hasPendingEditReview(this.snapshot.messages)
+    ) return false;
+    let nextMessages = messages;
+    if (this.workspacePort) {
+      try {
+        const workspace = this.workspacePort.getContextSnapshot();
+        nextMessages = reconcilePendingEditReviews(messages, workspace).messages;
+      } catch {
+        // Keep unresolved review state when Workspace ownership cannot be inspected safely.
+      }
+    }
+    this.setConversationState({ conversationId, messages: nextMessages, history });
     if (this.port && this.sessionId && this.snapshot.status !== "idle") {
       const message: AiHostToRuntimeMessage = {
         type: "toss.ai.host.set_conversation",
@@ -375,9 +435,16 @@ export class AiRuntimeClient {
     return true;
   }
 
-  startTurn(prompt: string) {
+  startTurn(prompt: string, transcriptPrompt: string = prompt) {
     const text = prompt.trim();
-    if (this.snapshot.status !== "ready" || !text || !this.sessionId || !this.port) return false;
+    const visibleText = transcriptPrompt.trim() || text;
+    if (
+      this.snapshot.status !== "ready" ||
+      this.snapshot.queuedPrompt !== null ||
+      !text ||
+      !this.sessionId ||
+      !this.port
+    ) return false;
     let workspace: AiWorkspaceContextSnapshot | null = null;
     if (this.workspacePort) {
       try {
@@ -394,6 +461,16 @@ export class AiRuntimeClient {
         this.fail("workspace_context_invalid");
         return false;
       }
+      const reconciliation = reconcilePendingEditReviews(this.snapshot.messages, workspace);
+      if (reconciliation.changed) {
+        this.setSnapshot({ messages: reconciliation.messages }, false, true);
+      }
+      if (
+        workspace.pending_edit_review ||
+        hasPendingEditReview(reconciliation.messages)
+      ) return false;
+    } else if (hasPendingEditReview(this.snapshot.messages)) {
+      return false;
     }
     const turnId = secureId("turn");
     const startedAt = Date.now();
@@ -420,7 +497,7 @@ export class AiRuntimeClient {
           parts: [{
             id: secureId("content"),
             type: "text",
-            text,
+            text: visibleText,
             state: "complete",
             startedAt,
             completedAt: startedAt
@@ -440,13 +517,58 @@ export class AiRuntimeClient {
       ],
       error: null,
       errorMessage: null,
+      recovery: null,
       usage: null
     }, false, true);
     this.port.postMessage(message);
     return true;
   }
 
+  submitPrompt(prompt: string) {
+    const text = prompt.trim();
+    if (!text) return false;
+    if (this.snapshot.status === "ready") return this.startTurn(text);
+    if (
+      this.snapshot.status !== "running" ||
+      this.snapshot.queuedPrompt !== null ||
+      this.workspaceHasPendingReview() ||
+      hasPendingEditReview(this.snapshot.messages)
+    ) return false;
+    this.setSnapshot({ queuedPrompt: text });
+    return true;
+  }
+
+  discardQueuedPrompt() {
+    if (this.snapshot.queuedPrompt === null) return false;
+    this.setSnapshot({ queuedPrompt: null });
+    return true;
+  }
+
+  recoverTurn(continueLabel?: string) {
+    if (this.snapshot.status !== "ready" || !this.snapshot.recovery) return false;
+    if (this.snapshot.recovery === "continue") {
+      return this.startRecoveryTurn(
+        "Continue from the current state without repeating completed work.",
+        continueLabel
+      );
+    }
+    const failedAssistantIndex = [...this.snapshot.messages]
+      .map((message, index) => ({ message, index }))
+      .reverse()
+      .find(({ message }) => message.role === "assistant" && message.state === "error")?.index;
+    if (failedAssistantIndex === undefined) return false;
+    const user = this.snapshot.messages[failedAssistantIndex - 1];
+    const originalPrompt = user?.role === "user"
+      ? user.parts
+          .filter((part): part is AiTranscriptContentPart => part.type === "text")
+          .map((part) => part.text)
+          .join("\n\n")
+      : "";
+    return this.startRecoveryTurn(originalPrompt);
+  }
+
   cancelTurn() {
+    if (this.snapshot.queuedPrompt !== null) this.setSnapshot({ queuedPrompt: null });
     if (!this.port || !this.sessionId || !this.snapshot.activeTurnId) return;
     this.abortPendingToolCalls(this.snapshot.activeTurnId);
     const message: AiHostToRuntimeMessage = {
@@ -455,6 +577,34 @@ export class AiRuntimeClient {
       turnId: this.snapshot.activeTurnId
     };
     this.port.postMessage(message);
+  }
+
+  resolveEditReview(outcome: AiWorkspaceEditReviewOutcome) {
+    let matched = false;
+    let changed = false;
+    const messages = this.snapshot.messages.map((message) => ({
+      ...message,
+      parts: message.parts.map((part) => {
+        if (part.type !== "tool" || part.reviewId !== outcome.reviewId) return part;
+        matched = true;
+        if (part.outcome !== "review_pending") return part;
+        changed = true;
+        return { ...part, outcome: outcome.decision };
+      })
+    }));
+    if (changed) {
+      this.reviewOutcomes.delete(outcome.reviewId);
+      this.setSnapshot({ messages }, false, true);
+      queueMicrotask(this.drainQueuedPrompt);
+    } else if (!matched) {
+      this.reviewOutcomes.set(outcome.reviewId, outcome.decision);
+      while (this.reviewOutcomes.size > MAX_BUFFERED_REVIEW_OUTCOMES) {
+        const oldest = this.reviewOutcomes.keys().next().value;
+        if (typeof oldest !== "string") break;
+        this.reviewOutcomes.delete(oldest);
+      }
+    }
+    return changed;
   }
 
   dispose() {
@@ -469,6 +619,7 @@ export class AiRuntimeClient {
     }
     this.closePort();
     this.cancelScheduledNotification();
+    this.reviewOutcomes.clear();
     this.listeners.clear();
   }
 
@@ -548,7 +699,7 @@ export class AiRuntimeClient {
         this.pendingToolCalls.delete(message.callId);
         pending.controller.abort();
       }
-      this.finishToolPart(message.turnId, message.callId, "cancelled", null, null);
+      this.finishToolPart(message.turnId, message.callId, "cancelled", null, null, null);
       return;
     }
     if (message.type === "toss.ai.runtime.connection_state") {
@@ -622,15 +773,27 @@ export class AiRuntimeClient {
           settleMessage(item, message.outcome === "cancelled" ? "cancelled" : "complete")
         )
       }, false, true);
+      queueMicrotask(this.drainQueuedPrompt);
       return;
     }
     if (message.turnId && message.turnId === this.snapshot.activeTurnId) {
+      this.flushContentDeltas();
+      const activeMessage = this.snapshot.messages.find((item) => item.id === message.turnId);
+      const recovery = message.code === "provider_request_failed" ||
+        message.code === "ai_agent_turn_timeout"
+        ? activeMessage?.parts.some((part) => (
+            part.type === "tool" || part.text.length > 0
+          ))
+          ? "continue" as const
+          : "retry" as const
+        : null;
       this.abortPendingToolCalls(message.turnId);
       this.setSnapshot({
         status: "ready",
         activeTurnId: null,
         error: message.code,
         errorMessage: message.message,
+        recovery,
         messages: replaceMessage(this.snapshot.messages, message.turnId, (item) =>
           settleMessage(item, "error")
         )
@@ -662,6 +825,7 @@ export class AiRuntimeClient {
     this.observedToolCallIds.clear();
     this.observedContentBlockIds.clear();
     this.pendingContentDeltas.clear();
+    this.reviewOutcomes.clear();
     this.toolCallsThisTurn = 0;
     this.conversation = {
       conversationId: conversation.conversationId,
@@ -674,6 +838,8 @@ export class AiRuntimeClient {
       error: null,
       errorMessage: null,
       usage: null,
+      queuedPrompt: null,
+      recovery: null,
       managedCatalog: this.connectionKind === "managed"
         ? this.snapshot.managedCatalog
         : null
@@ -809,6 +975,7 @@ export class AiRuntimeClient {
       type: "tool",
       tool: message.tool,
       ...presentation,
+      reviewId: null,
       state: "running",
       outcome: null,
       errorCode: null,
@@ -906,12 +1073,18 @@ export class AiRuntimeClient {
           ? response.result.status
           : "success")
       : null;
+    const reviewId = response.outcome === "success" &&
+      "review_id" in response.result &&
+      typeof response.result.review_id === "string"
+      ? response.result.review_id
+      : null;
     this.finishToolPart(
       message.turnId,
       message.callId,
       response.outcome === "success" ? "complete" : "error",
       outcome,
-      response.outcome === "error" ? response.error.code : null
+      response.outcome === "error" ? response.error.code : null,
+      reviewId
     );
     if (!this.port || !this.sessionId) return;
     const result: AiHostToRuntimeMessage = {
@@ -930,7 +1103,8 @@ export class AiRuntimeClient {
     callId: string,
     state: "complete" | "error" | "cancelled",
     outcome: AiTranscriptToolOutcome | null,
-    errorCode: AiWorkspaceToolErrorCode | null
+    errorCode: AiWorkspaceToolErrorCode | null,
+    reviewId: string | null
   ) {
     this.flushContentDeltas();
     const partId = `tool-${callId}`;
@@ -938,11 +1112,16 @@ export class AiRuntimeClient {
     const part = message?.parts.find((item) => item.id === partId);
     if (!message || !part || part.type !== "tool" || part.state !== "running") return;
     const completedAt = Date.now();
+    const bufferedReviewOutcome = outcome === "review_pending" && reviewId
+      ? this.reviewOutcomes.get(reviewId)
+      : undefined;
+    if (bufferedReviewOutcome && reviewId) this.reviewOutcomes.delete(reviewId);
+    const resolvedOutcome = bufferedReviewOutcome ?? outcome;
     this.setSnapshot({
       messages: replaceMessage(this.snapshot.messages, turnId, (item) =>
         replacePart(item, partId, (current) => current.type !== "tool"
           ? current
-          : { ...current, state, outcome, errorCode, completedAt })
+          : { ...current, state, outcome: resolvedOutcome, errorCode, reviewId, completedAt })
       )
     }, true, true);
   }
@@ -952,6 +1131,36 @@ export class AiRuntimeClient {
       if (turnId && pending.turnId !== turnId) continue;
       this.pendingToolCalls.delete(callId);
       pending.controller.abort();
+    }
+  }
+
+  private readonly drainQueuedPrompt = () => {
+    const prompt = this.snapshot.queuedPrompt;
+    if (
+      !prompt ||
+      this.snapshot.status !== "ready" ||
+      this.snapshot.error !== null ||
+      this.workspaceHasPendingReview() ||
+      hasPendingEditReview(this.snapshot.messages)
+    ) return;
+    this.setSnapshot({ queuedPrompt: null });
+    if (!this.startTurn(prompt)) this.setSnapshot({ queuedPrompt: prompt });
+  };
+
+  private startRecoveryTurn(prompt: string, transcriptPrompt?: string) {
+    const queuedPrompt = this.snapshot.queuedPrompt;
+    if (queuedPrompt !== null) this.setSnapshot({ queuedPrompt: null });
+    const started = this.startTurn(prompt, transcriptPrompt);
+    if (queuedPrompt !== null) this.setSnapshot({ queuedPrompt });
+    return started;
+  }
+
+  private workspaceHasPendingReview() {
+    if (!this.workspacePort) return false;
+    try {
+      return this.workspacePort.getContextSnapshot().pending_edit_review;
+    } catch {
+      return true;
     }
   }
 

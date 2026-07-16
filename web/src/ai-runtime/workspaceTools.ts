@@ -16,7 +16,10 @@ type ToolMessages = ReturnType<typeof aiRuntimeToolMessages>;
 function toolResult(tool: AiWorkspaceToolName, result: AiWorkspaceToolResult) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(result) }],
-    details: { tool, outcome: "success" as const }
+    details: { tool, outcome: "success" as const },
+    ...("status" in result && result.status === "review_pending"
+      ? { terminate: true as const }
+      : {})
   };
 }
 
@@ -115,6 +118,24 @@ const searchProjectTextTool = (
     "search_project_text",
     await bridge.call({
       tool: "search_project_text",
+      arguments: parameters
+    } as AiWorkspaceToolRequest, signal)
+  )
+});
+
+const inspectCompilationTool = (
+  bridge: AiRuntimeToolBridge,
+  messages: ToolMessages
+): AgentTool => ({
+  name: "inspect_compilation",
+  label: messages.compilation.label,
+  description: messages.compilation.description,
+  parameters: Type.Object({}, { additionalProperties: false }),
+  executionMode: "parallel",
+  execute: async (_toolCallId, parameters, signal) => toolResult(
+    "inspect_compilation",
+    await bridge.call({
+      tool: "inspect_compilation",
       arguments: parameters
     } as AiWorkspaceToolRequest, signal)
   )
@@ -310,6 +331,7 @@ const toolFactories: Record<
   list_project_files: listProjectFilesTool,
   read_project_file: readProjectFileTool,
   search_project_text: searchProjectTextTool,
+  inspect_compilation: inspectCompilationTool,
   list_typst_package_files: listTypstPackageFilesTool,
   read_typst_package_file: readTypstPackageFileTool,
   search_typst_package_text: searchTypstPackageTextTool,

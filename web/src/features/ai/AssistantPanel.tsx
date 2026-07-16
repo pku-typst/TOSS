@@ -14,6 +14,7 @@ import {
   Brain,
   Check,
   ChevronDown,
+  Clock3,
   CircleHelp,
   Copy,
   Ellipsis,
@@ -60,6 +61,7 @@ import {
 } from "@/features/ai/runtimeClient";
 import { useAiConversations } from "@/features/ai/useAiConversations";
 import type {
+  AiWorkspaceEditReviewOutcome,
   AiWorkspaceToolPort
 } from "@/features/ai/toolContract";
 import type { Translator, UiLocale } from "@/lib/i18n";
@@ -175,6 +177,7 @@ function toolLabel(part: AiTranscriptToolPart, t: Translator) {
   if (part.tool === "search_project_text") {
     return t("ai.tool.search", { query: part.query ?? "" });
   }
+  if (part.tool === "inspect_compilation") return t("ai.tool.compilation");
   if (part.tool === "list_typst_package_files") {
     return t("ai.tool.packageList", { package: part.path ?? "" });
   }
@@ -200,22 +203,28 @@ function toolStateLabel(part: AiTranscriptToolPart, t: Translator) {
   if (part.state === "running") return t("ai.tool.running");
   if (part.state === "cancelled") return t("ai.tool.cancelled");
   if (part.state === "error") return t("ai.tool.error");
+  if (part.outcome === "review_pending") return t("ai.tool.reviewPending");
   if (part.outcome === "accepted") return t("ai.tool.accepted");
   if (part.outcome === "rejected") return t("ai.tool.rejected");
   if (part.outcome === "stale") return t("ai.tool.stale");
+  if (part.outcome === "cancelled") return t("ai.tool.cancelled");
   if (part.outcome === "compile_failed") return t("ai.tool.compileFailed");
   return t("ai.tool.complete");
 }
 
 function ToolActivity({ part, t }: { part: AiTranscriptToolPart; t: Translator }) {
   const running = part.state === "running";
+  const pendingReview = part.outcome === "review_pending";
   const failed = part.state === "error" || part.state === "cancelled" ||
-    part.outcome === "compile_failed" || part.outcome === "stale";
+    part.outcome === "compile_failed" || part.outcome === "stale" ||
+    part.outcome === "cancelled";
   return (
     <div className="ai-tool-activity" data-state={part.state}>
       <span className="ai-activity-icon" aria-hidden>
         {running
           ? <LoaderCircle className="is-spinning" size={14} />
+          : pendingReview
+            ? <Clock3 size={14} />
           : failed
             ? <X size={14} />
             : <Check size={14} />}
@@ -428,6 +437,7 @@ export default function AssistantPanel({
   projectId,
   locale,
   workspacePort,
+  editReviewOutcomes,
   aiAssistantConfig,
   onOpenSettings,
   t
@@ -437,6 +447,7 @@ export default function AssistantPanel({
   projectId: string;
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
+  editReviewOutcomes: readonly AiWorkspaceEditReviewOutcome[];
   aiAssistantConfig: AuthConfig["ai_assistant"];
   onOpenSettings: () => void;
   t: Translator;
@@ -482,6 +493,9 @@ export default function AssistantPanel({
     : null, [accountSettings, managedConfig]);
   const client = runtime.client;
   const snapshot = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
+  useEffect(() => {
+    for (const outcome of editReviewOutcomes) client.resolveEditReview(outcome);
+  }, [client, editReviewOutcomes]);
   const selectedManagedModel = snapshot.managedCatalog?.selectedModel ??
     (requestedSelection ? {
       kind: requestedSelection.kind,
@@ -535,7 +549,21 @@ export default function AssistantPanel({
   const connectionAvailable = policyMatchesBuild && (
     managedConfig !== null || connection !== null
   );
-  const conversationSwitchBlocked = snapshot.status === "running" || snapshot.status === "handshaking";
+  const reviewPending = snapshot.messages.some((message) => message.parts.some((part) => (
+    part.type === "tool" && part.outcome === "review_pending"
+  )));
+  const workspaceReviewPending = (() => {
+    try {
+      return workspacePort.getContextSnapshot().pending_edit_review;
+    } catch {
+      return true;
+    }
+  })();
+  const editReviewPending = reviewPending || workspaceReviewPending;
+  const conversationSwitchBlocked = snapshot.status === "running" ||
+    snapshot.status === "handshaking" ||
+    snapshot.queuedPrompt !== null ||
+    editReviewPending;
   const updateConversationTranscript = conversations.updateTranscript;
   const replaceRuntime = useCallback(() => {
     const nextClient = new AiRuntimeClient(locale, workspacePort, accountSettings.runtime);
@@ -726,7 +754,7 @@ export default function AssistantPanel({
   function submitPrompt(event: FormEvent) {
     event.preventDefault();
     const prompt = promptDraft.trim();
-    if (client.startTurn(prompt)) {
+    if (client.submitPrompt(prompt)) {
       conversations.titleFromPrompt(prompt);
       setPromptDraft("");
     }
@@ -1118,29 +1146,57 @@ export default function AssistantPanel({
               onKeyDown={handleComposerKeyDown}
               placeholder={t("ai.prompt.placeholder")}
               aria-label={t("ai.prompt.placeholder")}
-              disabled={snapshot.status !== "ready"}
+              disabled={
+                (snapshot.status !== "ready" && snapshot.status !== "running") ||
+                snapshot.queuedPrompt !== null ||
+                editReviewPending
+              }
               rows={3}
             />
             <div className="ai-composer-actions">
-              <small>{t("ai.prompt.hint")}</small>
+              <small>{snapshot.queuedPrompt
+                ? t("ai.prompt.queued")
+                : editReviewPending
+                  ? t("ai.prompt.reviewPending")
+                : t("ai.prompt.hint")}</small>
               {snapshot.status === "error" && (
                 <UiButton type="button" onClick={replaceRuntime}>
                   {t("common.retry")}
                 </UiButton>
               )}
-              {snapshot.status === "running" ? (
+              {snapshot.queuedPrompt && (
+                <UiButton type="button" onClick={() => client.discardQueuedPrompt()}>
+                  {t("ai.prompt.removeQueued")}
+                </UiButton>
+              )}
+              {snapshot.recovery && (
+                <UiButton
+                  type="button"
+                  onClick={() => client.recoverTurn(t("ai.recovery.continue"))}
+                >
+                  {snapshot.recovery === "continue"
+                    ? t("ai.recovery.continue")
+                    : t("common.retry")}
+                </UiButton>
+              )}
+              {snapshot.status === "running" && (
                 <UiButton key="cancel-turn" type="button" onClick={() => client.cancelTurn()}>
                   {t("common.cancel")}
                 </UiButton>
-              ) : (
+              )}
+              {(snapshot.status === "ready" || snapshot.status === "running") && (
                 <UiButton
                   key="start-turn"
                   type="submit"
                   variant="primary"
                   data-action="send-prompt"
-                  disabled={snapshot.status !== "ready" || !promptDraft.trim()}
+                  disabled={
+                    snapshot.queuedPrompt !== null ||
+                    editReviewPending ||
+                    !promptDraft.trim()
+                  }
                 >
-                  {t("ai.send")}
+                  {snapshot.status === "running" ? t("ai.prompt.queue") : t("ai.send")}
                 </UiButton>
               )}
             </div>

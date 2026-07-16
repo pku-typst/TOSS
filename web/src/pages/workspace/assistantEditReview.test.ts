@@ -25,36 +25,55 @@ function proposal() {
 }
 
 describe("AssistantEditReviewCoordinator", () => {
-  it("allows one review and resolves only the matching proposal", async () => {
+  it("hands one proposal to Workspace ownership without waiting for a decision", () => {
     const coordinator = new AssistantEditReviewCoordinator();
     const listener = vi.fn();
     coordinator.subscribe(listener);
     const pending = coordinator.request(proposal());
     const current = coordinator.getSnapshot().proposal;
+    expect(pending).toEqual({ outcome: "pending", reviewId: current!.id });
     expect(current).toMatchObject({ path: "main.typ", candidateText: "= New\n" });
-    await expect(coordinator.request(proposal())).resolves.toBe("busy");
+    expect(coordinator.request(proposal())).toEqual({ outcome: "busy", reviewId: null });
     expect(coordinator.accept("another-review")).toBe(false);
     expect(coordinator.accept(current!.id)).toBe(true);
-    await expect(pending).resolves.toBe("accepted");
     expect(coordinator.getSnapshot().proposal).toBeNull();
+    expect(coordinator.getSnapshot().outcomes).toEqual([
+      expect.objectContaining({ reviewId: current!.id, decision: "accepted" })
+    ]);
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it("crosses cancellation into the pending human review", async () => {
+  it("does not let a completed tool-call signal cancel Workspace-owned review", () => {
     const coordinator = new AssistantEditReviewCoordinator();
     const controller = new AbortController();
     const pending = coordinator.request(proposal(), controller.signal);
+    const id = coordinator.getSnapshot().proposal!.id;
     controller.abort();
-    await expect(pending).resolves.toBe("cancelled");
-    expect(coordinator.getSnapshot().proposal).toBeNull();
+    expect(pending).toEqual({ outcome: "pending", reviewId: id });
+    expect(coordinator.getSnapshot().proposal?.id).toBe(id);
+    expect(coordinator.reject(id)).toBe(true);
   });
 
-  it("reports a collaboration-stale proposal and ignores a late accept", async () => {
+  it("reports a collaboration-stale proposal and ignores a late accept", () => {
     const coordinator = new AssistantEditReviewCoordinator("generation-1:live");
-    const pending = coordinator.request(proposal());
+    coordinator.request(proposal());
     const id = coordinator.getSnapshot().proposal!.id;
     expect(coordinator.markStale(id)).toBe(true);
-    await expect(pending).resolves.toBe("stale");
+    expect(coordinator.getSnapshot().outcomes.at(-1)).toMatchObject({
+      reviewId: id,
+      decision: "stale"
+    });
     expect(coordinator.accept(id)).toBe(false);
+  });
+
+  it("rejects an already-aborted request before it transfers ownership", () => {
+    const coordinator = new AssistantEditReviewCoordinator();
+    const controller = new AbortController();
+    controller.abort();
+    expect(coordinator.request(proposal(), controller.signal)).toEqual({
+      outcome: "cancelled",
+      reviewId: null
+    });
+    expect(coordinator.getSnapshot().proposal).toBeNull();
   });
 });

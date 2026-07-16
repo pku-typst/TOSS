@@ -21,7 +21,8 @@ describe("AI Runtime protocol validation", () => {
     active_document_state: "ready",
     files: { total: 2, text: 1, assets: 1 },
     compilation: { state: "succeeded", errors: 0, warnings: 0 },
-    pending_edit_review: false
+    pending_edit_review: false,
+    last_edit_review: null
   } as const;
   const bootstrap = {
     type: "toss.ai.runtime.initialize",
@@ -436,6 +437,46 @@ describe("AI Runtime protocol validation", () => {
       }
     })).toBe(true);
 
+    const compilationCall = {
+      type: "toss.ai.runtime.tool_call",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      callId: "call-compilation",
+      tool: "inspect_compilation",
+      arguments: {}
+    } as const;
+    expect(isAiRuntimeToHostMessage(compilationCall)).toBe(true);
+    expect(isAiRuntimeToHostMessage({
+      ...compilationCall,
+      arguments: { refresh: true }
+    })).toBe(false);
+    expect(isAiHostToRuntimeMessage({
+      type: "toss.ai.host.tool_result",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      callId: "call-compilation",
+      tool: "inspect_compilation",
+      response: {
+        outcome: "success",
+        result: {
+          project_type: "typst",
+          entry_file_path: "main.typ",
+          active_path: "main.typ",
+          state: "failed",
+          diagnostics_current: true,
+          errors: ["main.typ:2: unexpected token"],
+          diagnostics: [{
+            severity: "error",
+            message: "unexpected token",
+            path: "main.typ",
+            line: 2,
+            column: 1
+          }],
+          truncated: false
+        }
+      }
+    })).toBe(true);
+
     const patchCall = {
       type: "toss.ai.runtime.tool_call",
       sessionId: "session-1",
@@ -460,8 +501,8 @@ describe("AI Runtime protocol validation", () => {
         result: {
           path: "main.typ",
           base_snapshot: "sha256-example",
-          status: "accepted",
-          snapshot_id: "sha256-updated",
+          status: "review_pending",
+          review_id: "review-1",
           verification: {
             status: "passed",
             errors: [],
@@ -510,11 +551,11 @@ describe("AI Runtime protocol validation", () => {
         result: {
           path: "main.typ",
           base_snapshot: "sha256-example",
-          status: "rejected",
-          snapshot_id: null,
+          status: "compile_failed",
+          review_id: null,
           verification: {
-            status: "passed",
-            errors: [],
+            status: "failed",
+            errors: ["main.typ:1: compilation failed"],
             diagnostics: [],
             truncated: false
           }

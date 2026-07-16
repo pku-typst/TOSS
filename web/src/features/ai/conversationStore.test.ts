@@ -47,6 +47,7 @@ function transcript(): AiTranscriptMessage[] {
           query: null,
           startLine: 1,
           endLine: 20,
+          reviewId: null,
           state: "complete",
           outcome: "success",
           errorCode: null,

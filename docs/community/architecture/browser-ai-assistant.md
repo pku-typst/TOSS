@@ -45,9 +45,10 @@ This page is the current working design and implementation record for the
 Community browser AI assistant. It records the baseline agreed during design
 discussion, the implemented infrastructure/provider/read/review slices now
 present on `dev`, and the remaining choices. Sections marked as implemented are
-current contracts; isolated candidate compile feedback is implemented, while
-selection, current-preview diagnostics, general verification, and broader edit
-behavior remain target design until their delivery slices land. Durable
+current contracts; isolated candidate compile feedback, bounded current-preview
+diagnostics, resumable review, one-message safe-boundary queuing, and Provider
+failure recovery are implemented, while selection context, general
+verification, and broader edit behavior remain target design. Durable
 rationale may later be promoted into an ADR.
 
 ## Agreed baseline
@@ -64,7 +65,7 @@ rationale may later be promoted into an ADR.
 | Network confinement | A fixed bootstrap validates the credential-free endpoint and tightens Runtime CSP before loading provider code or accepting a credential. Managed mode additionally permits only exact `GET /models` and `POST /chat/completions` requests at the fixed provider base URL. |
 | Deployment topology | The Community default serves the Runtime artifact from the application URL origin and forces it into an opaque security principal. A real second deployment origin is a deferred compatibility or higher-assurance mode, not a first-release prerequisite. |
 | Feature dimension | AI is an optional frontend feature, independent from project types and Document Processing operations. |
-| Agent loop | One user request may contain multiple model, tool, review, and compile-feedback turns. |
+| Agent loop | One user request may contain multiple model/tool and candidate compile-feedback turns. A passing edit ends that Agent turn and transfers a proposal to the independent Workspace review lifecycle. |
 | Writes | The agent may propose an edit but may not silently modify a project. Every mutation requires an explicit review decision. |
 | Workspace | Project text, collaboration, compiler state, and diagnostics remain owned by their existing Workspace, Yjs, and compiler lifecycles. |
 | UI | Assistant, Settings, and Revisions share one mutually exclusive right-side auxiliary panel. |
@@ -151,6 +152,9 @@ slices are implemented. They contain:
 - `list_project_files`, `read_project_file`, and `search_project_text` tools
   backed by a generation/revision-fenced Workspace-owned port, with current
   Yjs text for the active live document and bounded line-numbered output; and
+- an `inspect_compilation` tool that projects bounded diagnostics from the
+  existing preview compiler owner, marks whether they describe the current
+  source, and never starts another compile; and
 - `list_typst_package_files`, `read_typst_package_file`, and
   `search_typst_package_text` tools for exact `@preview` or catalog-provided
   `@local` versions, backed by a dedicated Host worker rather than Runtime
@@ -160,10 +164,16 @@ slices are implemented. They contain:
   fallback that requires a complete, untruncated read of the exact snapshot and
   accepts the complete replacement text. Both feed one shared unpublished
   candidate pipeline, isolated compilation, explicit review, and final
-  freshness-checked Yjs transaction.
+  freshness-checked Yjs transaction. A passing tool call returns
+  `review_pending`, terminates the Agent turn, and leaves the proposal owned by
+  Workspace rather than consuming model-call or wall-clock budget while a
+  person reviews it; and
+- one bounded transport retry before Provider streaming begins, explicit
+  retry/continue recovery after a failed turn, and one queued user message that
+  runs only at a normal turn boundary or after an outstanding review resolves.
 
-The current slice does not yet expose active selection, current-preview
-diagnostics, a general compile-current-World tool, inactive-document editing,
+The current slice does not yet expose active selection, a compile-on-demand or
+await-current-World verification tool, inactive-document editing,
 file creation/deletion/rename, or multi-file edits. Connection testing without
 inference for user-defined endpoints,
 redaction-focused browser tests, Firefox, and WebKit validation also remain
@@ -663,7 +673,10 @@ endpoint, or another compatible service. The UI does not expose a separate
 taxonomy for credential ownership, billing, or transport.
 
 An **agent run** begins with one user message and may contain several internal
-model turns, tool calls, review decisions, and verification steps. An
+model turns, tool calls, and candidate verification steps. Human edit review
+is a separate Workspace-owned lifecycle: a passing proposal terminates the run,
+and the next run receives the bounded last-review outcome in its fresh
+Workspace snapshot. An
 **assistant message** is user-facing model output. Tool-only internal turns are
 shown as activity rather than as empty chat bubbles.
 
@@ -720,7 +733,7 @@ The panel has three stable regions:
 | edit proposal summaries                        |
 +------------------------------------------------+
 | explicit context chips                         |
-| multiline composer                    Send/Stop |
+| multiline composer              Send/Queue/Stop |
 +------------------------------------------------+
 ```
 
@@ -751,7 +764,11 @@ not announce every token. Copy applies only to the final answer, not reasoning
 or tool data.
 
 The composer supports a multiline prompt, Enter to send, Shift+Enter for a
-newline, and a Stop action while the run is active. It shows explicit context
+newline, and a Stop action while the run is active. While a run is active, the
+user may queue one follow-up message. It starts only after the run reaches a
+safe terminal boundary; an outstanding edit review keeps it queued until the
+proposal is accepted, rejected, cancelled, or marked stale. The queued message
+can be removed without stopping the current run. It shows explicit context
 chips for the active file, selected text, diagnostics, a historical revision,
 or files chosen through an `@` picker. A chip expresses user focus; it does not
 eagerly copy the whole project into the model request.
@@ -944,14 +961,15 @@ user asks for a fix
   -> model submits a candidate edit
   -> isolated candidate compiler returns bounded errors/diagnostics
   -> model repairs and resubmits until the candidate passes
-  -> browser pauses for review
-  -> user accepts or rejects
-  -> tool reports the decision
-  -> model produces the user-facing result
+  -> edit tool returns review_pending and terminates this Agent run
+  -> Workspace owns the proposal while the user accepts or rejects
+  -> transcript activity and the next turn snapshot record the decision
+  -> an optional queued user message starts after that safe boundary
 ```
 
 Read-only calls may execute in parallel when their results are independent.
-Mutations, review decisions, and verification execute sequentially. A run ends
+Mutations and candidate verification execute sequentially. Review does not
+keep the originating Provider request, tool promise, or Agent timer alive. A run ends
 when the model stops requesting tools, the user stops it, its Workspace
 generation expires, a fatal runtime error occurs, or a configured turn/tool/
 time/context budget is reached.
@@ -964,7 +982,8 @@ as meaningful activity.
 Before each user turn, the Workspace owner supplies a schema-versioned snapshot
 of the current project name and type, live or revision view, entry and active
 paths, read/edit access, Workspace/document readiness, text/asset counts,
-compile state and diagnostic counts, and pending-review state. The Runtime
+compile state and diagnostic counts, pending-review state, and the latest
+bounded review ID/decision. The Runtime
 places that JSON inside a delimited system-prompt context block and explicitly
 treats every value as untrusted project data rather than instructions. This
 gives the model basic orientation without sending source, selections, full file
@@ -1004,7 +1023,13 @@ can enter the exact shape documented by their model, such as OpenAI Responses
 `reasoning`, OpenAI-compatible `reasoning_effort`, Anthropic `thinking`, or NIM
 `chat_template_kwargs`/`nvext`, without TOSS translating between them. `{}`
 leaves Provider defaults untouched. Invalid or unsupported fields surface as a
-Provider error; TOSS never retries with guessed semantics.
+Provider error; TOSS never removes fields or retries with guessed semantics.
+The selected protocol client may perform one bounded transport retry only
+before a response stream has produced semantic output. Once text, reasoning,
+or a tool call exists, a failure is surfaced. The host then offers **Retry**
+when nothing semantic was received, or **Continue** from the retained Agent
+state after partial output/tool activity; neither action silently replays a
+completed mutation.
 
 Before every provider request, the Agent's `transformContext` hook reserves the
 user-configured maximum output plus a fixed safety allowance. It first removes
@@ -1065,6 +1090,7 @@ The Host-owned tool slice fixes these names and bounded schemas:
 - `list_project_files`;
 - `read_project_file`;
 - `search_project_text`;
+- `inspect_compilation`;
 - `list_typst_package_files`, for Typst projects;
 - `read_typst_package_file`, for Typst projects;
 - `search_typst_package_text`, for Typst projects;
@@ -1105,11 +1131,12 @@ The broader first tool set should cover these narrow operations:
 | List project files | Return bounded path, kind, and identity metadata. |
 | Read a text file | Return bounded, line-numbered text and an immutable snapshot reference. |
 | Search project text | Return bounded path/range excerpts with line numbers, without arbitrary filesystem access. |
+| Inspect compilation | Return bounded errors and structured diagnostics already owned by the live preview lifecycle, plus state and `diagnostics_current`; never start or await a new compile. |
 | List package files | Return bounded paths, kinds, sizes, and the exact archive digest for a pinned Typst package. |
 | Read package text | Return a bounded line-numbered range from one text file in a pinned package. |
 | Search package text | Return bounded literal matches across text files in a pinned package. |
 | Read active selection | Return the active document identity, line-numbered range, text, and snapshot reference. |
-| Read diagnostics | Return diagnostics for an exact compiler World and target. |
+| Read diagnostics | Implemented as `inspect_compilation` for the current or last completed preview projection; exact await/verify semantics remain a separate future operation. |
 | Propose one file patch | Validate a contextual single-file unified-diff proposal, compile an isolated candidate World, return failures for repair, and enter review only after it passes. |
 | Propose one full-file replacement | Require a complete read of the exact snapshot, derive a canonical review diff from bounded replacement text, and use the same compile/review path as a patch. |
 | Verify current project | Await the current browser compiler result for an exact generation and World. |
@@ -1234,21 +1261,36 @@ edit carries at least:
 - the exact immutable compiler-World revision used for that result.
 
 The central Editor becomes the diff surface and presents explicit Reject and
-Accept actions while the originating `pi-agent-core` tool call remains pending.
-The narrow chat panel is not the code-review surface.
+Accept actions. After isolated compilation passes, the edit tool returns a
+bounded `review_pending` result containing the review ID and preflight summary,
+and sets pi's terminate hint. The tool bridge settles, the Agent run completes,
+and Workspace retains the proposal independently. Human think time therefore
+consumes neither a Provider connection nor the per-run timeout. The narrow chat
+panel is not the code-review surface; its activity row changes from waiting to
+the final decision through the Workspace-owned outcome projection.
 
 Any local or remote change to the base document or another compiler input makes the open proposal stale.
 The patch is never silently rebased onto that newer text. Accept is disabled
 immediately. On acceptance, the Workspace owner performs a final synchronous
 freshness and permission check, then applies the already-reviewed candidate as
 one collaboration-aware transaction. Normal live preview compilation follows
-through the existing compiler lifecycle. The agent receives the accepted
-document snapshot plus the pre-accept verification result, not an optimistic
-success invented by the AI feature.
+through the existing compiler lifecycle. The next Agent run receives the exact
+last review ID and decision in its fresh Workspace context. It therefore cannot
+mistake `review_pending` in its previous tool history for an accepted write,
+and no optimistic success is invented by the AI feature.
 
-Reject and stale are tool feedback. The model may explain, reread, or propose a
-replacement. Stopping a run cancels the pending tool call and exits review.
-Revision and read-only modes never expose the apply operation.
+Reject, accept, stale, and cancellation are terminal Workspace review outcomes,
+not continuations of the old tool promise. The model may explain, reread, or
+propose a replacement in a subsequent user turn. Stopping an Agent run cancels
+only work still owned by that run; once `review_pending` has been returned, the
+explicit review actions own proposal disposal. Revision and read-only modes
+never expose the apply operation.
+
+The proposal itself is deliberately not persisted beyond its Workspace
+generation. Reload or generation replacement cancels it. When a persisted
+conversation is restored, a `review_pending` activity without a matching live
+owner is reconciled to the Workspace's matching last decision when available,
+or otherwise to `cancelled`; it must never become an immortal transcript lock.
 
 Atomic multi-file edits, partial acceptance, automatic rebasing, and session-
 wide write permission are outside the first release.
@@ -1288,9 +1330,11 @@ The port binds each passing result to the exact immutable base CompileWorld and
 target. A change to any compiler input while compiling or reviewing makes the
 result stale. Compilation failures return bounded errors and structured
 locations through the originating `apply_patch` or `write_file` call, allowing `pi-agent-core` to
-repair and retry before the user sees an acceptance surface. A future `verify
-current project` tool may still await the existing preview compilation owner;
-that is distinct from pre-accept candidate verification.
+repair and retry before the user sees an acceptance surface. The implemented
+`inspect_compilation` tool reads a bounded projection of the existing preview
+owner and marks whether those diagnostics are current; it never queues work.
+A future `verify current project` tool may await the preview compilation owner,
+which is distinct from both inspection and pre-accept candidate verification.
 
 This lets an agent repeat read, review, apply, and verify while keeping browser
 Typst or LaTeX compilation authoritative. The AI feature never polls the
@@ -1310,7 +1354,8 @@ Preview component and never interprets a canvas as compiler state.
 | AI connection metadata | Versioned, account-scoped Local Storage profile store |
 | AI connection credential and endpoint binding | Memory only inside the current opaque-origin Runtime iframe |
 | Per-turn token usage and context projection | Runtime Agent, sanitized over protocol v1 and held in the host external-store snapshot |
-| Outstanding proposal and review decision | Feature-scoped review controller keyed by Workspace generation |
+| Outstanding proposal and bounded review outcomes | Workspace-owned review coordinator keyed by Workspace generation; transcript consumes only its sanitized outcome projection |
+| One queued follow-up prompt | `AiRuntimeClient` memory, released only at a safe boundary and never persisted as a sent message before execution |
 | Panel visibility, draft prompt, expanded rows, and scroll position | Focused React presentation state |
 
 `AiRuntimeClient` and its Runtime session are keyed by access identity, project,
@@ -1570,9 +1615,15 @@ Vitest should cover:
 - endpoint changes, redirect rejection, credential-omitting fetch defaults,
   managed exact-path/method fencing, and the absence of a generic authenticated
   fetch message;
-- repeated tool turns, parallel reads, sequential writes, and cancellation;
+- repeated tool turns, parallel reads, sequential writes, cancellation, and
+  bounded current-diagnostic projection without a second compile;
+- `review_pending` terminating the Agent run, accept/reject/stale/cancelled
+  outcome projection, a decision racing the tool-result message, and a queued
+  prompt remaining blocked until review resolves;
 - accept, reject, stale snapshot, generation expiry, and compiler
   supersession;
+- the single pre-stream Provider retry, retry-versus-continue recovery
+  classification, and one-message safe-boundary queue;
 - account/project changes while streaming or awaiting review;
 - bounded context and tool output;
 - event-to-view projection without token-level React state duplication.
@@ -1621,15 +1672,15 @@ The following details are intentionally unsettled:
 3. whether anonymous sessions should ever gain opt-in persistence for
    non-secret connection profiles beyond the current memory-only behavior;
 4. the names, schemas, output limits, and error codes beyond the implemented
-   project read/search tools, Typst package inspection tools, `apply_patch`,
-   and `write_file`;
+   project read/search/compilation-inspection tools, Typst package inspection
+   tools, `apply_patch`, and `write_file`;
 5. future semantic summarization beyond the implemented deterministic
    `transformContext` windowing and tool-payload compaction;
 6. whether tool-call and repeated edit-review budgets should later become
    personal settings; Provider-call and elapsed-time limits are implemented as
    bounded personal settings, while model context/output remain profile data;
-7. whether a rejected proposal ends the run or normally lets the model offer a
-   non-editing alternative;
+7. whether a later task-oriented UI should offer a one-click follow-up after a
+   rejected proposal; the current Agent run always ends at `review_pending`;
 8. whether the current unified-diff review surface later adopts a CodeMirror
    merge presentation without changing the accepted patch contract;
 9. inactive-document edit behavior in the first release;

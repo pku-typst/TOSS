@@ -84,6 +84,25 @@ function agentError(model: Model<Api>, errorMessage: AiAgentFailureCode) {
   return stream;
 }
 
+function agentStop(model: Model<Api>) {
+  const stream = createAssistantMessageEventStream();
+  const message: AssistantMessage = {
+    role: "assistant",
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: EMPTY_USAGE,
+    stopReason: "stop",
+    timestamp: Date.now()
+  };
+  queueMicrotask(() => {
+    stream.push({ type: "done", reason: "stop", message });
+    stream.end(message);
+  });
+  return stream;
+}
+
 function connectionModel(connection: EndpointConnection): Model<Api> {
   const shared = {
     id: connection.model,
@@ -170,6 +189,9 @@ export class AiAgentSession {
   private cacheReadTokensThisTurn = 0;
   private cacheWriteTokensThisTurn = 0;
   private totalTokensThisTurn = 0;
+  private semanticActivityThisTurn = false;
+  private toolTerminationRequested = false;
+  private toolTerminationMessageCount: number | null = null;
 
   constructor(options: AiAgentSessionOptions) {
     this.connectionId = options.connection.connectionId;
@@ -178,6 +200,10 @@ export class AiAgentSession {
     const model = connectionModel(options.connection);
     const apiKey = options.credential || "unused";
     const stream: StreamFn = (model, context, streamOptions) => {
+      // pi requires every result in a mixed tool batch to request termination.
+      // A review handoff is stronger: suppress any follow-up Provider call, then
+      // trim this synthetic empty assistant message after the Agent settles.
+      if (this.toolTerminationRequested) return agentStop(model);
       if (this.contextOverflow) {
         return agentError(model, "ai_agent_context_budget_exceeded");
       }
@@ -191,8 +217,8 @@ export class AiAgentSession {
         apiKey,
         cacheRetention: "none",
         timeoutMs: this.preferences.providerRequestTimeoutMs,
-        maxRetries: 0,
-        maxRetryDelayMs: 0,
+        maxRetries: 1,
+        maxRetryDelayMs: 2_000,
         onPayload: async (payload, payloadModel) => {
           const upstreamPayload = await upstreamOnPayload?.(payload, payloadModel);
           return applyAiProviderRequestOverrides(
@@ -234,11 +260,33 @@ export class AiAgentSession {
     });
     this.unsubscribe = this.agent.subscribe((event) => {
       if (!this.activeTurnId) return;
+      if (event.type === "tool_execution_start") {
+        this.semanticActivityThisTurn = true;
+        return;
+      }
+      if (event.type === "tool_execution_end") {
+        if (event.result.terminate === true) this.toolTerminationRequested = true;
+        return;
+      }
+      if (
+        event.type === "turn_end" &&
+        this.toolTerminationRequested &&
+        this.toolTerminationMessageCount === null
+      ) {
+        this.toolTerminationMessageCount = this.agent.state.messages.length;
+        return;
+      }
       if (event.type === "message_start" && event.message.role === "assistant") {
         this.assistantMessageIndex += 1;
         return;
       }
       if (event.type === "message_end" && event.message.role === "assistant") {
+        if (event.message.content.some((part) => (
+          (part.type === "text" && part.text.length > 0) ||
+          (part.type === "thinking" && part.thinking.length > 0)
+        ))) {
+          this.semanticActivityThisTurn = true;
+        }
         this.recordProviderUsage(event.message.usage);
         return;
       }
@@ -264,6 +312,7 @@ export class AiAgentSession {
         options.onContent(this.activeTurnId, { type: "start", blockId, kind });
       }
       if (update.type.endsWith("_delta") && "delta" in update) {
+        if (update.delta.length > 0) this.semanticActivityThisTurn = true;
         options.onContent(this.activeTurnId, {
           type: "delta",
           blockId,
@@ -383,8 +432,18 @@ export class AiAgentSession {
     this.cacheReadTokensThisTurn = 0;
     this.cacheWriteTokensThisTurn = 0;
     this.totalTokensThisTurn = 0;
+    this.semanticActivityThisTurn = false;
+    this.toolTerminationRequested = false;
+    this.toolTerminationMessageCount = null;
     this.assistantMessageIndex = -1;
     this.openContentBlocks.clear();
+    const messageCountBeforeTurn = this.agent.state.messages.length;
+    const settle = (result: AiAgentTurnResult) => {
+      if (result.outcome !== "completed" && !this.semanticActivityThisTurn) {
+        this.agent.state.messages = this.agent.state.messages.slice(0, messageCountBeforeTurn);
+      }
+      return result;
+    };
     let timedOut = false;
     const timer = globalThis.setTimeout(() => {
       timedOut = true;
@@ -392,15 +451,22 @@ export class AiAgentSession {
     }, this.preferences.maxTurnMs);
     try {
       await this.agent.prompt(prompt);
-      if (timedOut) return { outcome: "failed", code: "ai_agent_turn_timeout" };
-      if (this.cancelledTurnId === turnId) return { outcome: "cancelled" };
-      return this.agent.state.errorMessage
+      if (this.toolTerminationMessageCount !== null) {
+        this.agent.state.messages = this.agent.state.messages.slice(
+          0,
+          this.toolTerminationMessageCount
+        );
+        return { outcome: "completed" };
+      }
+      if (timedOut) return settle({ outcome: "failed", code: "ai_agent_turn_timeout" });
+      if (this.cancelledTurnId === turnId) return settle({ outcome: "cancelled" });
+      return settle(this.agent.state.errorMessage
         ? { outcome: "failed", code: this.failure(this.agent.state.errorMessage) }
-        : { outcome: "completed" };
+        : { outcome: "completed" });
     } catch {
-      return this.cancelledTurnId === turnId
+      return settle(this.cancelledTurnId === turnId
         ? { outcome: "cancelled" }
-        : { outcome: "failed", code: "provider_request_failed" };
+        : { outcome: "failed", code: "provider_request_failed" });
     } finally {
       globalThis.clearTimeout(timer);
       if (this.activeTurnId === turnId) this.activeTurnId = null;

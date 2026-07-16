@@ -44,6 +44,7 @@ function toolPart(state: "running" | "complete") {
     query: null,
     startLine: null,
     endLine: null,
+    reviewId: null,
     state,
     outcome: state === "complete" ? "success" : null,
     errorCode: null,

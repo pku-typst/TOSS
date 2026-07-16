@@ -47,6 +47,7 @@ export type AiStoredConversationTool = {
   query: string | null;
   startLine: number | null;
   endLine: number | null;
+  reviewId: string | null;
   state: "complete" | "error" | "cancelled";
   outcome: AiTranscriptToolOutcome | null;
   errorCode: AiWorkspaceToolErrorCode | null;
@@ -116,8 +117,9 @@ function isToolState(value: unknown): value is AiStoredConversationTool["state"]
 }
 
 function isToolOutcome(value: unknown): value is AiTranscriptToolOutcome | null {
-  return value === null || value === "success" || value === "accepted" || value === "rejected" ||
-    value === "stale" || value === "compile_failed";
+  return value === null || value === "success" || value === "review_pending" ||
+    value === "accepted" || value === "rejected" || value === "stale" ||
+    value === "cancelled" || value === "compile_failed";
 }
 
 const workspaceToolNames = new Set<AiWorkspaceToolName>(AI_WORKSPACE_TOOL_NAMES);
@@ -133,6 +135,11 @@ function normalizeStoredTool(value: unknown): AiStoredConversationTool | null {
     !(value.query === null || boundedString(value.query, 256, true)) ||
     !(value.startLine === null || (Number.isInteger(value.startLine) && Number(value.startLine) > 0)) ||
     !(value.endLine === null || (Number.isInteger(value.endLine) && Number(value.endLine) > 0)) ||
+    !(
+      value.reviewId === undefined ||
+      value.reviewId === null ||
+      boundedString(value.reviewId, MAX_ID_LENGTH)
+    ) ||
     !isToolState(value.state) ||
     !isToolOutcome(value.outcome) ||
     !(
@@ -152,6 +159,7 @@ function normalizeStoredTool(value: unknown): AiStoredConversationTool | null {
     query: value.query as string | null,
     startLine: value.startLine as number | null,
     endLine: value.endLine as number | null,
+    reviewId: typeof value.reviewId === "string" ? value.reviewId : null,
     state: value.state,
     outcome: value.outcome,
     errorCode: value.errorCode as AiWorkspaceToolErrorCode | null,
@@ -250,6 +258,7 @@ function storedTool(part: AiTranscriptToolPart, completedAt: number): AiStoredCo
     query: part.query,
     startLine: part.startLine,
     endLine: part.endLine,
+    reviewId: part.reviewId,
     state,
     outcome: part.outcome,
     errorCode: part.errorCode,
