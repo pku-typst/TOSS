@@ -22,6 +22,7 @@ import {
   compileWorldWithCandidateDocument,
   createAiWorkspacePort,
   type AiWorkspaceCandidateCompileResult,
+  type AiWorkspaceCompilationSnapshot,
   type AiWorkspaceContextSnapshot,
   type AiWorkspaceToolSource
 } from "@/features/ai";
@@ -903,13 +904,20 @@ function ResolvedWorkspacePage({
         errors: Math.max(compileErrors.length, diagnosticErrors),
         warnings: warningCount
       },
-      pending_edit_review: assistantEditProposal !== null
+      pending_edit_review: assistantEditProposal !== null,
+      last_edit_review: assistantEditReviewSnapshot.outcomes.length > 0
+        ? {
+            review_id: assistantEditReviewSnapshot.outcomes.at(-1)!.reviewId,
+            decision: assistantEditReviewSnapshot.outcomes.at(-1)!.decision
+          }
+        : null
     };
   }, [
     activeLiveDocReady,
     activePath,
     aiWorkspaceAllowsEdits,
     assistantEditProposal,
+    assistantEditReviewSnapshot.outcomes,
     compileActive,
     compileDiagnostics,
     compileErrors.length,
@@ -934,6 +942,21 @@ function ResolvedWorkspacePage({
     () => aiWorkspaceContextRef.current,
     []
   );
+  const aiWorkspaceCompilation = useMemo<AiWorkspaceCompilationSnapshot>(() => ({
+    state: aiWorkspaceContext.compilation.state,
+    diagnosticsCurrent: aiWorkspaceContext.compilation.state === "succeeded" ||
+      aiWorkspaceContext.compilation.state === "failed",
+    errors: compileErrors,
+    diagnostics: compileDiagnostics
+  }), [aiWorkspaceContext.compilation.state, compileDiagnostics, compileErrors]);
+  const aiWorkspaceCompilationRef = useRef(aiWorkspaceCompilation);
+  useLayoutEffect(() => {
+    aiWorkspaceCompilationRef.current = aiWorkspaceCompilation;
+  }, [aiWorkspaceCompilation]);
+  const getAiWorkspaceCompilation = useCallback(
+    () => aiWorkspaceCompilationRef.current,
+    []
+  );
   const aiWorkspacePort = useMemo(
     () => createAiWorkspacePort({
       scopeId: aiWorkspaceScopeId,
@@ -942,6 +965,7 @@ function ResolvedWorkspacePage({
       allowEdits: aiWorkspaceAllowsEdits,
       coreApiUrl: coreApiBaseUrl(),
       getContextSnapshot: getAiWorkspaceContext,
+      getCompilationSnapshot: getAiWorkspaceCompilation,
       getSource: getAiWorkspaceSource,
       verifyCandidate: verifyAiCandidate,
       isCandidateRevisionCurrent: isAiCandidateRevisionCurrent,
@@ -952,6 +976,7 @@ function ResolvedWorkspacePage({
       aiWorkspaceAllowsEdits,
       aiWorkspaceScopeId,
       assistantEditReviewCoordinator,
+      getAiWorkspaceCompilation,
       getAiWorkspaceContext,
       getAiWorkspaceSource,
       isAiCandidateRevisionCurrent,
@@ -1360,6 +1385,7 @@ function ResolvedWorkspacePage({
                 projectId={projectId}
                 locale={locale}
                 workspacePort={aiWorkspacePort}
+                editReviewOutcomes={assistantEditReviewSnapshot.outcomes}
                 aiAssistantConfig={authConfig?.ai_assistant ?? null}
                 onOpenSettings={openAssistantSettings}
                 t={t}

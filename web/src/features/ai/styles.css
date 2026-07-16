@@ -501,12 +501,15 @@ nve-button.ai-assistant-menu-trigger:hover {
 
 .ai-composer-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 
 .ai-composer-actions small {
+  flex: 1 1 150px;
+  margin-right: auto;
   color: var(--toss-text-muted);
   font-size: 10px;
 }

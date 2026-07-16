@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MessageChannel } from "node:worker_threads";
 import { promisify } from "node:util";
-import { createServer } from "vite";
+import { createServer as createViteServer } from "vite";
 
 const execFileAsync = promisify(execFile);
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -43,6 +45,61 @@ function requestOverridesEnvironment() {
     throw new Error("AI_PROVIDER_REQUEST_OVERRIDES must be a JSON object");
   }
   return value;
+}
+
+function commaSeparatedEnvironment(name) {
+  const raw = process.env[name]?.trim();
+  return raw ? [...new Set(raw.split(",").map((value) => value.trim()).filter(Boolean))] : [];
+}
+
+function stringArrayEnvironment(name) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return [];
+  const value = JSON.parse(raw);
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item)) {
+    throw new Error(`${name} must be a JSON array of non-empty strings`);
+  }
+  return value;
+}
+
+async function startPackageFixtureEndpoint(packageSpec, archivePath) {
+  const match = /^@(local|preview)\/([^:]+):(.+)$/.exec(packageSpec);
+  if (!match) throw new Error("AI_SCENARIO_PACKAGE_SPEC must be an exact Typst package spec");
+  const [, namespace, name, version] = match;
+  const archive = await readFile(archivePath);
+  const digest = createHash("sha256").update(archive).digest("hex");
+  const expectedPath = `/v1/typst/packages/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
+  const server = createHttpServer((request, response) => {
+    const pathname = new URL(request.url || "/", "http://127.0.0.1").pathname;
+    if (request.method !== "GET" || pathname !== expectedPath) {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, {
+      "content-type": "application/gzip",
+      "content-length": archive.byteLength,
+      "x-typst-package-sha256": digest
+    });
+    response.end(archive);
+  });
+  await new Promise((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("The package fixture endpoint did not expose a TCP address");
+  }
+  server.unref();
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    digest: `sha256:${digest}`,
+    bytes: archive.byteLength,
+    close: () => new Promise((resolveClose, rejectClose) => {
+      server.close((error) => error ? rejectClose(error) : resolveClose());
+    })
+  };
 }
 
 function normalizeProviderBaseUrl(raw, protocol) {
@@ -90,6 +147,18 @@ const prompt = process.env.AI_SCENARIO_PROMPT?.trim() || [
   "不要改变正文内容；完成后确认候选版本编译通过。"
 ].join("");
 const systemPromptAppend = process.env.AI_SCENARIO_SYSTEM_APPEND?.trim() || "";
+const expectReview = booleanEnvironment("AI_SCENARIO_EXPECT_REVIEW", true);
+const requiredTools = commaSeparatedEnvironment("AI_SCENARIO_REQUIRED_TOOLS");
+const requiredOutputSubstrings = stringArrayEnvironment(
+  "AI_SCENARIO_REQUIRED_OUTPUT_SUBSTRINGS"
+);
+const packageSpec = process.env.AI_SCENARIO_PACKAGE_SPEC?.trim() || "";
+const packageArchivePath = process.env.AI_SCENARIO_PACKAGE_ARCHIVE?.trim() || "";
+if (Boolean(packageSpec) !== Boolean(packageArchivePath)) {
+  throw new Error(
+    "AI_SCENARIO_PACKAGE_SPEC and AI_SCENARIO_PACKAGE_ARCHIVE must be provided together"
+  );
+}
 
 const initialDocuments = {
   "main.typ": [
@@ -158,6 +227,28 @@ const initialDocuments = {
     ""
   ].join("\n")
 };
+if (packageSpec) {
+  initialDocuments["main.typ"] = [
+    `#import "${packageSpec}" as inspected_package`,
+    initialDocuments["main.typ"]
+  ].join("\n");
+}
+
+const packageFixtureEndpoint = packageSpec
+  ? await startPackageFixtureEndpoint(packageSpec, packageArchivePath)
+  : null;
+const packageDigestPlaceholder = "{{PACKAGE_DIGEST}}";
+if (
+  requiredOutputSubstrings.some((value) => value.includes(packageDigestPlaceholder)) &&
+  !packageFixtureEndpoint
+) {
+  throw new Error(
+    "AI_SCENARIO_REQUIRED_OUTPUT_SUBSTRINGS uses {{PACKAGE_DIGEST}} without a package fixture"
+  );
+}
+const resolvedRequiredOutputSubstrings = requiredOutputSubstrings.map((value) =>
+  value.replaceAll(packageDigestPlaceholder, packageFixtureEndpoint?.digest ?? "")
+);
 
 const report = {
   schema: 1,
@@ -174,13 +265,21 @@ const report = {
   prompt,
   providerCalls: [],
   providerResponses: [],
+  agentToolCalls: [],
   toolCalls: [],
   proposals: [],
+  reviewHandoff: null,
   content: [],
   usage: [],
   result: null,
   finalCompile: null,
-  finalMainTyp: null
+  finalMainTyp: null,
+  packageFixture: packageFixtureEndpoint ? {
+    packageSpec,
+    digest: packageFixtureEndpoint.digest,
+    bytes: packageFixtureEndpoint.bytes
+  } : null,
+  validation: null
 };
 
 function redact(value) {
@@ -299,7 +398,8 @@ function contextSnapshot() {
     active_document_state: "ready",
     files: { total: nodes.filter(({ kind }) => kind === "file").length, text: 4, assets: 0 },
     compilation: { state: "succeeded", errors: 0, warnings: 0 },
-    pending_edit_review: false
+    pending_edit_review: false,
+    last_edit_review: null
   };
 }
 
@@ -308,7 +408,7 @@ if (!baselineCompile.passed) {
   throw new Error(`Synthetic Typst fixture does not compile:\n${baselineCompile.diagnostics}`);
 }
 
-const vite = await createServer({
+const vite = await createViteServer({
   root: webRoot,
   configFile: false,
   appType: "custom",
@@ -326,25 +426,94 @@ const channel = new MessageChannel();
 let toolBridge;
 let workspacePort;
 let latestCompileRevision = null;
+let pendingReview = null;
 const activeToolCalls = new Map();
 
 try {
-  const [agentModule, providerModule, bridgeModule, toolsModule, promptModule, workspaceModule] =
+  const [
+    agentModule,
+    providerModule,
+    bridgeModule,
+    toolsModule,
+    promptModule,
+    workspaceModule,
+    packageArchiveModule
+  ] =
     await Promise.all([
       vite.ssrLoadModule("/src/ai-runtime/agentSession.ts"),
       vite.ssrLoadModule("/src/ai-runtime/providerAdapter.ts"),
       vite.ssrLoadModule("/src/ai-runtime/toolBridge.ts"),
       vite.ssrLoadModule("/src/ai-runtime/runtimeTools.ts"),
       vite.ssrLoadModule("/src/ai-runtime/i18n.ts"),
-      vite.ssrLoadModule("/src/pages/workspace/assistantWorkspacePort.ts")
+      vite.ssrLoadModule("/src/pages/workspace/assistantWorkspacePort.ts"),
+      vite.ssrLoadModule("/src/features/ai/typstPackageArchive.ts")
     ]);
+
+  const loadedPackages = new Map();
+  const packageInspector = packageFixtureEndpoint ? {
+    async execute(request, signal) {
+      try {
+        const requestedSpec = request.arguments.package_spec;
+        let loadedPackage = loadedPackages.get(requestedSpec);
+        if (!loadedPackage) {
+          loadedPackage = await packageArchiveModule.fetchTypstPackage(
+            packageFixtureEndpoint.baseUrl,
+            requestedSpec,
+            signal
+          );
+          loadedPackages.set(requestedSpec, loadedPackage);
+        }
+        const result = request.tool === "list_typst_package_files"
+          ? packageArchiveModule.listTypstPackageFiles(loadedPackage, request.arguments)
+          : request.tool === "read_typst_package_file"
+            ? packageArchiveModule.readTypstPackageFile(loadedPackage, request.arguments)
+            : packageArchiveModule.searchTypstPackageText(
+                loadedPackage,
+                request.arguments,
+                signal
+              );
+        return { outcome: "success", result };
+      } catch (error) {
+        if (error instanceof packageArchiveModule.TypstPackageInspectionError) {
+          return {
+            outcome: "error",
+            error: { code: error.code, message: error.message }
+          };
+        }
+        if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+          return {
+            outcome: "error",
+            error: {
+              code: "workspace_request_cancelled",
+              message: "The Typst package inspection was cancelled."
+            }
+          };
+        }
+        return {
+          outcome: "error",
+          error: {
+            code: "typst_package_internal_error",
+            message: "The Typst package could not be inspected safely."
+          }
+        };
+      }
+    },
+    dispose() {}
+  } : undefined;
 
   workspacePort = workspaceModule.createAiWorkspacePort({
     scopeId: "local-agent-project",
     projectType: "typst",
     mode: "live",
     allowEdits: true,
+    typstPackageInspector: packageInspector,
     getContextSnapshot: contextSnapshot,
+    getCompilationSnapshot: () => ({
+      state: "succeeded",
+      diagnosticsCurrent: true,
+      errors: [],
+      diagnostics: []
+    }),
     getSource: source,
     verifyCandidate: async ({ path, candidateText }) => {
       const candidateDocuments = { ...state.documents, [path]: candidateText };
@@ -361,7 +530,11 @@ try {
       };
     },
     isCandidateRevisionCurrent: (revision) => revision === latestCompileRevision,
-    requestEditReview: async (proposal) => {
+    requestEditReview: (proposal) => {
+      if (pendingReview) {
+        throw new Error("The headless scenario received more than one pending edit review");
+      }
+      const reviewId = `local-review-${report.proposals.length + 1}`;
       report.proposals.push({
         editKind: proposal.editKind,
         path: proposal.path,
@@ -371,18 +544,13 @@ try {
         hunkCount: proposal.hunkCount,
         verification: proposal.verification
       });
-      state.documents = { ...state.documents, [proposal.path]: proposal.candidateText };
-      const identity = state.identities[proposal.path];
-      state.identities = {
-        ...state.identities,
-        [proposal.path]: {
-          ...identity,
-          pathRevision: identity.pathRevision + 1,
-          collaborationRevision: identity.collaborationRevision + 1
-        }
+      pendingReview = {
+        reviewId,
+        proposal,
+        providerCallsAtHandoff: report.providerCalls.length
       };
-      console.log(`[review] accepted ${proposal.path} (${proposal.addedLines}+/${proposal.removedLines}-)`);
-      return "accepted";
+      console.log(`[review] pending ${proposal.path} (${proposal.addedLines}+/${proposal.removedLines}-)`);
+      return { outcome: "pending", reviewId };
     }
   });
 
@@ -471,11 +639,40 @@ try {
     return streamOrPromise;
   };
 
-  const tools = toolsModule.createAiRuntimeTools(
+  const baseTools = toolsModule.createAiRuntimeTools(
     workspacePort.capabilities,
     toolBridge,
     "zh-CN"
   );
+  const tools = baseTools.map((tool) => ({
+    ...tool,
+    execute: async (toolCallId, parameters, signal, onUpdate) => {
+      const entry = {
+        index: report.agentToolCalls.length + 1,
+        tool: tool.name,
+        toolCallId,
+        arguments: parameters,
+        outcome: "running",
+        result: null,
+        error: null
+      };
+      report.agentToolCalls.push(entry);
+      console.log(`[agent tool ${entry.index}] ${entry.tool}\n${printable(parameters)}`);
+      try {
+        entry.result = await tool.execute(toolCallId, parameters, signal, onUpdate);
+        entry.outcome = "success";
+        console.log(`[agent tool ${entry.index} result]\n${printable(entry.result)}`);
+        return entry.result;
+      } catch (error) {
+        entry.outcome = "error";
+        entry.error = error instanceof Error
+          ? { name: error.name, message: error.message }
+          : { name: "Error", message: String(error) };
+        console.log(`[agent tool ${entry.index} error]\n${printable(entry.error)}`);
+        throw error;
+      }
+    }
+  }));
   const session = new agentModule.AiAgentSession({
     connection,
     credential,
@@ -510,8 +707,102 @@ try {
   }
   process.stdout.write("\n");
 
+  const validationErrors = [];
+  if (pendingReview) {
+    report.reviewHandoff = {
+      reviewId: pendingReview.reviewId,
+      statusAfterTurn: "pending",
+      providerCallsAtHandoff: pendingReview.providerCallsAtHandoff,
+      providerCallsAfterTurn: report.providerCalls.length
+    };
+    if (report.providerCalls.length !== pendingReview.providerCallsAtHandoff) {
+      validationErrors.push("The Agent called the provider again after handing off an edit review");
+    }
+    if (expectReview) {
+      const acceptedProposal = pendingReview.proposal;
+      state.documents = {
+        ...state.documents,
+        [acceptedProposal.path]: acceptedProposal.candidateText
+      };
+      const acceptedIdentity = state.identities[acceptedProposal.path];
+      state.identities = {
+        ...state.identities,
+        [acceptedProposal.path]: {
+          ...acceptedIdentity,
+          pathRevision: acceptedIdentity.pathRevision + 1,
+          collaborationRevision: acceptedIdentity.collaborationRevision + 1
+        }
+      };
+      console.log(`[review] accepted ${acceptedProposal.path} after Agent turn`);
+    } else {
+      validationErrors.push("The read-only scenario unexpectedly handed off an edit review");
+    }
+  } else if (expectReview) {
+    validationErrors.push("The Agent turn ended without handing off an edit review");
+  }
+
   report.finalCompile = await compileDocuments(state.documents);
   report.finalMainTyp = state.documents["main.typ"];
+  const successfulToolNames = new Set(
+    report.agentToolCalls
+      .filter((entry) => entry.outcome === "success")
+      .map((entry) => entry.tool)
+  );
+  const availableToolNames = new Set(baseTools.map((tool) => tool.name));
+  const unavailableRequiredTools = requiredTools.filter((tool) => !availableToolNames.has(tool));
+  const missingRequiredTools = requiredTools.filter((tool) => !successfulToolNames.has(tool));
+  if (unavailableRequiredTools.length > 0) {
+    validationErrors.push(
+      `Required tools were not exposed: ${unavailableRequiredTools.join(", ")}`
+    );
+  }
+  if (missingRequiredTools.length > 0) {
+    validationErrors.push(
+      `Required tools did not complete successfully: ${missingRequiredTools.join(", ")}`
+    );
+  }
+  const failedToolCalls = report.agentToolCalls.filter((entry) => entry.outcome === "error");
+  if (failedToolCalls.length > 0) {
+    validationErrors.push(
+      `Agent tool calls failed: ${failedToolCalls.map((entry) => entry.tool).join(", ")}`
+    );
+  }
+  const assistantOutput = report.content
+    .filter((event) => event.type === "delta")
+    .map((event) => event.delta)
+    .join("");
+  const missingOutputSubstrings = resolvedRequiredOutputSubstrings.filter(
+    (substring) => !assistantOutput.includes(substring)
+  );
+  if (missingOutputSubstrings.length > 0) {
+    validationErrors.push(
+      `Assistant output omitted required evidence: ${missingOutputSubstrings.join(", ")}`
+    );
+  }
+  if (report.result?.outcome !== "completed") {
+    validationErrors.push(`Agent outcome was ${report.result?.outcome ?? "missing"}`);
+  }
+  if (expectReview && report.proposals.length === 0) {
+    validationErrors.push("The editing scenario produced no proposal");
+  }
+  if (!expectReview && report.proposals.length > 0) {
+    validationErrors.push("The read-only scenario produced an edit proposal");
+  }
+  if (!report.finalCompile.passed) {
+    validationErrors.push("The final Typst project did not compile");
+  }
+  report.validation = {
+    passed: validationErrors.length === 0,
+    expectReview,
+    requiredTools,
+    successfulTools: [...successfulToolNames],
+    unavailableRequiredTools,
+    missingRequiredTools,
+    failedToolCalls: failedToolCalls.map((entry) => entry.index),
+    requiredOutputSubstrings: resolvedRequiredOutputSubstrings,
+    missingOutputSubstrings,
+    errors: validationErrors
+  };
   report.finishedAt = new Date().toISOString();
 
   const reportPath = process.env.AI_SCENARIO_REPORT?.trim() ||
@@ -521,19 +812,16 @@ try {
   console.log(`[result] ${printable(report.result)}`);
   console.log(`[result] accepted proposals=${report.proposals.length}`);
   console.log(`[result] final compile=${report.finalCompile.passed ? "passed" : "failed"}`);
+  console.log(`[result] validation=${report.validation.passed ? "passed" : "failed"}`);
   console.log(`[result] trace=${reportPath}`);
 
-  if (
-    report.result?.outcome !== "completed" ||
-    report.proposals.length === 0 ||
-    !report.finalCompile.passed
-  ) {
-    process.exitCode = 1;
-  }
+  if (!report.validation.passed) process.exitCode = 1;
 } finally {
   for (const controller of activeToolCalls.values()) controller.abort();
   toolBridge?.dispose();
+  workspacePort?.dispose();
   channel.port1.close();
   channel.port2.close();
   await vite.close();
+  await packageFixtureEndpoint?.close();
 }

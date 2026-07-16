@@ -7,7 +7,10 @@ import type {
   WorkspaceOptionalPanelDescriptor,
   WorkspaceOptionalSettingsSectionDescriptor
 } from "@/pages/workspace/types";
-import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
+import type {
+  AiWorkspaceEditReviewOutcome,
+  AiWorkspaceToolPort
+} from "@/features/ai/toolContract";
 import type { AuthConfig } from "@/lib/api/types";
 
 const AssistantPanel = lazy(() => import("@/features/ai/AssistantPanel"));
@@ -33,6 +36,7 @@ export function AiAssistantPanel({
   projectId,
   locale,
   workspacePort,
+  editReviewOutcomes,
   aiAssistantConfig,
   onOpenSettings,
   t
@@ -42,6 +46,7 @@ export function AiAssistantPanel({
   projectId: string;
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
+  editReviewOutcomes: readonly AiWorkspaceEditReviewOutcome[];
   aiAssistantConfig: AuthConfig["ai_assistant"];
   onOpenSettings: () => void;
   t: Translator;
@@ -61,6 +66,7 @@ export function AiAssistantPanel({
         projectId={projectId}
         locale={locale}
         workspacePort={workspacePort}
+        editReviewOutcomes={editReviewOutcomes}
         aiAssistantConfig={aiAssistantConfig}
         onOpenSettings={onOpenSettings}
         t={t}
@@ -104,6 +110,7 @@ export { AI_ASSISTANT_PANEL_ID };
 export {
   createAiWorkspacePort,
   type AiWorkspaceCandidateCompileResult,
+  type AiWorkspaceCompilationSnapshot,
   type AiWorkspacePortOptions,
   type AiWorkspaceToolSource
 } from "@/pages/workspace/assistantWorkspacePort";
@@ -116,6 +123,8 @@ export type {
 export {
   AssistantEditReviewCoordinator,
   type AssistantEditProposal,
-  type AssistantEditReviewDecision
+  type AssistantEditReviewDecision,
+  type AssistantEditReviewOutcome,
+  type AssistantEditReviewRequestResult
 } from "@/pages/workspace/assistantEditReview";
 export { AssistantEditReviewPane } from "@/pages/workspace/components/AssistantEditReviewPane";

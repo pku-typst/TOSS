@@ -1,4 +1,8 @@
-import type { AiPatchCompileVerification } from "@/features/ai/toolContract";
+import type {
+  AiPatchCompileVerification,
+  AiWorkspaceEditReviewDecision,
+  AiWorkspaceEditReviewOutcome
+} from "@/features/ai/toolContract";
 
 export type AssistantEditProposal = {
   id: string;
@@ -15,21 +19,19 @@ export type AssistantEditProposal = {
   verificationRevision: object;
 };
 
-export type AssistantEditReviewDecision =
-  | "accepted"
-  | "rejected"
-  | "stale"
-  | "cancelled"
-  | "busy";
+export type AssistantEditReviewDecision = AiWorkspaceEditReviewDecision;
+
+export type AssistantEditReviewRequestResult =
+  | { outcome: "pending"; reviewId: string }
+  | { outcome: "cancelled" | "busy"; reviewId: null };
+
+export type AssistantEditReviewOutcome = AiWorkspaceEditReviewOutcome;
 
 type ProposalInput = Omit<AssistantEditProposal, "id">;
 
-type PendingReview = {
-  proposal: AssistantEditProposal;
-  signal?: AbortSignal;
-  onAbort?: () => void;
-  resolve: (decision: AssistantEditReviewDecision) => void;
-};
+type PendingReview = { proposal: AssistantEditProposal };
+
+const MAX_REVIEW_OUTCOMES = 32;
 
 function proposalId() {
   if (typeof globalThis.crypto.randomUUID === "function") {
@@ -42,7 +44,10 @@ function proposalId() {
 
 /** Workspace-owned single-proposal coordinator. */
 export class AssistantEditReviewCoordinator {
-  private snapshot: { proposal: AssistantEditProposal | null } = { proposal: null };
+  private snapshot: {
+    proposal: AssistantEditProposal | null;
+    outcomes: readonly AssistantEditReviewOutcome[];
+  } = { proposal: null, outcomes: [] };
   private pending: PendingReview | null = null;
   private readonly listeners = new Set<() => void>();
   private disposed = false;
@@ -56,19 +61,14 @@ export class AssistantEditReviewCoordinator {
 
   readonly getSnapshot = () => this.snapshot;
 
-  request(input: ProposalInput, signal?: AbortSignal): Promise<AssistantEditReviewDecision> {
-    if (this.disposed || signal?.aborted) return Promise.resolve("cancelled");
-    if (this.pending) return Promise.resolve("busy");
+  request(input: ProposalInput, signal?: AbortSignal): AssistantEditReviewRequestResult {
+    if (this.disposed || signal?.aborted) return { outcome: "cancelled", reviewId: null };
+    if (this.pending) return { outcome: "busy", reviewId: null };
     const proposal = { ...input, id: proposalId() };
-    return new Promise((resolve) => {
-      const onAbort = signal
-        ? () => this.finish(proposal.id, "cancelled")
-        : undefined;
-      this.pending = { proposal, signal, onAbort, resolve };
-      signal?.addEventListener("abort", onAbort!, { once: true });
-      this.snapshot = { proposal };
-      this.emit();
-    });
+    this.pending = { proposal };
+    this.snapshot = { ...this.snapshot, proposal };
+    this.emit();
+    return { outcome: "pending", reviewId: proposal.id };
   }
 
   accept(id: string) {
@@ -90,16 +90,16 @@ export class AssistantEditReviewCoordinator {
     this.listeners.clear();
   }
 
-  private finish(id: string, decision: Exclude<AssistantEditReviewDecision, "busy">) {
+  private finish(id: string, decision: AssistantEditReviewDecision) {
     const pending = this.pending;
     if (!pending || pending.proposal.id !== id) return false;
-    if (pending.signal && pending.onAbort) {
-      pending.signal.removeEventListener("abort", pending.onAbort);
-    }
     this.pending = null;
-    this.snapshot = { proposal: null };
+    const outcome = { reviewId: id, decision, decidedAt: Date.now() };
+    this.snapshot = {
+      proposal: null,
+      outcomes: [...this.snapshot.outcomes, outcome].slice(-MAX_REVIEW_OUTCOMES)
+    };
     this.emit();
-    pending.resolve(decision);
     return true;
   }
 

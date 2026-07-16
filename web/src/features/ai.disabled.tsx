@@ -3,15 +3,19 @@ import type { WorkspaceOptionalPanelDescriptor } from "@/pages/workspace/types";
 import type { WorkspaceOptionalSettingsSectionDescriptor } from "@/pages/workspace/types";
 import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
 import type { AiWorkspaceContextSnapshot } from "@/features/ai/toolContract";
+import type { AiWorkspaceEditReviewOutcome } from "@/features/ai/toolContract";
 import type { AuthConfig } from "@/lib/api/types";
 import type {
   AiWorkspaceCandidateCompileResult,
+  AiWorkspaceCompilationSnapshot,
   AiWorkspacePortOptions,
   AiWorkspaceToolSource
 } from "@/pages/workspace/assistantWorkspacePort";
 import type {
   AssistantEditProposal,
-  AssistantEditReviewDecision
+  AssistantEditReviewDecision,
+  AssistantEditReviewOutcome,
+  AssistantEditReviewRequestResult
 } from "@/pages/workspace/assistantEditReview";
 import type {
   CompileTarget,
@@ -35,6 +39,7 @@ export function AiAssistantPanel(_props: {
   projectId: string;
   locale: UiLocale;
   workspacePort: AiWorkspaceToolPort;
+  editReviewOutcomes: readonly AiWorkspaceEditReviewOutcome[];
   aiAssistantConfig: AuthConfig["ai_assistant"];
   onOpenSettings: () => void;
   t: Translator;
@@ -63,15 +68,18 @@ export function AssistantEditReviewPane(_props: {
 }
 
 export class AssistantEditReviewCoordinator {
-  private readonly snapshot = { proposal: null as AssistantEditProposal | null };
+  private readonly snapshot = {
+    proposal: null as AssistantEditProposal | null,
+    outcomes: [] as readonly AiWorkspaceEditReviewOutcome[]
+  };
   constructor(readonly scopeId: string = "") {}
   readonly subscribe = (_listener: () => void) => () => undefined;
   readonly getSnapshot = () => this.snapshot;
-  async request(
+  request(
     _proposal: Omit<AssistantEditProposal, "id">,
     _signal?: AbortSignal
-  ): Promise<AssistantEditReviewDecision> {
-    return "cancelled";
+  ): AssistantEditReviewRequestResult {
+    return { outcome: "cancelled", reviewId: null };
   }
   accept(_id: string) { return false; }
   reject(_id: string) { return false; }
@@ -121,10 +129,13 @@ export async function compileWorkspaceCandidate(
 
 export type {
   AiWorkspaceCandidateCompileResult,
+  AiWorkspaceCompilationSnapshot,
   AiWorkspacePortOptions,
   AiWorkspaceToolSource,
   AiWorkspaceContextSnapshot,
   AiWorkspaceToolPort,
   AssistantEditProposal,
-  AssistantEditReviewDecision
+  AssistantEditReviewDecision,
+  AssistantEditReviewOutcome,
+  AssistantEditReviewRequestResult
 };

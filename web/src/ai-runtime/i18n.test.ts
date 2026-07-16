@@ -92,7 +92,8 @@ describe("AI Runtime system prompt", () => {
       active_document_state: "ready",
       files: { total: 4, text: 3, assets: 1 },
       compilation: { state: "failed", errors: 2, warnings: 1 },
-      pending_edit_review: false
+      pending_edit_review: false,
+      last_edit_review: null
     });
 
     expect(prompt).toContain("snapshot captured at the start of this turn");

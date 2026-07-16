@@ -15,7 +15,7 @@ import type { AiRuntimeLocale } from "@/features/ai/protocol";
 
 const TOOL_CALL_TIMEOUT_MS = 20_000;
 const PACKAGE_TOOL_CALL_TIMEOUT_MS = 60_000;
-const REVIEW_TOOL_CALL_TIMEOUT_MS = 290_000;
+const EDIT_TOOL_CALL_TIMEOUT_MS = 120_000;
 
 type PendingToolCall = {
   turnId: string;
@@ -113,7 +113,7 @@ export class AiRuntimeToolBridge {
           true
         );
       }, request.tool === "apply_patch" || request.tool === "write_file"
-        ? REVIEW_TOOL_CALL_TIMEOUT_MS
+        ? EDIT_TOOL_CALL_TIMEOUT_MS
         : isAiTypstPackageToolName(request.tool)
           ? PACKAGE_TOOL_CALL_TIMEOUT_MS
           : TOOL_CALL_TIMEOUT_MS);

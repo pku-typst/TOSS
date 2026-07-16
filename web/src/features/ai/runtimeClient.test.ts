@@ -6,8 +6,14 @@ import {
   AI_RUNTIME_PROTOCOL_VERSION,
   type AiRuntimeBootstrapInit
 } from "@/features/ai/protocol";
-import { AiRuntimeClient } from "@/features/ai/runtimeClient";
-import type { AiWorkspaceToolPort } from "@/features/ai/toolContract";
+import {
+  AiRuntimeClient,
+  type AiTranscriptMessage
+} from "@/features/ai/runtimeClient";
+import type {
+  AiWorkspaceContextSnapshot,
+  AiWorkspaceToolPort
+} from "@/features/ai/toolContract";
 
 const clients: AiRuntimeClient[] = [];
 
@@ -23,8 +29,34 @@ const workspaceContext = {
   active_document_state: "ready",
   files: { total: 1, text: 1, assets: 0 },
   compilation: { state: "succeeded", errors: 0, warnings: 0 },
-  pending_edit_review: false
+  pending_edit_review: false,
+  last_edit_review: null
 } as const;
+
+function pendingReviewTranscript(reviewId: string): AiTranscriptMessage[] {
+  return [{
+    id: "assistant-review",
+    role: "assistant",
+    parts: [{
+      id: "tool-review",
+      type: "tool",
+      tool: "apply_patch",
+      path: "main.typ",
+      query: null,
+      startLine: null,
+      endLine: null,
+      reviewId,
+      state: "complete",
+      outcome: "review_pending",
+      errorCode: null,
+      startedAt: 1,
+      completedAt: 2
+    }],
+    state: "complete",
+    startedAt: 1,
+    completedAt: 2
+  }];
+}
 
 function nextPortMessage(port: MessagePort) {
   return new Promise<unknown>((resolve) => {
@@ -77,6 +109,43 @@ afterEach(() => {
 });
 
 describe("AiRuntimeClient", () => {
+  it("reconciles a restored review that no longer has a Workspace owner", () => {
+    let lastEditReview: AiWorkspaceContextSnapshot["last_edit_review"] = null;
+    const workspacePort: AiWorkspaceToolPort = {
+      capabilities: { project_type: "typst", mode: "live", tools: ["apply_patch"] },
+      getContextSnapshot: () => ({
+        ...workspaceContext,
+        access: "edit" as const,
+        last_edit_review: lastEditReview
+      }),
+      execute: vi.fn(),
+      dispose: vi.fn()
+    };
+    const client = new AiRuntimeClient("en", workspacePort);
+    clients.push(client);
+
+    expect(client.setConversation(
+      "restored-orphan",
+      pendingReviewTranscript("review-orphan"),
+      []
+    )).toBe(true);
+    expect(client.getSnapshot().messages[0]?.parts[0]).toMatchObject({
+      reviewId: "review-orphan",
+      outcome: "cancelled"
+    });
+
+    lastEditReview = { review_id: "review-accepted", decision: "accepted" };
+    expect(client.setConversation(
+      "restored-accepted",
+      pendingReviewTranscript("review-accepted"),
+      []
+    )).toBe(true);
+    expect(client.getSnapshot().messages[0]?.parts[0]).toMatchObject({
+      reviewId: "review-accepted",
+      outcome: "accepted"
+    });
+  });
+
   it("acknowledges the sandbox before its resources become ready", async () => {
     const client = new AiRuntimeClient("en");
     clients.push(client);
@@ -551,5 +620,359 @@ describe("AiRuntimeClient", () => {
         outcome: "success"
       })
     ]));
+  });
+
+  it("settles the Agent turn while Workspace review remains pending", async () => {
+    let lastEditReview: AiWorkspaceContextSnapshot["last_edit_review"] = null;
+    let reviewPending = false;
+    const workspacePort: AiWorkspaceToolPort = {
+      capabilities: {
+        project_type: "typst",
+        mode: "live",
+        tools: ["apply_patch"]
+      },
+      getContextSnapshot: () => ({
+        ...workspaceContext,
+        access: "edit" as const,
+        pending_edit_review: reviewPending,
+        last_edit_review: lastEditReview
+      }),
+      dispose: vi.fn(),
+      execute: vi.fn(async () => {
+        reviewPending = true;
+        return {
+          outcome: "success" as const,
+          result: {
+            path: "main.typ",
+            base_snapshot: "sha256-base",
+            status: "review_pending" as const,
+            review_id: "review-1",
+            verification: {
+              status: "passed" as const,
+              errors: [],
+              diagnostics: [],
+              truncated: false
+            }
+          }
+        };
+      })
+    };
+    const client = new AiRuntimeClient("en", workspacePort);
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    let sessionId = "";
+    const { frame } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      sessionId = init.sessionId;
+      port.start();
+      postRuntimeInitialized(port, init);
+    });
+
+    client.connect(frame);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+    const startMessage = nextPortMessage(runtimePort!);
+    expect(client.startTurn("update the title")).toBe(true);
+    const { turnId } = await startMessage as { turnId: string };
+    const resultMessage = nextPortMessage(runtimePort!);
+    expect(client.submitPrompt("explain the accepted result")).toBe(true);
+    expect(client.getSnapshot().queuedPrompt).toBe("explain the accepted result");
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.tool_call",
+      sessionId,
+      turnId,
+      callId: "call-review",
+      tool: "apply_patch",
+      arguments: {
+        path: "main.typ",
+        base_snapshot: "sha256-base",
+        patch: "--- a/main.typ\n+++ b/main.typ\n@@ -1 +1 @@\n-= Old\n+= New"
+      }
+    });
+
+    await expect(resultMessage).resolves.toMatchObject({
+      type: "toss.ai.host.tool_result",
+      response: { outcome: "success", result: { status: "review_pending" } }
+    });
+    await vi.waitFor(() => expect(client.getSnapshot().messages.at(-1)?.parts).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        reviewId: "review-1",
+        state: "complete",
+        outcome: "review_pending"
+      })
+    ]));
+
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.turn_complete",
+      sessionId,
+      turnId,
+      outcome: "completed"
+    });
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+    expect(client.getSnapshot().queuedPrompt).toBe("explain the accepted result");
+    reviewPending = false;
+    expect(client.startTurn("bypass review")).toBe(false);
+    const queuedStartMessage = nextPortMessage(runtimePort!);
+    lastEditReview = { review_id: "review-1", decision: "accepted" };
+    expect(client.resolveEditReview({
+      reviewId: "review-1",
+      decision: "accepted",
+      decidedAt: 100
+    })).toBe(true);
+    expect(client.getSnapshot().messages.at(-1)?.parts).toEqual([
+      expect.objectContaining({ outcome: "accepted", reviewId: "review-1" })
+    ]);
+    await expect(queuedStartMessage).resolves.toMatchObject({
+      type: "toss.ai.host.start_turn",
+      prompt: "explain the accepted result",
+      workspace: {
+        last_edit_review: { review_id: "review-1", decision: "accepted" }
+      }
+    });
+    expect(client.getSnapshot()).toMatchObject({ status: "running", queuedPrompt: null });
+  });
+
+  it("retains a review outcome that arrives before the tool result", async () => {
+    let completeExecution!: (value: Awaited<ReturnType<AiWorkspaceToolPort["execute"]>>) => void;
+    const execution = new Promise<Awaited<ReturnType<AiWorkspaceToolPort["execute"]>>>((resolve) => {
+      completeExecution = resolve;
+    });
+    const workspacePort: AiWorkspaceToolPort = {
+      capabilities: { project_type: "typst", mode: "live", tools: ["write_file"] },
+      getContextSnapshot: () => ({ ...workspaceContext, access: "edit" as const }),
+      dispose: vi.fn(),
+      execute: vi.fn(() => execution)
+    };
+    const client = new AiRuntimeClient("en", workspacePort);
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    let sessionId = "";
+    const { frame } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      sessionId = init.sessionId;
+      port.start();
+      postRuntimeInitialized(port, init);
+    });
+    client.connect(frame);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+    const startMessage = nextPortMessage(runtimePort!);
+    client.startTurn("rewrite the file");
+    const { turnId } = await startMessage as { turnId: string };
+    const resultMessage = nextPortMessage(runtimePort!);
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.tool_call",
+      sessionId,
+      turnId,
+      callId: "call-race",
+      tool: "write_file",
+      arguments: { path: "main.typ", base_snapshot: "sha256-base", content: "= New" }
+    });
+    await vi.waitFor(() => expect(workspacePort.execute).toHaveBeenCalledOnce());
+    expect(client.resolveEditReview({
+      reviewId: "review-race",
+      decision: "rejected",
+      decidedAt: 100
+    })).toBe(false);
+    completeExecution({
+      outcome: "success",
+      result: {
+        path: "main.typ",
+        base_snapshot: "sha256-base",
+        status: "review_pending",
+        review_id: "review-race",
+        verification: { status: "passed", errors: [], diagnostics: [], truncated: false }
+      }
+    });
+    await resultMessage;
+    await vi.waitFor(() => expect(client.getSnapshot().messages.at(-1)?.parts).toEqual([
+      expect.objectContaining({ outcome: "rejected", reviewId: "review-race" })
+    ]));
+  });
+
+  it("queues one prompt and starts it after a normal safe turn boundary", async () => {
+    const client = new AiRuntimeClient("en");
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    let sessionId = "";
+    const { frame } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      sessionId = init.sessionId;
+      port.start();
+      postRuntimeInitialized(port, init);
+    });
+    client.connect(frame);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+    const firstStart = nextPortMessage(runtimePort!);
+    expect(client.submitPrompt("first request")).toBe(true);
+    const { turnId } = await firstStart as { turnId: string };
+    expect(client.submitPrompt("queued request")).toBe(true);
+    expect(client.submitPrompt("too many")).toBe(false);
+    const secondStart = nextPortMessage(runtimePort!);
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_start",
+      sessionId,
+      turnId,
+      blockId: "content-0-0",
+      kind: "text"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_delta",
+      sessionId,
+      turnId,
+      blockId: "content-0-0",
+      delta: "first response"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_end",
+      sessionId,
+      turnId,
+      blockId: "content-0-0"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.turn_complete",
+      sessionId,
+      turnId,
+      outcome: "completed"
+    });
+
+    await expect(secondStart).resolves.toMatchObject({
+      type: "toss.ai.host.start_turn",
+      prompt: "queued request"
+    });
+    expect(client.getSnapshot()).toMatchObject({ status: "running", queuedPrompt: null });
+  });
+
+  it("offers retry before semantic output and continue after partial output", async () => {
+    const client = new AiRuntimeClient("en");
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    let sessionId = "";
+    const { frame } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      sessionId = init.sessionId;
+      port.start();
+      postRuntimeInitialized(port, init);
+    });
+    client.connect(frame);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+
+    const failedStart = nextPortMessage(runtimePort!);
+    client.startTurn("original request");
+    const failedTurn = await failedStart as { turnId: string };
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.error",
+      sessionId,
+      turnId: failedTurn.turnId,
+      code: "provider_request_failed",
+      message: "Provider request failed."
+    });
+    await vi.waitFor(() => expect(client.getSnapshot().recovery).toBe("retry"));
+    const retryStart = nextPortMessage(runtimePort!);
+    expect(client.recoverTurn()).toBe(true);
+    const retryTurn = await retryStart as { turnId: string; prompt: string };
+    expect(retryTurn.prompt).toBe("original request");
+
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_start",
+      sessionId,
+      turnId: retryTurn.turnId,
+      blockId: "content-0-0",
+      kind: "text"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_delta",
+      sessionId,
+      turnId: retryTurn.turnId,
+      blockId: "content-0-0",
+      delta: "partial result"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.error",
+      sessionId,
+      turnId: retryTurn.turnId,
+      code: "provider_request_failed",
+      message: "Provider stream failed."
+    });
+    await vi.waitFor(() => expect(client.getSnapshot().recovery).toBe("continue"));
+    const continueStart = nextPortMessage(runtimePort!);
+    expect(client.recoverTurn()).toBe(true);
+    await expect(continueStart).resolves.toMatchObject({
+      type: "toss.ai.host.start_turn",
+      prompt: "Continue from the current state without repeating completed work."
+    });
+  });
+
+  it("preserves a queued follow-up while recovering a failed turn", async () => {
+    const client = new AiRuntimeClient("en");
+    clients.push(client);
+    let runtimePort: MessagePort | null = null;
+    let sessionId = "";
+    const { frame } = runtimeFrame((init, port) => {
+      runtimePort = port;
+      sessionId = init.sessionId;
+      port.start();
+      postRuntimeInitialized(port, init);
+    });
+    client.connect(frame);
+    await vi.waitFor(() => expect(client.getSnapshot().status).toBe("ready"));
+
+    const firstStart = nextPortMessage(runtimePort!);
+    expect(client.startTurn("original request")).toBe(true);
+    const firstTurn = await firstStart as { turnId: string };
+    expect(client.submitPrompt("queued follow-up")).toBe(true);
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.error",
+      sessionId,
+      turnId: firstTurn.turnId,
+      code: "provider_request_failed",
+      message: "Provider request failed."
+    });
+    await vi.waitFor(() => expect(client.getSnapshot()).toMatchObject({
+      status: "ready",
+      queuedPrompt: "queued follow-up",
+      recovery: "retry"
+    }));
+
+    const retryStart = nextPortMessage(runtimePort!);
+    expect(client.recoverTurn()).toBe(true);
+    const retryTurn = await retryStart as { turnId: string; prompt: string };
+    expect(retryTurn.prompt).toBe("original request");
+    expect(client.getSnapshot()).toMatchObject({
+      status: "running",
+      queuedPrompt: "queued follow-up",
+      recovery: null
+    });
+
+    const queuedStart = nextPortMessage(runtimePort!);
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_start",
+      sessionId,
+      turnId: retryTurn.turnId,
+      blockId: "content-retry",
+      kind: "text"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_delta",
+      sessionId,
+      turnId: retryTurn.turnId,
+      blockId: "content-retry",
+      delta: "recovered"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.content_end",
+      sessionId,
+      turnId: retryTurn.turnId,
+      blockId: "content-retry"
+    });
+    runtimePort!.postMessage({
+      type: "toss.ai.runtime.turn_complete",
+      sessionId,
+      turnId: retryTurn.turnId,
+      outcome: "completed"
+    });
+    await expect(queuedStart).resolves.toMatchObject({
+      type: "toss.ai.host.start_turn",
+      prompt: "queued follow-up"
+    });
   });
 });

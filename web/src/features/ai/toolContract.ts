@@ -2,6 +2,7 @@ export const AI_WORKSPACE_TOOL_NAMES = [
   "list_project_files",
   "read_project_file",
   "search_project_text",
+  "inspect_compilation",
   "list_typst_package_files",
   "read_typst_package_file",
   "search_typst_package_text",
@@ -72,6 +73,10 @@ export type AiWorkspaceContextSnapshot = {
     warnings: number;
   };
   pending_edit_review: boolean;
+  last_edit_review: {
+    review_id: string;
+    decision: AiWorkspaceEditReviewDecision;
+  } | null;
 };
 
 export type AiListProjectFilesArguments = {
@@ -92,6 +97,8 @@ export type AiSearchProjectTextArguments = {
   case_sensitive?: boolean;
   max_results?: number;
 };
+
+export type AiInspectCompilationArguments = Record<string, never>;
 
 export type AiListTypstPackageFilesArguments = {
   package_spec: string;
@@ -131,6 +138,7 @@ export type AiWorkspaceToolRequest =
   | { tool: "list_project_files"; arguments: AiListProjectFilesArguments }
   | { tool: "read_project_file"; arguments: AiReadProjectFileArguments }
   | { tool: "search_project_text"; arguments: AiSearchProjectTextArguments }
+  | { tool: "inspect_compilation"; arguments: AiInspectCompilationArguments }
   | { tool: "list_typst_package_files"; arguments: AiListTypstPackageFilesArguments }
   | { tool: "read_typst_package_file"; arguments: AiReadTypstPackageFileArguments }
   | { tool: "search_typst_package_text"; arguments: AiSearchTypstPackageTextArguments }
@@ -180,6 +188,17 @@ export type AiSearchProjectTextResult = {
   truncated: boolean;
 };
 
+export type AiInspectCompilationResult = {
+  project_type: AiWorkspaceProjectType;
+  entry_file_path: string;
+  active_path: string;
+  state: AiWorkspaceContextSnapshot["compilation"]["state"];
+  diagnostics_current: boolean;
+  errors: string[];
+  diagnostics: AiPatchCompileDiagnostic[];
+  truncated: boolean;
+};
+
 export type AiListTypstPackageFilesResult = {
   package_spec: string;
   package_digest: string;
@@ -224,9 +243,21 @@ export type AiSearchTypstPackageTextResult = {
 export type AiEditResult = {
   path: string;
   base_snapshot: string;
-  status: "accepted" | "rejected" | "stale" | "compile_failed";
-  snapshot_id: string | null;
+  status: "review_pending" | "compile_failed";
+  review_id: string | null;
   verification: AiPatchCompileVerification;
+};
+
+export type AiWorkspaceEditReviewDecision =
+  | "accepted"
+  | "rejected"
+  | "stale"
+  | "cancelled";
+
+export type AiWorkspaceEditReviewOutcome = {
+  reviewId: string;
+  decision: AiWorkspaceEditReviewDecision;
+  decidedAt: number;
 };
 
 export type AiApplyPatchResult = AiEditResult;
@@ -251,6 +282,7 @@ export type AiWorkspaceToolResult =
   | AiListProjectFilesResult
   | AiReadProjectFileResult
   | AiSearchProjectTextResult
+  | AiInspectCompilationResult
   | AiListTypstPackageFilesResult
   | AiReadTypstPackageFileResult
   | AiSearchTypstPackageTextResult
@@ -390,7 +422,8 @@ export function isAiWorkspaceContextSnapshot(
     "active_document_state",
     "files",
     "compilation",
-    "pending_edit_review"
+    "pending_edit_review",
+    "last_edit_review"
   ])) return false;
   if (
     value.schema !== AI_WORKSPACE_CONTEXT_SCHEMA ||
@@ -402,7 +435,18 @@ export function isAiWorkspaceContextSnapshot(
     (value.access !== "read" && value.access !== "edit") ||
     !["ready", "syncing", "offline"].includes(value.workspace_state as string) ||
     (value.active_document_state !== "ready" && value.active_document_state !== "unavailable") ||
-    typeof value.pending_edit_review !== "boolean"
+    typeof value.pending_edit_review !== "boolean" ||
+    !(
+      value.last_edit_review === null ||
+      (
+        isRecord(value.last_edit_review) &&
+        hasExactKeys(value.last_edit_review, ["review_id", "decision"]) &&
+        isBoundedString(value.last_edit_review.review_id, 128) &&
+        ["accepted", "rejected", "stale", "cancelled"].includes(
+          value.last_edit_review.decision as string
+        )
+      )
+    )
   ) return false;
   if (!isRecord(value.files) || !hasExactKeys(value.files, ["total", "text", "assets"])) {
     return false;
@@ -430,6 +474,7 @@ export function isAiWorkspaceToolArguments(
   value: unknown
 ): boolean {
   if (!isRecord(value)) return false;
+  if (tool === "inspect_compilation") return hasExactKeys(value, []);
   if (tool === "list_project_files") {
     if (!hasOnlyKeys(value, ["path_prefix", "offset", "limit"])) return false;
     return (
@@ -609,6 +654,53 @@ function isSearchResult(value: unknown): value is AiSearchProjectTextResult {
   );
 }
 
+function isCompileDiagnostic(value: unknown): value is AiPatchCompileDiagnostic {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["severity", "message", "path", "line", "column"]) &&
+    (value.severity === "error" || value.severity === "warning" || value.severity === "info") &&
+    isBoundedString(value.message, AI_WORKSPACE_TOOL_LIMITS.maxCompileMessageLength) &&
+    (
+      value.path === null ||
+      isBoundedString(value.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength)
+    ) &&
+    (value.line === null || isSafePositiveInteger(value.line)) &&
+    (value.column === null || isSafePositiveInteger(value.column))
+  );
+}
+
+function isCompilationResult(value: unknown): value is AiInspectCompilationResult {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "project_type",
+    "entry_file_path",
+    "active_path",
+    "state",
+    "diagnostics_current",
+    "errors",
+    "diagnostics",
+    "truncated"
+  ])) return false;
+  return (
+    (value.project_type === "typst" || value.project_type === "latex") &&
+    isBoundedString(value.entry_file_path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
+    isBoundedString(value.active_path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
+    ["idle", "running", "succeeded", "failed", "unavailable"].includes(
+      value.state as string
+    ) &&
+    typeof value.diagnostics_current === "boolean" &&
+    (!value.diagnostics_current || value.state === "succeeded" || value.state === "failed") &&
+    Array.isArray(value.errors) &&
+    value.errors.length <= AI_WORKSPACE_TOOL_LIMITS.maxCompileErrors &&
+    value.errors.every((error) =>
+      isBoundedString(error, AI_WORKSPACE_TOOL_LIMITS.maxCompileMessageLength)
+    ) &&
+    Array.isArray(value.diagnostics) &&
+    value.diagnostics.length <= AI_WORKSPACE_TOOL_LIMITS.maxCompileDiagnostics &&
+    value.diagnostics.every(isCompileDiagnostic) &&
+    typeof value.truncated === "boolean"
+  );
+}
+
 function isPackageIdentity(value: Record<string, unknown>) {
   return (
     isBoundedString(value.package_spec, AI_WORKSPACE_TOOL_LIMITS.maxPackageSpecLength) &&
@@ -707,27 +799,26 @@ function isEditResult(value: unknown): value is AiEditResult {
     "path",
     "base_snapshot",
     "status",
-    "snapshot_id",
+    "review_id",
     "verification"
   ])) return false;
   const verification = value.verification;
   return (
     isBoundedString(value.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength) &&
     isBoundedString(value.base_snapshot, 128) &&
+    (value.status === "review_pending" || value.status === "compile_failed") &&
     (
-      value.status === "accepted" ||
-      value.status === "rejected" ||
-      value.status === "stale" ||
-      value.status === "compile_failed"
-    ) &&
-    (
-      value.status === "accepted"
-        ? isBoundedString(value.snapshot_id, 128)
-        : value.snapshot_id === null
+      value.status === "review_pending"
+        ? isBoundedString(value.review_id, 128)
+        : value.review_id === null
     ) &&
     isRecord(verification) &&
     hasExactKeys(verification, ["status", "errors", "diagnostics", "truncated"]) &&
     (verification.status === "passed" || verification.status === "failed") &&
+    (
+      (value.status === "review_pending" && verification.status === "passed") ||
+      (value.status === "compile_failed" && verification.status === "failed")
+    ) &&
     Array.isArray(verification.errors) &&
     verification.errors.length <= AI_WORKSPACE_TOOL_LIMITS.maxCompileErrors &&
     verification.errors.every((error) =>
@@ -735,25 +826,7 @@ function isEditResult(value: unknown): value is AiEditResult {
     ) &&
     Array.isArray(verification.diagnostics) &&
     verification.diagnostics.length <= AI_WORKSPACE_TOOL_LIMITS.maxCompileDiagnostics &&
-    verification.diagnostics.every((diagnostic) => (
-      isRecord(diagnostic) &&
-      hasExactKeys(diagnostic, ["severity", "message", "path", "line", "column"]) &&
-      (
-        diagnostic.severity === "error" ||
-        diagnostic.severity === "warning" ||
-        diagnostic.severity === "info"
-      ) &&
-      isBoundedString(
-        diagnostic.message,
-        AI_WORKSPACE_TOOL_LIMITS.maxCompileMessageLength,
-      ) &&
-      (
-        diagnostic.path === null ||
-        isBoundedString(diagnostic.path, AI_WORKSPACE_TOOL_LIMITS.maxPathLength)
-      ) &&
-      (diagnostic.line === null || isSafePositiveInteger(diagnostic.line)) &&
-      (diagnostic.column === null || isSafePositiveInteger(diagnostic.column))
-    )) &&
+    verification.diagnostics.every(isCompileDiagnostic) &&
     typeof verification.truncated === "boolean"
   );
 }
@@ -764,6 +837,7 @@ export function isAiWorkspaceToolResult(
 ): value is AiWorkspaceToolResult {
   if (tool === "list_project_files") return isListResult(value);
   if (tool === "read_project_file") return isReadResult(value);
+  if (tool === "inspect_compilation") return isCompilationResult(value);
   if (tool === "list_typst_package_files") return isPackageListResult(value);
   if (tool === "read_typst_package_file") return isPackageReadResult(value);
   if (tool === "search_typst_package_text") return isPackageSearchResult(value);

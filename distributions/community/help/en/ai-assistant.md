@@ -34,7 +34,7 @@ That sandbox permits model requests only below the configured base URL, omits br
 
 The browser sends model requests directly from an opaque origin, so the endpoint must accept CORS requests whose `Origin` is `null`. A local service may also trigger browser Local Network Access controls. TOSS does not silently proxy a failed request through its backend.
 
-If a request fails, check the endpoint path, protocol, model ID, credential, Provider request parameters, endpoint CORS policy, and local-service browser permissions. A successful connection in another desktop client does not prove that browser CORS is enabled.
+If a request fails, check the endpoint path, protocol, model ID, credential, Provider request parameters, endpoint CORS policy, and local-service browser permissions. A successful connection in another desktop client does not prove that browser CORS is enabled. TOSS permits one bounded transport retry only before the response has produced visible text, reasoning, or tool activity. After that it surfaces the failure and offers **Retry** when nothing was produced or **Continue** when partial work can be resumed; it never removes Provider parameters or guesses a fallback request shape.
 
 ## Current project access
 
@@ -57,11 +57,16 @@ the assistant still answers in your language. Compilation and human review
 remain authoritative because documentation lookup cannot prove that a proposed
 change is correct for the current project.
 
-The assistant can use three bounded, read-only Workspace tools during its multi-turn `pi-agent-core` loop:
+The assistant can use four bounded, read-only Workspace tools during its multi-turn `pi-agent-core` loop:
 
 - list project directories, text documents, and assets;
 - read a bounded range from one project text document; and
-- search literal text across project text documents.
+- search literal text across project text documents; and
+- inspect the bounded diagnostics already owned by the live preview compiler.
+
+Compilation inspection does not start or await another compile. Its result says
+whether the returned diagnostics describe the current source; while compilation
+or synchronization is active, older diagnostics may be marked non-current.
 
 For Typst projects, three additional read-only tools can inspect an exact
 package version such as `@preview/cetz:0.4.2` or a deployment-provided
@@ -76,19 +81,24 @@ not modify a package or the current project.
 
 Reads use the current Workspace view. The active live document comes from the latest collaboration/editor projection, while revision mode reads the selected immutable revision. Source returned to the model is prefixed as `line | code`; that prefix is display metadata and is not part of the file. Switching the Workspace generation or selected revision reconnects the assistant to the new view so an older tool call cannot return into it. The selected project's local conversation remains available, but the credential must be entered again.
 
-In a writable live project, the assistant can also submit `apply_patch` for the current active text document. It must use the exact snapshot returned by a read and provide one contextual, single-file unified-diff proposal. Paths, old-file starts, context, and removed lines must match that snapshot exactly. Workspace derives the redundant hunk counts and new-file coordinates from the validated body; this does not enable fuzzy matching or automatic rebasing. Before review, Workspace builds an unpublished candidate World and compiles it in a dedicated, lazily started browser worker. A failed candidate is not shown for acceptance: bounded diagnostics return to the agent so it can revise the patch. A passing candidate opens the central Editor with the canonical diff, a compile-passed indicator, and **Reject** and **Accept changes** actions. Nothing changes before acceptance. Accept performs one final exact-content, compiler-World, and permission check, then writes through the existing collaborative document transaction. Any local or remote source change makes the proposal stale. Revision and read-only views do not expose this tool.
+In a writable live project, the assistant can also submit `apply_patch` for the current active text document. It must use the exact snapshot returned by a read and provide one contextual, single-file unified-diff proposal. Paths, old-file starts, context, and removed lines must match that snapshot exactly. Workspace derives the redundant hunk counts and new-file coordinates from the validated body; this does not enable fuzzy matching or automatic rebasing. Before review, Workspace builds an unpublished candidate World and compiles it in a dedicated, lazily started browser worker. A failed candidate is not shown for acceptance: bounded diagnostics return to the agent so it can revise the patch. A passing candidate opens the central Editor with the canonical diff, a compile-passed indicator, and **Reject** and **Accept changes** actions. It also ends the current Agent turn: review is owned by Workspace and does not leave a model request or tool timeout running while you decide. Nothing changes before acceptance. Accept performs one final exact-content, compiler-World, and permission check, then writes through the existing collaborative document transaction. The activity row records the eventual decision, and the next message receives that decision in its fresh Workspace summary. Any local or remote source change makes the proposal stale. Revision and read-only views do not expose this tool.
+
+A pending proposal belongs only to the current Workspace generation. Reloading the
+page, navigating to a different project view, or otherwise replacing that
+generation cancels an unaccepted proposal; a restored conversation records that
+the old review was cancelled instead of pretending that it is still actionable.
 
 For a small whole-file rewrite, or after repeated patch-format failures, the assistant can instead use `write_file`. It is available only after one `read_project_file` call returned the complete active file from line one without truncation; partial reads cannot authorize a replacement. The assistant must submit the entire desired content, not only changed lines. Workspace preserves the file's uniform LF/CRLF convention and an existing final newline, derives a focused diff itself, labels the review as a full-file replacement, and uses exactly the same isolated compilation, freshness checks, human review, and collaborative write path as `apply_patch`. The initial limit is 400 logical lines and 65,536 content characters. It still cannot create, delete, rename, or write an inactive or binary file.
 
-The candidate compiler is isolated from live preview state. Typst first performs a lightweight syntax-only check and returns obvious parser errors without starting the compiler. Syntax alone would miss imports, evaluation, resources, fonts, and layout failures, so passing source must still compile in a distinct World scope through a full diagnostics-only pass that exports no PDF/vector output and never touches the preview renderer; LaTeX uses a separate queue. Downloaded runtime modules and packages still benefit from browser caches, while compiler memory and incremental state are not shared; the candidate worker is released after an idle period. The tools still cannot read binary assets, inspect the current preview's diagnostics, run a general project compile on demand, create/delete/rename files, edit multiple files atomically, use a shell, perform arbitrary network requests, or call the backend. A model statement that it changed a file is not evidence of a change: only an accepted review and updated Editor are.
+The candidate compiler is isolated from live preview state. Typst first performs a lightweight syntax-only check and returns obvious parser errors without starting the compiler. Syntax alone would miss imports, evaluation, resources, fonts, and layout failures, so passing source must still compile in a distinct World scope through a full diagnostics-only pass that exports no PDF/vector output and never touches the preview renderer; LaTeX uses a separate queue. Downloaded runtime modules and packages still benefit from browser caches, while compiler memory and incremental state are not shared; the candidate worker is released after an idle period. The tools still cannot read binary assets, run a general project compile on demand, create/delete/rename files, edit multiple files atomically, use a shell, perform arbitrary network requests, or call the backend. A model statement that it changed a file is not evidence of a change: only an accepted review and updated Editor are.
 
 ## Conversation and activity
 
 Use the selector above the transcript to switch conversations within the current
 project, **+** to create one, and the Assistant menu to rename or delete the
 current conversation. Switching conversations resets the model context but
-keeps the credential currently held in memory. A running turn must finish or be
-stopped before switching.
+keeps the credential currently held in memory. A running turn, queued message,
+or pending edit review must finish, be removed, or be resolved before switching.
 
 For signed-in accounts, TOSS stores a bounded conversation projection in this
 browser's IndexedDB, scoped by account and project. It contains visible user
@@ -106,8 +116,11 @@ Answers stream into the conversation and support Markdown, code blocks, tables,
 baseline KaTeX math (`$...$` inline, or opening and closing `$$` delimiters on
 their own lines for a display block), and
 copying the final answer. Typst or LaTeX source remains fenced code rather than
-rendered math. Press Enter to send, Shift+Enter for a newline, or **Stop** to
-cancel the current run. Automatic scrolling follows new content only while you
+rendered math. Press Enter to send or Shift+Enter for a newline. While a run is
+active, **Queue** stores one follow-up for the next safe boundary; a pending
+edit review keeps it queued until you accept, reject, or the proposal becomes
+stale. You can remove it independently, or use **Stop** to cancel the active run
+and its queued follow-up. Automatic scrolling follows new content only while you
 are near the bottom; otherwise use **Jump to latest**.
 
 System instructions plus all model-visible tool and parameter descriptions are
