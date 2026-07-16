@@ -328,6 +328,7 @@ export function WorkspaceToolbar({
             <UiButton
               className={`workspace-toolbar-toggle ${showFilesPanel ? "active" : ""}`}
               aria-label={t("workspace.files")}
+              aria-pressed={showFilesPanel}
               title={t("workspace.files")}
               onClick={() => onTogglePanel("files")}
             >
@@ -337,6 +338,7 @@ export function WorkspaceToolbar({
             <UiButton
               className={`workspace-toolbar-toggle ${showPreviewPanel ? "active" : ""}`}
               aria-label={t("workspace.preview")}
+              aria-pressed={showPreviewPanel}
               title={t("workspace.preview")}
               onClick={() => onTogglePanel("preview")}
             >
@@ -348,6 +350,7 @@ export function WorkspaceToolbar({
                 key={control.panel}
                 className={`workspace-toolbar-toggle ${control.active ? "active" : ""}`}
                 aria-label={control.label}
+                aria-pressed={control.active}
                 title={control.label}
                 onClick={() => onTogglePanel(control.panel)}
               >
@@ -358,6 +361,7 @@ export function WorkspaceToolbar({
             <UiButton
               className={`workspace-toolbar-toggle ${showProjectSettingsPanel ? "active" : ""}`}
               aria-label={t("workspace.settings")}
+              aria-pressed={showProjectSettingsPanel}
               title={t("workspace.settings")}
               onClick={() => onTogglePanel("settings")}
             >
@@ -367,6 +371,7 @@ export function WorkspaceToolbar({
             <UiButton
               className={`workspace-toolbar-toggle ${showRevisionPanel ? "active" : ""}`}
               aria-label={t("workspace.revisions")}
+              aria-pressed={showRevisionPanel}
               title={t("workspace.revisions")}
               onClick={() => onTogglePanel("revisions")}
             >

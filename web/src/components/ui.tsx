@@ -20,6 +20,14 @@ type UiButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "value"> & {
   value?: string;
 };
 
+function normalizeAriaBoolean(
+  value: boolean | "true" | "false" | "mixed" | undefined
+): "true" | "false" | "mixed" | undefined {
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return value;
+}
+
 export function UiButton({
   variant = "secondary",
   size = "md",
@@ -30,11 +38,13 @@ export function UiButton({
   const container = variant === "ghost" ? "flat" : undefined;
   const interaction =
     variant === "primary" ? "emphasis" : variant === "danger" ? "destructive" : undefined;
+  const ariaPressed = normalizeAriaBoolean(props["aria-pressed"]);
   return (
     <nve-button
       {...props}
       role={props.role ?? "button"}
-      aria-disabled={props.disabled || undefined}
+      aria-disabled={props.disabled ? "true" : undefined}
+      aria-pressed={ariaPressed}
       container={container}
       interaction={interaction}
       size={size}
@@ -57,12 +67,14 @@ export function UiIconButton({
   tooltip: string;
   label: string;
 }) {
+  const ariaPressed = normalizeAriaBoolean(props["aria-pressed"]);
   return (
     <UiTooltip content={tooltip}>
       <nve-icon-button
         {...props}
         role={props.role ?? "button"}
-        aria-disabled={props.disabled || undefined}
+        aria-disabled={props.disabled ? "true" : undefined}
+        aria-pressed={ariaPressed}
         aria-label={label}
         container="flat"
         size="sm"
