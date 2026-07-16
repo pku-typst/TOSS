@@ -1,4 +1,5 @@
 import type { CompileDiagnostic } from "./typst";
+import { validateLatexCompileInput } from "./latexRuntimeUtils";
 
 export type LatexCompileOutput = {
   vectorData: Uint8Array | null;
@@ -11,6 +12,7 @@ export type LatexCompileOutput = {
 type WorkerCompileResponse = {
   id: number;
   ok: boolean;
+  superseded?: boolean;
   pdfBytes?: Uint8Array;
   errors?: string[];
   diagnostics?: CompileDiagnostic[];
@@ -32,6 +34,7 @@ export type LatexRuntimeStatus = {
 };
 
 type CompileOptions = {
+  workspaceKey: string;
   entryFilePath: string;
   documents: Array<{ path: string; content: string }>;
   assets: Array<{ path: string; contentBase64: string }>;
@@ -40,10 +43,17 @@ type CompileOptions = {
   engine: "pdftex" | "xetex";
 };
 
-class LatexWorkerRuntime {
+type PendingCompile = {
+  id: number;
+  message: Record<string, unknown>;
+  resolve: (response: WorkerCompileResponse) => void;
+};
+
+export class LatexWorkerRuntime {
   private worker: Worker | null = null;
   private seq = 1;
-  private pending = new Map<number, (response: WorkerCompileResponse) => void>();
+  private active: PendingCompile | null = null;
+  private queued: PendingCompile | null = null;
   private listeners = new Set<(status: LatexRuntimeStatus) => void>();
 
   private ensureWorker() {
@@ -65,25 +75,34 @@ class LatexWorkerRuntime {
         return;
       }
       const compileResponse = response as WorkerCompileResponse;
-      const resolve = this.pending.get(compileResponse.id);
-      if (!resolve) return;
-      this.pending.delete(compileResponse.id);
-      resolve(compileResponse);
+      if (!this.active || compileResponse.id !== this.active.id) return;
+      const completed = this.active;
+      this.active = null;
+      completed.resolve(compileResponse);
+      this.dispatchQueued();
     };
     this.worker.onerror = (event) => {
       const detail =
         event && "message" in event && typeof event.message === "string"
           ? event.message
           : "LaTeX worker crashed";
-      for (const resolve of this.pending.values()) {
-        resolve({ id: -1, ok: false, errors: [detail] });
-      }
-      this.pending.clear();
+      this.active?.resolve({ id: this.active.id, ok: false, errors: [detail] });
+      this.queued?.resolve({ id: this.queued.id, ok: false, errors: [detail] });
+      this.active = null;
+      this.queued = null;
       this.worker?.terminate();
       this.worker = null;
       this.notify({ stage: "idle" });
     };
     return this.worker;
+  }
+
+  private dispatchQueued() {
+    if (this.active || !this.queued || !this.worker) return;
+    const next = this.queued;
+    this.queued = null;
+    this.active = next;
+    this.worker.postMessage(next.message);
   }
 
   private notify(status: LatexRuntimeStatus) {
@@ -99,6 +118,15 @@ class LatexWorkerRuntime {
   }
 
   compile(options: CompileOptions): Promise<WorkerCompileResponse> {
+    try {
+      validateLatexCompileInput(options);
+    } catch (error) {
+      return Promise.resolve({
+        id: -1,
+        ok: false,
+        errors: [error instanceof Error ? error.message : "Invalid LaTeX compile input"]
+      });
+    }
     const worker = this.ensureWorker();
     if (!worker) {
       return Promise.resolve({
@@ -110,19 +138,29 @@ class LatexWorkerRuntime {
     const id = this.seq++;
     this.notify({ stage: "compiling" });
     return new Promise<WorkerCompileResponse>((resolve) => {
-      this.pending.set(id, resolve);
-      worker.postMessage({
+      const pending: PendingCompile = {
         id,
-        entryFilePath: options.entryFilePath,
-        documents: options.documents,
-        assets: options.assets.map((asset) => ({
-          path: asset.path,
-          content_base64: asset.contentBase64
-        })),
-        coreApiUrl: options.coreApiUrl,
-        appOrigin: options.appOrigin,
-        engine: options.engine
-      });
+        resolve,
+        message: {
+          id,
+          entryFilePath: options.entryFilePath,
+          documents: options.documents,
+          assets: options.assets.map((asset) => ({
+            path: asset.path,
+            content_base64: asset.contentBase64
+          })),
+          coreApiUrl: options.coreApiUrl,
+          appOrigin: options.appOrigin,
+          engine: options.engine
+        }
+      };
+      if (!this.active) {
+        this.active = pending;
+        worker.postMessage(pending.message);
+        return;
+      }
+      this.queued?.resolve({ id: this.queued.id, ok: false, superseded: true });
+      this.queued = pending;
     });
   }
 }
@@ -140,6 +178,15 @@ export async function compileLatexClientSide(options: CompileOptions): Promise<L
     };
   }
   const result = await runtime.compile(options);
+  if (result.superseded) {
+    return {
+      vectorData: null,
+      pdfData: null,
+      errors: [],
+      diagnostics: [],
+      compiledAt: Date.now()
+    };
+  }
   if (result.ok && result.pdfBytes && result.pdfBytes.byteLength > 0) {
     return {
       vectorData: null,

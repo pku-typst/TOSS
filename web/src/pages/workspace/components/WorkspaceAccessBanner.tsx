@@ -1,5 +1,6 @@
 import { UiButton } from "@/components/ui";
 import type { Project } from "@/lib/api";
+import type { Translator } from "@/lib/i18n";
 
 export function WorkspaceAccessBanner({
   project,
@@ -22,14 +23,14 @@ export function WorkspaceAccessBanner({
   onSaveToProjects?: (() => Promise<void>) | undefined;
   onRequestSignIn: () => void;
   onCopyTemplate: () => void;
-  t: (key: string) => string;
+  t: Translator;
 }) {
   if (isAnonymousShare) {
     return (
       <div className="workspace-access-banner with-action ui-message-with-action" role="status">
         <span className="message-text">
           {project?.is_template
-            ? t("share.templateSavePrompt").replace("{name}", project.name)
+            ? t("share.templateSavePrompt", { name: project.name })
             : t("share.savePrompt")}
         </span>
         <UiButton size="sm" onClick={onRequestSignIn}>

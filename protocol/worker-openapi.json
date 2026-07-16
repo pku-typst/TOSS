@@ -1,0 +1,1237 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TOSS Document Processing Worker API",
+    "description": "Authenticated pull, lease, and capability-transfer protocol for isolated document processors.",
+    "license": {
+      "name": ""
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/internal/v1/processing/worker-sessions": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "create_worker_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkerSessionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerSessionResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/worker-sessions/{session_id}/heartbeat": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "heartbeat_worker_session",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerSessionHeartbeatInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerSessionHeartbeatResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/worker-sessions/{session_id}": {
+      "delete": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "drain_worker_session",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrainWorkerSessionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Session is draining"
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/claims:acquire": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "acquire_worker_claims",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcquireClaimsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerClaimsResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/claims/{claim_id}/heartbeat": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "heartbeat_worker_claim",
+        "parameters": [
+          {
+            "name": "claim_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimHeartbeatInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimHeartbeatResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/claims/{claim_id}/artifacts": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "create_worker_artifact_ticket",
+        "parameters": [
+          {
+            "name": "claim_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateArtifactTicketInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactTicketResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/claims/{claim_id}/complete": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "complete_worker_claim",
+        "parameters": [
+          {
+            "name": "claim_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteClaimInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteClaimResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/claims/{claim_id}/fail": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "fail_worker_claim",
+        "parameters": [
+          {
+            "name": "claim_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FailClaimInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimMutationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/claims/{claim_id}/release": {
+      "post": {
+        "tags": [
+          "worker-lifecycle"
+        ],
+        "operationId": "release_worker_claim",
+        "parameters": [
+          {
+            "name": "claim_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseClaimInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimMutationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "worker_bearer": []
+          }
+        ]
+      }
+    },
+    "/internal/v1/processing/transfers/{transfer_id}": {
+      "get": {
+        "tags": [
+          "worker-transfers"
+        ],
+        "operationId": "download_worker_transfer",
+        "parameters": [
+          {
+            "name": "transfer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transfer bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "transfer_capability": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "worker-transfers"
+        ],
+        "operationId": "upload_worker_transfer",
+        "parameters": [
+          {
+            "name": "transfer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Transfer accepted"
+          },
+          "default": {
+            "description": "Worker protocol error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "transfer_capability": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AcquireClaimsInput": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "session_id",
+          "offers"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerProcessorOffer"
+            }
+          },
+          "wait_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ArtifactTicketResponse": {
+        "type": "object",
+        "required": [
+          "transfer_id",
+          "upload_url",
+          "upload_token",
+          "expires_at"
+        ],
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "upload_url": {
+            "type": "string"
+          },
+          "upload_token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ClaimHeartbeatInput": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "session_id",
+          "phase"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/ProcessingPhase"
+          }
+        }
+      },
+      "ClaimHeartbeatResponse": {
+        "type": "object",
+        "required": [
+          "state",
+          "server_time",
+          "lease_expires_at",
+          "cancellation_deadline"
+        ],
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/ClaimHeartbeatState"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lease_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancellation_deadline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ClaimHeartbeatState": {
+        "type": "string",
+        "enum": [
+          "active",
+          "cancellation_requested",
+          "claim_lost",
+          "job_terminal"
+        ]
+      },
+      "ClaimMutationResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "state"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "CompleteClaimInput": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "request_id",
+          "artifacts"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompletedArtifactInput"
+            }
+          },
+          "metadata": {}
+        }
+      },
+      "CompleteClaimResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "state"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "CompletedArtifactInput": {
+        "type": "object",
+        "required": [
+          "transfer_id",
+          "role",
+          "size_bytes",
+          "sha256"
+        ],
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateArtifactTicketInput": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "request_id",
+          "role",
+          "media_type",
+          "filename",
+          "size_bytes",
+          "sha256"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateWorkerSessionInput": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "worker_instance",
+          "protocol_versions",
+          "processors"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "worker_instance": {
+            "type": "string"
+          },
+          "protocol_versions": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "processors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerProcessorAdvertisement"
+            }
+          }
+        }
+      },
+      "DrainWorkerSessionInput": {
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "FailClaimInput": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "request_id",
+          "class",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "class": {
+            "$ref": "#/components/schemas/WorkerFailureClass"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ProcessingOperation": {
+        "type": "string",
+        "enum": [
+          "latex.compile.pdf/v1",
+          "typst.export.pptx/v1",
+          "pptx.import.typst/v1"
+        ]
+      },
+      "ProcessingPhase": {
+        "type": "string",
+        "enum": [
+          "capturing_input",
+          "waiting_for_worker",
+          "processing",
+          "uploading_result",
+          "validating_result",
+          "publishing_result",
+          "complete"
+        ]
+      },
+      "ReleaseClaimInput": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "request_id"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WorkerApiErrorResponse": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkerClaim": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "attempt",
+          "claim_id",
+          "lease_expires_at",
+          "operation",
+          "processor_contract",
+          "options",
+          "input",
+          "limits"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "claim_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lease_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "processor_contract": {
+            "type": "string"
+          },
+          "options": {},
+          "input": {
+            "$ref": "#/components/schemas/WorkerClaimInput"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/WorkerClaimLimits"
+          }
+        }
+      },
+      "WorkerClaimInput": {
+        "type": "object",
+        "required": [
+          "schema",
+          "size_bytes",
+          "sha256",
+          "download_url",
+          "download_token"
+        ],
+        "properties": {
+          "schema": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string"
+          },
+          "download_token": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkerClaimLimits": {
+        "type": "object",
+        "required": [
+          "wall_seconds",
+          "output_bytes",
+          "diagnostic_bytes"
+        ],
+        "properties": {
+          "wall_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "output_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "diagnostic_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "WorkerClaimsResponse": {
+        "type": "object",
+        "required": [
+          "claims"
+        ],
+        "properties": {
+          "claims": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerClaim"
+            }
+          }
+        }
+      },
+      "WorkerFailureClass": {
+        "type": "string",
+        "enum": [
+          "invalid_input",
+          "processor_rejected",
+          "unsupported_dependency",
+          "resource_limit",
+          "transient_infrastructure",
+          "worker_interrupted",
+          "internal_contract_violation"
+        ]
+      },
+      "WorkerProcessorAdvertisement": {
+        "type": "object",
+        "required": [
+          "operation",
+          "processor_contract",
+          "runtime_version",
+          "slots"
+        ],
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "processor_contract": {
+            "type": "string"
+          },
+          "runtime_version": {
+            "type": "string"
+          },
+          "slots": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "WorkerProcessorHealth": {
+        "type": "object",
+        "required": [
+          "operation",
+          "processor_contract",
+          "healthy"
+        ],
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "processor_contract": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WorkerProcessorOffer": {
+        "type": "object",
+        "required": [
+          "operation",
+          "processor_contract",
+          "slots"
+        ],
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "processor_contract": {
+            "type": "string"
+          },
+          "slots": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkerSessionHeartbeatInput": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "processors"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "processors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerProcessorHealth"
+            }
+          }
+        }
+      },
+      "WorkerSessionHeartbeatResponse": {
+        "type": "object",
+        "required": [
+          "server_time",
+          "expires_at"
+        ],
+        "properties": {
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WorkerSessionResponse": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "protocol_version",
+          "server_time",
+          "heartbeat_interval_seconds",
+          "max_long_poll_seconds"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "heartbeat_interval_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "max_long_poll_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "transfer_capability": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "ProcessingTransfer capability; never place it in a URL or log."
+      },
+      "worker_bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "worker-lifecycle"
+    },
+    {
+      "name": "worker-transfers"
+    }
+  ]
+}

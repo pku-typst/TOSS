@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { renderPdfBytesToCanvas } from "@/lib/pdf";
+import type { Translator } from "@/lib/i18n";
 
 export function UnsupportedFilePane({
   path,
@@ -15,7 +16,7 @@ export function UnsupportedFilePane({
   isImage: boolean;
   isPdf: boolean;
   dataUrl: string;
-  t: (key: string) => string;
+  t: Translator;
 }) {
   const downloadName = path.split("/").filter(Boolean).pop() || path;
   const pdfCanvasRef = useRef<HTMLDivElement | null>(null);
@@ -44,13 +45,14 @@ export function UnsupportedFilePane({
       })
       .catch((err) => {
         if (cancelled) return;
+        console.warn(t("errors.pdfPreview"), err);
         setPdfRendering(false);
-        setPdfRenderError(err instanceof Error ? err.message : "PDF preview failed");
+        setPdfRenderError(t("errors.pdfPreview"));
       });
     return () => {
       cancelled = true;
     };
-  }, [hasData, isPdf, pdfBase64]);
+  }, [hasData, isPdf, pdfBase64, t]);
 
   const media = isImage ? (
     <img src={dataUrl} alt={path} className="file-preview-image" />
@@ -84,15 +86,18 @@ export function UnsupportedFilePane({
       <div className="file-preview-meta">
         <div className="file-preview-name">{downloadName}</div>
         <small className="muted">{path}</small>
-        <a
+        <nve-icon-button
           className="ui-icon-button"
-          href={dataUrl}
-          download={downloadName}
+          role="button"
+          container="flat"
+          size="sm"
           title={t("workspace.download")}
           aria-label={t("workspace.download")}
         >
-          <Download size={16} />
-        </a>
+          <a href={dataUrl} download={downloadName}>
+            <Download size={16} />
+          </a>
+        </nve-icon-button>
       </div>
     </div>
   );

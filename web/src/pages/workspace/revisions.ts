@@ -1,8 +1,8 @@
-import type { RevisionDocumentsResponse } from "@/lib/api";
+import type { RevisionTransfer } from "@/lib/api";
 import type { AssetMeta, ProjectNode } from "@/pages/workspace/types";
 
 type RevisionTransferInput = {
-  response: RevisionDocumentsResponse;
+  response: RevisionTransfer;
   forceFull?: boolean;
   currentRevisionAnchorId: string | null;
   liveDocs: Record<string, string>;

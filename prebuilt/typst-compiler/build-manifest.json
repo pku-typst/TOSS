@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "source_revision": "b1e700986082cce2bd3dd0db8b27af9f4418883b",
+  "package_name": "@myriaddreamin/typst-ts-web-compiler",
+  "package_version": "0.8.0-rc3",
+  "generator": {
+    "path": "scripts/prebuilt-typst-compiler.mjs",
+    "sha256": "a231507c56764d88fa6af3d70f2db7feb255f0768ec9649423035c8dbbf64d68"
+  },
+  "builder": {
+    "dockerfile": "scripts/typst-compiler-builder.Dockerfile",
+    "dockerfile_sha256": "01ec184f319681abc776516317a31355ed607885822aa90f90fd0d3bed4243b3",
+    "node_image": "node:24.18.0-bookworm-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5",
+    "rust_image": "rust:1.92.0-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2",
+    "node_version": "v24.18.0",
+    "rustc_version": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "cargo_version": "cargo 1.92.0 (344c4567c 2025-10-21)",
+    "wasm_pack_version": "wasm-pack 0.13.1",
+    "wasm_opt_version": "wasm-opt version 117 (version_117)",
+    "wasm_pack_target": "web",
+    "cargo_features": [
+      "web",
+      "misc"
+    ]
+  },
+  "files": {
+    "package.json": {
+      "sha256": "462fe796cb3c6c49f2636551a8d7ac0ef5ca7e10574eb300f1b519a48b55ac2b",
+      "size_bytes": 1768
+    },
+    "pkg/package.json": {
+      "sha256": "235329a08f6322d5df5407802e6a7c671a427adc85ff2a4827ff676414a4176d",
+      "size_bytes": 678
+    },
+    "pkg/README.md": {
+      "sha256": "1c167e8ad5510f1029396b1cb4b72da27e60da8738a3878b09ba0b1e0174a42d",
+      "size_bytes": 1114
+    },
+    "pkg/typst_ts_web_compiler_bg.wasm": {
+      "sha256": "deeca2faa81e52225f080dddd33e5ddb9c6f8f11cc6bf869f96ea36ea456e030",
+      "size_bytes": 30154301
+    },
+    "pkg/typst_ts_web_compiler_bg.wasm.d.ts": {
+      "sha256": "4109bf752f59b3092a24630a625058167c91d01ce22a413f9b62254769b6eb2b",
+      "size_bytes": 5254
+    },
+    "pkg/typst_ts_web_compiler.d.ts": {
+      "sha256": "e7a79d9048883710492a4cd3877576ec7162873a42718000182b806bd0221736",
+      "size_bytes": 10260
+    },
+    "pkg/typst_ts_web_compiler.mjs": {
+      "sha256": "4d6a602499b64a088e12a6b9cabdb9dcdb41af4b02ceec303f117f0d93545231",
+      "size_bytes": 63410
+    },
+    "pkg/wasm-pack-shim.d.mts": {
+      "sha256": "4d44c3c2046805e1902352ced20571bba547ea88d670785dd4d4b03f3f11fca2",
+      "size_bytes": 123
+    },
+    "pkg/wasm-pack-shim.mjs": {
+      "sha256": "bf7aedb0fae6a01a8f8c1106b1ad056380ac33d5b7f550764e21a07d27eceee1",
+      "size_bytes": 651
+    }
+  }
+}

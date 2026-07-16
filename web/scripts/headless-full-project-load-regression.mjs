@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? baseUrl;
@@ -22,11 +23,13 @@ async function parseJson(res) {
 }
 
 async function bearerApi(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      authorization: `Bearer ${token}`
+      authorization: `Bearer ${token}`,
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -74,10 +77,10 @@ function buildLargeSvg(targetBytes, color) {
 }
 
 async function loginUi(page, email, password) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
   await page.getByRole("heading", { name: /Projects|项目/ }).waitFor({ timeout: 60000 });
 }
 
@@ -168,7 +171,7 @@ async function main() {
     { content: mainContent }
   );
   documentCount += 1;
-  await bearerApi("PUT", `/v1/projects/${projectId}/settings`, owner.sessionToken, {
+  await bearerApi("PATCH", `/v1/projects/${projectId}/settings/entry-file`, owner.sessionToken, {
     entry_file_path: "main.typ"
   });
 

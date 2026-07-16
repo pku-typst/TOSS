@@ -1,0 +1,268 @@
+{
+  "schema": 5,
+  "id": "community",
+  "product": {
+    "name": "Typst Collaboration",
+    "description": {
+      "en": "A self-hostable collaborative workspace for Typst documents and presentations.",
+      "zh-CN": "面向 Typst 文档与演示文稿的可自托管协作工作区。"
+    },
+    "name_managed": false,
+    "brand_mark": "T",
+    "accent_color": "#2563eb",
+    "accent_text_color": "#ffffff",
+    "favicon": "assets/favicon.svg",
+    "indexing": true
+  },
+  "git": {
+    "checkpoint_branch_prefix": "workspace/",
+    "fallback_owner_name": "Workspace Owner",
+    "fallback_email_domain": "workspace.local"
+  },
+  "capabilities": {
+    "project_types": ["typst", "latex"],
+    "processing_operations": ["latex.compile.pdf/v1"]
+  },
+  "typst": {
+    "builtin_dir": "typst",
+    "starter_templates": {
+      "typst": "templates/main.typ",
+      "latex": "templates/main.tex"
+    }
+  },
+  "template_gallery": {
+    "builtins": [
+      {
+        "id": "blank-document",
+        "name": { "en": "Blank document", "zh-CN": "空白文档" },
+        "description": {
+          "en": "A clean Typst document for notes and short-form writing.",
+          "zh-CN": "适合笔记和短篇写作的简洁 Typst 文档。"
+        },
+        "category": "document",
+        "tags": ["blank", "document"],
+        "project_type": "typst",
+        "entry_file": "main.typ",
+        "source_dir": "templates/gallery/blank-document",
+        "thumbnail": "templates/gallery-thumbnails/blank-document.svg",
+        "featured": true
+      },
+      {
+        "id": "structured-report",
+        "name": { "en": "Structured report", "zh-CN": "结构化报告" },
+        "description": {
+          "en": "A polished report with title, outline, sections, figures, and references.",
+          "zh-CN": "包含标题、目录、章节、图表和参考文献的报告模板。"
+        },
+        "category": "report",
+        "tags": ["report", "document"],
+        "project_type": "typst",
+        "entry_file": "main.typ",
+        "source_dir": "templates/gallery/structured-report",
+        "thumbnail": "templates/gallery-thumbnails/structured-report.svg",
+        "featured": true,
+        "accent_color": "#5b6ee1"
+      },
+      {
+        "id": "simple-presentation",
+        "name": { "en": "Simple presentation", "zh-CN": "简洁演示文稿" },
+        "description": {
+          "en": "A lightweight 16:9 slide deck built with standard Typst.",
+          "zh-CN": "使用标准 Typst 构建的轻量 16:9 幻灯片。"
+        },
+        "category": "presentation",
+        "tags": ["slides", "presentation"],
+        "project_type": "typst",
+        "entry_file": "main.typ",
+        "source_dir": "templates/gallery/simple-presentation",
+        "thumbnail": "templates/gallery-thumbnails/simple-presentation.svg",
+        "featured": true,
+        "accent_color": "#008f7a"
+      },
+      {
+        "id": "latex-article",
+        "name": { "en": "LaTeX article", "zh-CN": "LaTeX 文章" },
+        "description": {
+          "en": "A traditional article project for Community deployments with LaTeX enabled.",
+          "zh-CN": "适用于启用 LaTeX 的 Community 部署的传统文章项目。"
+        },
+        "category": "article",
+        "tags": ["latex", "article"],
+        "project_type": "latex",
+        "entry_file": "main.tex",
+        "source_dir": "templates/gallery/latex-article",
+        "thumbnail": "templates/gallery-thumbnails/latex-article.svg",
+        "featured": false,
+        "accent_color": "#7a5c43"
+      }
+    ]
+  },
+  "experience": {
+    "landing": {
+      "headline": {
+        "en": "Create together. Preview instantly.",
+        "zh-CN": "共同创作，即时预览。"
+      },
+      "summary": {
+        "en": "Write Typst in the browser, collaborate in real time, and keep every project portable.",
+        "zh-CN": "在浏览器中编写 Typst、实时协作，并让每个项目都保持可迁移。"
+      },
+      "highlights": [
+        {
+          "title": { "en": "Collaborate live", "zh-CN": "实时协作" },
+          "description": {
+            "en": "Edit source together with presence, cursors, and shared project access.",
+            "zh-CN": "通过在线状态、协作光标和项目共享共同编辑源文件。"
+          }
+        },
+        {
+          "title": { "en": "Preview as you type", "zh-CN": "输入即预览" },
+          "description": {
+            "en": "Compile and render Typst locally in the browser for a responsive editing loop.",
+            "zh-CN": "在浏览器本地编译并渲染 Typst，获得流畅的编辑反馈。"
+          }
+        },
+        {
+          "title": { "en": "Stay portable", "zh-CN": "保持可迁移" },
+          "description": {
+            "en": "Download projects or connect Git without locking source into the platform.",
+            "zh-CN": "下载项目或连接 Git，不让源文件被锁定在平台中。"
+          }
+        }
+      ]
+    },
+    "resources": [
+      {
+        "id": "typst-docs",
+        "kind": "documentation",
+        "label": { "en": "Typst documentation", "zh-CN": "Typst 官方文档" },
+        "description": {
+          "en": "Tutorials, guides, and the complete language reference.",
+          "zh-CN": "教程、指南与完整语言参考。"
+        },
+        "url": "https://typst.app/docs/",
+        "visibility": "public"
+      },
+      {
+        "id": "typst-universe",
+        "kind": "packages",
+        "label": { "en": "Typst Universe", "zh-CN": "Typst Universe" },
+        "description": {
+          "en": "Browse community packages and templates.",
+          "zh-CN": "浏览社区包与模板。"
+        },
+        "url": "https://typst.app/universe/",
+        "visibility": "public"
+      },
+      {
+        "id": "typst-github",
+        "kind": "repository",
+        "label": { "en": "Typst on GitHub", "zh-CN": "Typst GitHub 仓库" },
+        "description": {
+          "en": "Compiler source, releases, and issue tracker.",
+          "zh-CN": "编译器源码、版本发布与问题跟踪。"
+        },
+        "url": "https://github.com/typst/typst",
+        "visibility": "public"
+      }
+    ],
+    "help": {
+      "topics": [
+        {
+          "id": "getting-started",
+          "title": { "en": "Getting started", "zh-CN": "快速开始" },
+          "summary": {
+            "en": "Create a project, choose a template, and understand how work is saved.",
+            "zh-CN": "创建项目、选择模板，并了解内容如何保存。"
+          },
+          "sources": {
+            "en": "help/en/getting-started.md",
+            "zh-CN": "help/zh-CN/getting-started.md"
+          },
+          "visibility": "public"
+        },
+        {
+          "id": "editing-preview",
+          "title": { "en": "Editing and preview", "zh-CN": "编辑与预览" },
+          "summary": {
+            "en": "Use the editor, live preview, files, diagnostics, and export controls.",
+            "zh-CN": "使用编辑器、实时预览、文件、诊断与导出功能。"
+          },
+          "sources": {
+            "en": "help/en/editing-preview.md",
+            "zh-CN": "help/zh-CN/editing-preview.md"
+          },
+          "visibility": "public"
+        },
+        {
+          "id": "background-tasks",
+          "title": {
+            "en": "Background tasks and task center",
+            "zh-CN": "后台任务与任务中心"
+          },
+          "summary": {
+            "en": "Submit durable work, follow progress, cancel safely, and download retained artifacts.",
+            "zh-CN": "提交持久任务、查看进度、安全取消并下载保留的产物。"
+          },
+          "sources": {
+            "en": "help/en/background-tasks.md",
+            "zh-CN": "help/zh-CN/background-tasks.md"
+          },
+          "visibility": "authenticated"
+        },
+        {
+          "id": "collaboration-backup",
+          "title": { "en": "Collaboration and backup", "zh-CN": "协作与备份" },
+          "summary": {
+            "en": "Share projects safely and keep durable copies outside the platform.",
+            "zh-CN": "安全共享项目，并在平台之外保留长期副本。"
+          },
+          "sources": {
+            "en": "help/en/collaboration-backup.md",
+            "zh-CN": "help/zh-CN/collaboration-backup.md"
+          },
+          "visibility": "authenticated"
+        },
+        {
+          "id": "packages",
+          "title": { "en": "Packages and assets", "zh-CN": "包与附件" },
+          "summary": {
+            "en": "Import Typst Universe packages and organize project assets.",
+            "zh-CN": "导入 Typst Universe 包并组织项目附件。"
+          },
+          "sources": {
+            "en": "help/en/packages.md",
+            "zh-CN": "help/zh-CN/packages.md"
+          },
+          "visibility": "public"
+        },
+        {
+          "id": "keyboard-shortcuts",
+          "title": { "en": "Keyboard shortcuts", "zh-CN": "键盘快捷键" },
+          "summary": {
+            "en": "Move quickly through the editor with platform-aware shortcuts.",
+            "zh-CN": "使用适配操作系统的快捷键高效编辑。"
+          },
+          "sources": {
+            "en": "help/en/keyboard-shortcuts.md",
+            "zh-CN": "help/zh-CN/keyboard-shortcuts.md"
+          },
+          "visibility": "public"
+        },
+        {
+          "id": "latex",
+          "title": { "en": "LaTeX projects", "zh-CN": "LaTeX 项目" },
+          "summary": {
+            "en": "Understand Community LaTeX preview, packages, and compatibility limits.",
+            "zh-CN": "了解 Community LaTeX 预览、宏包与兼容性限制。"
+          },
+          "sources": {
+            "en": "help/en/latex.md",
+            "zh-CN": "help/zh-CN/latex.md"
+          },
+          "visibility": "public"
+        }
+      ]
+    }
+  }
+}

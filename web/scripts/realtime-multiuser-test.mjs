@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const CORE_API = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
 const REALTIME_WS = process.env.REALTIME_WS_URL ?? "ws://127.0.0.1:18080";
@@ -40,11 +41,13 @@ async function authJson(method, route, body) {
 }
 
 async function api(method, path, sessionToken, body) {
+  const contentEpochHeader = await projectContentEpochHeader(CORE_API, method, path, sessionToken);
   const response = await fetch(`${CORE_API}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
-      ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {})
+      ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -80,30 +83,53 @@ async function registerOrLogin(email, password, displayName) {
   return { userId: login.user_id, sessionToken: login.session_token, email, password };
 }
 
-function connectClient(projectId, userId, userName, sessionToken) {
-  const docId = `${projectId}:${DOC_PATH}`;
+function connectClient(
+  projectId,
+  documentId,
+  collaborationRevision,
+  userId,
+  userName,
+  sessionToken
+) {
   const ydoc = new Y.Doc();
   const ytext = ydoc.getText("main");
   const query = new URLSearchParams({
     project_id: projectId,
+    collaboration_revision: String(collaborationRevision),
     user_id: userId,
     user_name: userName,
     session_token: sessionToken
   });
-  const wsUrl = `${REALTIME_WS}/v1/realtime/ws/${encodeURIComponent(docId)}?${query.toString()}`;
+  const wsUrl = `${REALTIME_WS}/v1/realtime/ws/${encodeURIComponent(documentId)}?${query.toString()}`;
   const ws = new WebSocket(wsUrl);
   const origin = `test-${userId}`;
   const presence = new Set([userId]);
+  let requestSequence = 0;
+  const nextRequestId = () => `${origin}:${++requestSequence}`;
 
   ws.addEventListener("open", () => {
     const snapshot = Y.encodeStateAsUpdate(ydoc);
-    ws.send(JSON.stringify({ kind: "yjs.sync", origin, payload: toBase64(snapshot) }));
+    ws.send(
+      JSON.stringify({
+        kind: "yjs.sync",
+        origin,
+        request_id: nextRequestId(),
+        payload: toBase64(snapshot)
+      })
+    );
   });
 
   ydoc.on("update", (update, updateOrigin) => {
     if (updateOrigin === "remote") return;
     if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ kind: "yjs.update", origin, payload: toBase64(update) }));
+    ws.send(
+      JSON.stringify({
+        kind: "yjs.update",
+        origin,
+        request_id: nextRequestId(),
+        payload: toBase64(update)
+      })
+    );
   });
 
   ws.addEventListener("message", (event) => {
@@ -115,7 +141,14 @@ function connectClient(projectId, userId, userName, sessionToken) {
     if (kind === "presence.join" && typeof eventUser === "string" && eventUser !== userId) {
       if (ws.readyState === WebSocket.OPEN) {
         const snapshot = Y.encodeStateAsUpdate(ydoc);
-        ws.send(JSON.stringify({ kind: "yjs.sync", origin, payload: toBase64(snapshot) }));
+        ws.send(
+          JSON.stringify({
+            kind: "yjs.sync",
+            origin,
+            request_id: nextRequestId(),
+            payload: toBase64(snapshot)
+          })
+        );
       }
     }
     if (kind === "presence.leave" && typeof eventUser === "string") presence.delete(eventUser);
@@ -158,72 +191,87 @@ async function main() {
   const projectId = project.id;
   await api("POST", `/v1/projects/${projectId}/roles`, owner.sessionToken, {
     user_id: collaborator.userId,
-    role: "Student"
+    role: "ReadWrite"
   });
-  await api(
+  const document = await api(
     "PUT",
     `/v1/projects/${projectId}/documents/by-path/${encodeURIComponent(DOC_PATH)}`,
     owner.sessionToken,
     { content: "= Realtime QA\n\nSeed.\n" }
   );
 
-  const a = connectClient(projectId, owner.userId, "Realtime Owner", owner.sessionToken);
-  const b = connectClient(
-    projectId,
-    collaborator.userId,
-    "Realtime Collaborator",
-    collaborator.sessionToken
-  );
+  const clients = [];
+  try {
+    const a = connectClient(
+      projectId,
+      document.id,
+      document.collaboration_revision,
+      owner.userId,
+      "Realtime Owner",
+      owner.sessionToken
+    );
+    const b = connectClient(
+      projectId,
+      document.id,
+      document.collaboration_revision,
+      collaborator.userId,
+      "Realtime Collaborator",
+      collaborator.sessionToken
+    );
+    clients.push(a, b);
 
-  await waitFor(
-    () => a.ws.readyState === WebSocket.OPEN && b.ws.readyState === WebSocket.OPEN,
-    5000,
-    "socket open"
-  );
-  await wait(400);
+    await waitFor(
+      () => a.ws.readyState === WebSocket.OPEN && b.ws.readyState === WebSocket.OPEN,
+      5000,
+      "socket open"
+    );
+    await wait(400);
 
-  a.ydoc.transact(() => {
-    a.ytext.delete(0, a.ytext.length);
-    a.ytext.insert(0, "= Realtime QA\n\nEdited by A.\n");
-  }, "A1");
-  await waitFor(() => b.ytext.toString().includes("Edited by A."), 5000, "A update visible on B");
+    a.ydoc.transact(() => {
+      a.ytext.delete(0, a.ytext.length);
+      a.ytext.insert(0, "= Realtime QA\n\nEdited by A.\n");
+    }, "A1");
+    await waitFor(() => b.ytext.toString().includes("Edited by A."), 5000, "A update visible on B");
 
-  b.ydoc.transact(() => {
-    b.ytext.insert(b.ytext.length, "Edited by B.\n");
-  }, "B1");
-  await waitFor(() => a.ytext.toString().includes("Edited by B."), 5000, "B update visible on A");
+    b.ydoc.transact(() => {
+      b.ytext.insert(b.ytext.length, "Edited by B.\n");
+    }, "B1");
+    await waitFor(() => a.ytext.toString().includes("Edited by B."), 5000, "B update visible on A");
 
-  const merged = a.ytext.toString();
-  if (merged !== b.ytext.toString()) {
-    throw new Error("divergence after concurrent edits");
+    const merged = a.ytext.toString();
+    if (merged !== b.ytext.toString()) {
+      throw new Error("divergence after concurrent edits");
+    }
+
+    b.ws.close();
+    await wait(300);
+    const b2 = connectClient(
+      projectId,
+      document.id,
+      document.collaboration_revision,
+      collaborator.userId,
+      "Realtime Collaborator",
+      collaborator.sessionToken
+    );
+    clients.push(b2);
+    await waitFor(() => b2.ws.readyState === WebSocket.OPEN, 5000, "B reconnect open");
+    await waitFor(
+      () => b2.ytext.toString().includes("Edited by A.") && b2.ytext.toString().includes("Edited by B."),
+      5000,
+      "B reconnect state sync"
+    );
+
+    const result = {
+      ok: true,
+      project_id: projectId,
+      userA_presence: Array.from(a.presence),
+      userB_presence: Array.from(b2.presence),
+      final_text: b2.ytext.toString()
+    };
+    console.log(JSON.stringify(result, null, 2));
+  } finally {
+    for (const client of clients) client.close();
   }
-
-  b.ws.close();
-  await wait(300);
-  const b2 = connectClient(
-    projectId,
-    collaborator.userId,
-    "Realtime Collaborator",
-    collaborator.sessionToken
-  );
-  await waitFor(() => b2.ws.readyState === WebSocket.OPEN, 5000, "B reconnect open");
-  await waitFor(
-    () => b2.ytext.toString().includes("Edited by A.") && b2.ytext.toString().includes("Edited by B."),
-    5000,
-    "B reconnect state sync"
-  );
-
-  const result = {
-    ok: true,
-    project_id: projectId,
-    userA_presence: Array.from(a.presence),
-    userB_presence: Array.from(b2.presence),
-    final_text: b2.ytext.toString()
-  };
-  console.log(JSON.stringify(result, null, 2));
-
-  a.close();
-  b2.close();
 }
 
 main().catch((error) => {

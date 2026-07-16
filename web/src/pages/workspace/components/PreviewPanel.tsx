@@ -1,7 +1,21 @@
-import { useEffect, useRef, useState } from "react";
-import { Download, Maximize2, MoveHorizontal, ZoomIn, ZoomOut } from "lucide-react";
-import { UiIconButton } from "@/components/ui";
+import { useState } from "react";
+import {
+  CloudCog,
+  Download,
+  LoaderCircle,
+  Maximize2,
+  MoveHorizontal,
+  ZoomIn,
+  ZoomOut
+} from "lucide-react";
+import { UiButton, UiIconButton, UiInput } from "@/components/ui";
 import type { CompileDiagnostic } from "@/lib/typst";
+import type { Translator } from "@/lib/i18n";
+
+function boundedPercent(loaded: number, total: number): number | null {
+  if (!Number.isFinite(loaded) || !Number.isFinite(total) || total <= 0) return null;
+  return Math.min(100, Math.max(0, Math.round((100 * loaded) / total)));
+}
 
 export function PreviewPanel({
   editorRatio,
@@ -9,11 +23,13 @@ export function PreviewPanel({
   previewPercent,
   previewPageCurrent,
   previewPageTotal,
-  pdfData,
+  canDownloadPdf,
+  pdfExportActive,
   compileRuntimeStatus,
   compileKind,
   workspaceSyncPending,
   compileActive,
+  previewRendering,
   assetHydrationProgress,
   vectorData,
   previewIsPanning,
@@ -22,12 +38,14 @@ export function PreviewPanel({
   hasPreviewPage,
   canvasPreviewRef,
   onBeginPreviewPan,
+  onPreviewClick,
   onSetFitWholePage,
   onSetFitPageWidth,
   onDecreaseZoom,
   onIncreaseZoom,
   onJumpToPage,
   onDownloadPdf,
+  backgroundBuild,
   onJumpToDiagnostic,
   t
 }: {
@@ -36,15 +54,18 @@ export function PreviewPanel({
   previewPercent: number;
   previewPageCurrent: number;
   previewPageTotal: number;
-  pdfData: Uint8Array | null;
+  canDownloadPdf: boolean;
+  pdfExportActive: boolean;
   compileRuntimeStatus: {
-    stage: "downloading-compiler" | "compiling" | "ready" | "idle";
+    stage: "downloading-compiler" | "downloading-package" | "compiling" | "ready" | "idle";
     loadedBytes?: number;
     totalBytes?: number;
+    packageSpec?: string;
   };
   compileKind: "typst" | "latex";
   workspaceSyncPending: boolean;
   compileActive: boolean;
+  previewRendering: boolean;
   assetHydrationProgress: {
     active: boolean;
     loaded: number;
@@ -59,46 +80,111 @@ export function PreviewPanel({
   hasPreviewPage: boolean;
   canvasPreviewRef: React.RefObject<HTMLDivElement | null>;
   onBeginPreviewPan: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onPreviewClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   onSetFitWholePage: () => void;
   onSetFitPageWidth: () => void;
   onDecreaseZoom: () => void;
   onIncreaseZoom: () => void;
   onJumpToPage: (pageNumber: number) => void;
   onDownloadPdf: () => void;
+  backgroundBuild: {
+    visible: boolean;
+    state: "available" | "waiting" | "unavailable" | "loading";
+    reason: string | null;
+    submit: () => void;
+    pending: boolean;
+    error: string | null;
+  };
   onJumpToDiagnostic: (diagnostic: CompileDiagnostic) => void;
-  t: (key: string) => string;
+  t: Translator;
 }) {
-  const [pageJumpOpen, setPageJumpOpen] = useState(false);
   const [pageJumpInput, setPageJumpInput] = useState("");
-  const pageJumpRef = useRef<HTMLDivElement | null>(null);
+  const pageJumpPopoverId = "preview-page-jump";
   const hasCompileFailure = compileDiagnostics.length > 0 || compileErrors.length > 0;
   const showStaleOverlay = hasCompileFailure && hasPreviewPage;
   const showEmptyErrorState = hasCompileFailure && !hasPreviewPage;
+  const assetHydrationPercent =
+    assetHydrationProgress.totalBytes > 0
+      ? boundedPercent(assetHydrationProgress.loadedBytes, assetHydrationProgress.totalBytes)
+      : boundedPercent(assetHydrationProgress.loaded, assetHydrationProgress.total);
+  const compilerDownloadPercent =
+    compileRuntimeStatus.stage === "downloading-compiler" &&
+    compileRuntimeStatus.totalBytes &&
+    compileRuntimeStatus.totalBytes > 0
+      ? boundedPercent(compileRuntimeStatus.loadedBytes || 0, compileRuntimeStatus.totalBytes)
+      : null;
+  const compilerPreparing = compileRuntimeStatus.stage === "downloading-compiler";
+  const packageDownloading = compileRuntimeStatus.stage === "downloading-package";
+  const runtimePreparing = compilerPreparing || packageDownloading;
+  const initialLoadingPhase = compilerPreparing
+    ? 0
+    : previewRendering
+      ? 2
+      : compileActive || compileRuntimeStatus.stage === "compiling"
+        ? 1
+        : 0;
+  const showInitialLoadingState = !hasPreviewPage && !showEmptyErrorState;
+  const initialLoadingLabel = workspaceSyncPending
+    ? t("preview.loadingProject")
+    : assetHydrationProgress.active
+      ? t("preview.loadingProjectAssets", {
+          loaded: assetHydrationProgress.loaded,
+          total: assetHydrationProgress.total
+        })
+      : packageDownloading
+        ? t("preview.loadingPackage", {
+            package: compileRuntimeStatus.packageSpec ?? "@preview"
+          })
+        : compilerPreparing
+          ? compileKind === "latex"
+            ? t("preview.loadingCompilerLatex")
+            : t("preview.loadingCompiler")
+          : previewRendering
+            ? t("preview.rendering")
+            : compileActive || compileRuntimeStatus.stage === "compiling"
+              ? compileKind === "latex"
+                ? t("preview.compilingLatex")
+                : t("preview.compiling")
+              : t("preview.preparing");
+  const initialProgress = assetHydrationProgress.active
+    ? assetHydrationPercent
+    : compilerPreparing
+      ? compilerDownloadPercent
+      : null;
+  const initialProgressText = assetHydrationProgress.active
+    ? assetHydrationPercent !== null
+      ? `${assetHydrationPercent}%`
+      : `${assetHydrationProgress.loaded}/${assetHydrationProgress.total}`
+    : compilerPreparing
+      ? compilerDownloadPercent !== null
+        ? `${compilerDownloadPercent}%`
+        : compileRuntimeStatus.loadedBytes
+          ? `${Math.round(compileRuntimeStatus.loadedBytes / 1024)} KB`
+          : ""
+      : "";
   const previewTitle = t("workspace.preview");
   const previewPageLabel =
     previewPageTotal > 0
-      ? t("preview.pageIndicator")
-          .replace("{current}", String(previewPageCurrent))
-          .replace("{total}", String(previewPageTotal))
+      ? t("preview.pageIndicator", {
+          current: previewPageCurrent,
+          total: previewPageTotal
+        })
       : null;
-
-  useEffect(() => {
-    if (!pageJumpOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!pageJumpRef.current) return;
-      if (!pageJumpRef.current.contains(event.target as Node)) {
-        setPageJumpOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [pageJumpOpen]);
+  const backgroundBuildLabel = backgroundBuild.pending
+    ? t("processing.submitting")
+    : backgroundBuild.state === "waiting"
+      ? t("processing.buildWaiting")
+      : backgroundBuild.state === "unavailable"
+        ? t("processing.buildUnavailable")
+        : backgroundBuild.state === "loading"
+          ? t("processing.checkingAvailability")
+          : t("processing.buildPdf");
 
   function submitPageJump() {
     const parsed = Number.parseInt(pageJumpInput, 10);
     if (!Number.isFinite(parsed)) return;
     onJumpToPage(Math.min(previewPageTotal, Math.max(1, parsed)));
-    setPageJumpOpen(false);
+    document.getElementById(pageJumpPopoverId)?.hidePopover();
   }
 
   return (
@@ -107,42 +193,50 @@ export function PreviewPanel({
         <div className="preview-title-group">
           <h2>{previewTitle}</h2>
           {previewPageLabel && (
-            <div className="preview-page-jump-wrap" ref={pageJumpRef}>
-              <button
-                type="button"
+            <div className="preview-page-jump-wrap">
+              <nve-button
+                role="button"
+                container="flat"
+                size="sm"
                 className="preview-page-indicator"
+                popovertarget={pageJumpPopoverId}
                 onClick={() => {
                   setPageJumpInput(String(previewPageCurrent));
-                  setPageJumpOpen((open) => !open);
                 }}
               >
                 {previewPageLabel}
-              </button>
-              {pageJumpOpen && (
-                <div className="preview-page-popover">
+              </nve-button>
+              <nve-toggletip
+                id={pageJumpPopoverId}
+                className="preview-page-popover"
+                position="bottom"
+                alignment="start"
+              >
+                <div nve-layout="column gap:sm">
                   <strong>{t("preview.goToPage")}</strong>
                   <div className="preview-page-popover-row">
-                    <input
+                    <UiInput
                       value={pageJumpInput}
                       onChange={(event) => setPageJumpInput(event.target.value)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") submitPageJump();
                       }}
                       inputMode="numeric"
-                      aria-label={t("preview.pageIndicator")
-                        .replace("{current}", String(previewPageCurrent))
-                        .replace("{total}", String(previewPageTotal))}
+                      aria-label={t("preview.pageIndicator", {
+                        current: previewPageCurrent,
+                        total: previewPageTotal
+                      })}
                     />
-                    <button type="button" onClick={submitPageJump}>
+                    <UiButton size="sm" variant="primary" onClick={submitPageJump}>
                       {t("preview.goAction")}
-                    </button>
+                    </UiButton>
                   </div>
                 </div>
-              )}
+              </nve-toggletip>
             </div>
           )}
         </div>
-        <div className="toolbar compact">
+        <nve-toolbar className="panel-toolbar" container="inset" content="wrap">
           <UiIconButton
             tooltip={t("preview.fitWhole")}
             label={t("preview.fitWhole")}
@@ -167,63 +261,160 @@ export function PreviewPanel({
             <ZoomIn size={16} />
           </UiIconButton>
           <UiIconButton
-            tooltip={t("preview.downloadPdf")}
-            label={t("preview.downloadPdf")}
+            tooltip={pdfExportActive ? t("preview.generatingPdf") : t("preview.downloadPdf")}
+            label={pdfExportActive ? t("preview.generatingPdf") : t("preview.downloadPdf")}
             onClick={onDownloadPdf}
-            disabled={!pdfData}
+            disabled={!canDownloadPdf || pdfExportActive}
           >
             <Download size={16} />
           </UiIconButton>
-        </div>
+          {backgroundBuild.visible && (
+            <UiIconButton
+              tooltip={backgroundBuildLabel}
+              label={backgroundBuildLabel}
+              onClick={backgroundBuild.submit}
+              disabled={
+                backgroundBuild.pending ||
+                backgroundBuild.state === "loading" ||
+                backgroundBuild.state === "unavailable"
+              }
+            >
+              {backgroundBuild.pending ? (
+                <LoaderCircle className="spin" size={16} aria-hidden />
+              ) : (
+                <CloudCog size={16} aria-hidden />
+              )}
+            </UiIconButton>
+          )}
+        </nve-toolbar>
       </div>
       <div className="panel-content flush preview-panel-content">
         <div className="preview-stage">
           <div className="preview-runtime-overlay" aria-live="polite">
-            {workspaceSyncPending && (
-              <div className="preview-runtime-status">
-                <strong>{t("preview.loadingProject")}</strong>
-              </div>
+            {backgroundBuild.error && (
+              <nve-alert className="preview-runtime-status" status="danger">
+                <strong>{t("processing.submitFailed")}</strong>
+                <span>{backgroundBuild.error}</span>
+              </nve-alert>
             )}
-            {assetHydrationProgress.active && (
-              <div className="preview-runtime-status">
+            {hasPreviewPage && workspaceSyncPending && (
+              <nve-alert className="preview-runtime-status" status="pending">
+                <strong>{t("preview.loadingProject")}</strong>
+              </nve-alert>
+            )}
+            {hasPreviewPage && assetHydrationProgress.active && (
+              <nve-alert className="preview-runtime-status" status="running">
                 <strong>
-                  {t("preview.loadingProjectAssets")
-                    .replace("{loaded}", String(assetHydrationProgress.loaded))
-                    .replace("{total}", String(assetHydrationProgress.total))}
+                  {t("preview.loadingProjectAssets", {
+                    loaded: assetHydrationProgress.loaded,
+                    total: assetHydrationProgress.total
+                  })}
                 </strong>
-                <span>
-                  {assetHydrationProgress.totalBytes > 0
-                    ? `${Math.round((100 * assetHydrationProgress.loadedBytes) / assetHydrationProgress.totalBytes)}%`
+                <span slot="actions">
+                  {assetHydrationProgress.totalBytes > 0 && assetHydrationPercent !== null
+                    ? `${assetHydrationPercent}%`
                     : `${assetHydrationProgress.loaded}/${assetHydrationProgress.total}`}
                 </span>
-              </div>
+                <nve-progress-bar
+                  slot="content"
+                  status="accent"
+                  value={assetHydrationPercent ?? undefined}
+                />
+              </nve-alert>
             )}
-            {compileActive && (
-              <div className="preview-runtime-status">
+            {hasPreviewPage && (compileActive || runtimePreparing) && (
+              <nve-alert className="preview-runtime-status" status="running">
                 <strong>
-                  {compileRuntimeStatus.stage === "downloading-compiler"
-                    ? compileKind === "latex"
-                      ? t("preview.loadingCompilerLatex")
-                      : t("preview.loadingCompiler")
-                    : compileKind === "latex"
-                      ? t("preview.compilingLatex")
-                      : t("preview.compiling")}
+                  {compileRuntimeStatus.stage === "downloading-package"
+                    ? t("preview.loadingPackage", {
+                        package: compileRuntimeStatus.packageSpec ?? "@preview"
+                      })
+                    : compileRuntimeStatus.stage === "downloading-compiler"
+                      ? compileKind === "latex"
+                        ? t("preview.loadingCompilerLatex")
+                        : t("preview.loadingCompiler")
+                      : compileKind === "latex"
+                        ? t("preview.compilingLatex")
+                        : t("preview.compiling")}
                 </strong>
                 {compileRuntimeStatus.stage === "downloading-compiler" && (
-                  <span>
-                    {compileRuntimeStatus.totalBytes && compileRuntimeStatus.totalBytes > 0
-                      ? `${Math.round((100 * (compileRuntimeStatus.loadedBytes || 0)) / compileRuntimeStatus.totalBytes)}%`
+                  <span slot="actions">
+                    {compilerDownloadPercent !== null
+                      ? `${compilerDownloadPercent}%`
                       : `${Math.round((compileRuntimeStatus.loadedBytes || 0) / 1024)} KB`}
                   </span>
                 )}
-              </div>
+                {compileRuntimeStatus.stage === "downloading-compiler" && (
+                  <nve-progress-bar
+                    slot="content"
+                    status="accent"
+                    value={compilerDownloadPercent ?? undefined}
+                  />
+                )}
+              </nve-alert>
+            )}
+            {hasPreviewPage && previewRendering && !compileActive && (
+              <nve-alert className="preview-runtime-status" status="running">
+                <strong>{t("preview.rendering")}</strong>
+              </nve-alert>
+            )}
+            {pdfExportActive && (
+              <nve-alert className="preview-runtime-status" status="running">
+                <strong>{t("preview.generatingPdf")}</strong>
+              </nve-alert>
             )}
           </div>
           <div
             ref={canvasPreviewRef}
             className={`pdf-frame preview-fit-${previewFitMode} ${previewIsPanning ? "is-panning" : ""}`}
             onMouseDown={onBeginPreviewPan}
+            onClick={onPreviewClick}
           />
+          {showInitialLoadingState && (
+            <div className="preview-initial-loading" role="status" aria-live="polite">
+              <div className="preview-loading-shell">
+                <div className="preview-loading-sheet" aria-hidden>
+                  <span className="preview-loading-line title" />
+                  <span className="preview-loading-line" />
+                  <span className="preview-loading-line medium" />
+                  <span className="preview-loading-line" />
+                  <span className="preview-loading-line short" />
+                </div>
+                <div className="preview-loading-copy">
+                  <LoaderCircle className="preview-loading-spin" size={20} aria-hidden />
+                  <strong>{initialLoadingLabel}</strong>
+                  {initialLoadingPhase === 0 && !workspaceSyncPending && !assetHydrationProgress.active && (
+                    <span>{t("preview.firstLoadHint")}</span>
+                  )}
+                </div>
+                {(initialProgress !== null || initialProgressText) && (
+                  <div className="preview-loading-progress">
+                    <nve-progress-bar status="accent" value={initialProgress ?? undefined} />
+                    <span>{initialProgressText}</span>
+                  </div>
+                )}
+                <div className="preview-loading-steps" aria-hidden>
+                  {[t("preview.stageRuntime"), t("preview.stageCompile"), t("preview.stageRender")].map(
+                    (label, index) => (
+                      <span
+                        key={label}
+                        className={
+                          index < initialLoadingPhase
+                            ? "complete"
+                            : index === initialLoadingPhase
+                              ? "active"
+                              : "pending"
+                        }
+                      >
+                        <i />
+                        {label}
+                      </span>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {showStaleOverlay && (
             <div className="preview-stale-overlay">
               <strong>{t("preview.staleTitle")}</strong>
@@ -240,31 +431,40 @@ export function PreviewPanel({
         {compileDiagnostics.length > 0 && (
           <div className="panel-inline-error diagnostics">
             {compileDiagnostics.map((diagnostic, index) => (
-              <div
+              <nve-alert
                 key={`${diagnostic.raw}-${index}`}
                 className="diagnostic-item"
+                status={
+                  diagnostic.severity === "error"
+                    ? "danger"
+                    : diagnostic.severity === "warning"
+                      ? "warning"
+                      : "accent"
+                }
               >
-                <div className="diagnostic-head">
-                  <span className={`diagnostic-level ${diagnostic.severity}`}>{diagnostic.severity}</span>
-                  <button
-                    type="button"
-                    className="diagnostic-jump"
-                    onClick={() => onJumpToDiagnostic(diagnostic)}
-                  >
-                    {t("preview.goAction")}
-                  </button>
-                </div>
-                <div className="diagnostic-main selectable-text">
-                  {diagnostic.path ? `${diagnostic.path}:${diagnostic.line ?? 1}:${diagnostic.column ?? 1}` : "workspace"}
+                <span className="diagnostic-main selectable-text">
+                  {diagnostic.path
+                    ? `${diagnostic.path}:${diagnostic.line ?? 1}:${diagnostic.column ?? 1}`
+                    : t("workspace.diagnosticScope")}
                   {" — "}
                   {diagnostic.message}
-                </div>
-              </div>
+                </span>
+                <UiButton
+                  slot="actions"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onJumpToDiagnostic(diagnostic)}
+                >
+                  {t("preview.goAction")}
+                </UiButton>
+              </nve-alert>
             ))}
           </div>
         )}
         {compileDiagnostics.length === 0 && compileErrors.length > 0 && (
-          <div className="error panel-inline-error">{compileErrors.join("; ")}</div>
+          <nve-alert className="panel-inline-error compile-error-alert" status="danger">
+            {compileErrors.join("; ")}
+          </nve-alert>
         )}
       </div>
     </aside>

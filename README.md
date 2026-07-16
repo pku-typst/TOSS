@@ -1,136 +1,216 @@
+---
+title: "TOSS"
+summary: "Self-hosted collaborative writing for Typst and optional LaTeX with browser compilation, durable document processing, realtime editing, versioning, and explicit external Git workflows."
+status: current
+type: overview
+scope: community
+audience:
+  - user
+  - contributor
+  - operator
+  - coding-agent
+topics:
+  - typst
+  - collaboration
+  - self-hosting
+  - document-processing
+related:
+  - docs/community/README.md
+  - docs/community/product/overview.md
+  - docs/community/architecture/document-processing.md
+  - docs/community/development/setup.md
+code_paths:
+  - web
+  - backend
+  - workers
+  - protocol
+  - distributions/community
+---
+
 # TOSS
 
-**TOSS = Typst Open-Source Server**  
-An open-source, self-hosted collaborative writing platform for Typst (and LaTeX), with realtime editing, Git access, revision history, and browser-side compilation preview.
+TOSS is a self-hosted collaborative typesetting platform centered on Typst. It
+combines realtime multi-user editing, browser-side compilation and preview,
+explicit durable document processing, project storage, sharing, local revision
+history, direct Git access, and owner-controlled external repository workflows
+in one service.
 
-中文文档: [README.zh-CN.md](./README.zh-CN.md)
+TOSS stands for Typst Open-Source Server.
 
-Demo: [https://typst-demo.cslabs.cn/](https://typst-demo.cslabs.cn/)
+## Core behavior
 
-> ⚠️ This project is 100% vibe coded; reading its code too carefully may cause emotional damage.  
-> ⚠️此项目100% vibe coded，阅读其代码可能对您造成精神伤害。
+- CodeMirror and Yjs provide multi-file realtime editing, presence, remote
+  cursors, read-only/read-write sharing, and named guest sessions.
+- Typst compiles in a persistent browser worker and renders through incremental
+  vector updates. Source and preview support bidirectional navigation.
+- Community deployments can also compile LaTeX through a persistent BusyTeX
+  browser worker.
+- Signed-in users can explicitly submit a LaTeX project snapshot for a durable
+  native TeX Live PDF build. The optional processor is separate from browser
+  preview: it never races, replaces, or silently backs up the browser compiler.
+- A global task center keeps background work visible after the initiating tab
+  closes and provides cancellation, failure details, and artifact downloads.
+- PostgreSQL stores accounts, access policy, workspace content, collaboration
+  state, durable jobs, immutable processing blobs, and PDF artifacts. A
+  persistent volume stores local Git history; S3-compatible storage is optional
+  for project assets.
+- The Template Gallery combines built-in templates, personal project templates,
+  and organization-shared templates.
+- GitHub, GitLab, Gitea, and Forgejo or Codeberg provider instances can support
+  login and repository access without making one provider part of the domain
+  model.
 
-## Features
-
-- Realtime collaborative editing with presence and cursor awareness
-- Multi-file project workspace with directory tree, file/folder CRUD, and uploads
-- Client-side Typst compilation and preview in browser (WASM)
-- Client-side LaTeX compilation/preview support (pdfTeX/XeTeX via SwiftLaTeX runtime)
-- Project-level Git HTTP access with Personal Access Token authentication
-- Revision history browsing with author attribution
-- Project sharing with read-only/read-write link modes
-- Project archive export and PDF download
-- Admin controls for authentication, OIDC, site branding, and announcements
-- User profile security management for personal access tokens
+The platform workspace is authoritative while users collaborate. External Git
+is explicit: import creates a project, inbound sync replaces a linked project
+from a selected branch, and checkpoint publishes the current workspace. Normal
+edits do not create external commits, and collaborators do not need write access
+to the owner's external repository.
 
 ## Architecture
 
-- `web/`: static React SPA (Vite build)
-- `backend/`: Rust monolith serving:
-  - REST APIs
-  - realtime WebSocket endpoints
-  - Git HTTP endpoints
-  - static frontend assets (same origin)
-- PostgreSQL for metadata/state
-- Runtime data under `DATA_DIR` (Git repos, thumbnails, TeXLive cache, etc.)
-
-## Quick Start (Local Self-Deploy)
-
-### 1) Build frontend
-
-```bash
-cd web
-npm install
-npm run build
-```
-
-### 2) Run backend
-
-```bash
-cd backend
-DATABASE_URL=postgres://typstapp:iv61v6mRPCGxvWjt@127.0.0.1:5432/typstappdb \
-CORE_API_PORT=18080 \
-DATA_DIR=/tmp/toss-data \
-WEB_STATIC_DIR=../web/dist \
-MAX_REQUEST_BODY_BYTES=$((64 * 1024 * 1024)) \
-LATEX_TEXLIVE_BASE_URL=https://mirrors.tuna.tsinghua.edu.cn/CTAN/systems/texlive/tlnet \
-cargo run
-```
-
-Open: [http://127.0.0.1:18080](http://127.0.0.1:18080)
-
-Health check:
-
-```bash
-curl http://127.0.0.1:18080/health
-```
-
-## First Login / Admin Bootstrap
-
-On first startup, TOSS creates an initial admin account and prints credentials once:
-
 ```text
-INITIAL ADMIN ACCOUNT: email=admin@example.com password=...
+Browser
+  React + CodeMirror + Yjs
+  Typst / optional BusyTeX workers -> live canvas preview / local PDF
+  task center -> explicit durable jobs and artifact downloads
+             |
+             | same-origin REST + WebSocket + Git HTTP
+             v
+Rust/Axum modular monolith
+  access | workspace | collaboration | versioning | external repositories
+  document processing | templates | experience | runtime support
+       |                 |                         |
+       v                 v                         v
+  PostgreSQL       persistent Git volume     S3/MinIO (optional)
+
+  document processing <--- authenticated pull / leases ---> optional native processor
+  external repositories -------- explicit jobs ----------> external Git provider
 ```
 
-Sign in, rotate the password immediately, then configure auth policy and OIDC from the Admin panel.
+The Core service also serves the precompressed SPA, so its production unit uses
+one application image and origin. Optional native processors use separate
+images and scale independently. The current coordination model requires one
+Core application replica. See the
+[architecture overview](./docs/community/architecture/overview.md).
 
-## Testing Guide
+## Repository map
 
-### Fast checks
+| Path | Responsibility |
+| --- | --- |
+| `web/` | React application, editor, previews, browser workers, and localization |
+| `backend/` | Axum API, collaboration, access, storage, Git, processing, and provider adapters |
+| `workers/` | Public processing SDK and optional native processor images |
+| `protocol/` | Checked-in browser/server and worker OpenAPI contracts plus browser TypeScript generation |
+| `distributions/community/` | Product configuration, Help content, and starter templates |
+| `prebuilt/` | Reproducible browser-runtime manifests and fetched package caches |
+| `third-party/typst.ts/` | Public compiler and renderer fork pinned as a submodule |
+| `docs/community/` | Engineering documentation and architecture decisions |
+
+Product identity and optional capabilities are selected through a validated
+distribution file. This repository ships the self-contained Community
+distribution and keeps the core suitable for downstream distributions.
+
+## Quick start
+
+Prerequisites are Docker with Compose and Git.
 
 ```bash
-cd backend && cargo check
-cd web && npm run build
+cp .env.example .env
+docker compose up --build
 ```
 
-### Full local CI checks
+Open <http://localhost:8080>. Compose starts PostgreSQL, MinIO, and the
+Community application. Interactive Typst and LaTeX preview work without any
+native processor.
+
+The native LaTeX worker is deliberately excluded from the default stack. To
+enable **Build PDF in background**, provision its token and exact processor
+contract, install the host sandbox policy, and start the `processing` Compose
+profile as described in
+[Deployment and operations](./docs/community/operations/deployment.md#enable-the-local-processing-profile).
+
+The service does not create a default administrator. Before the intended
+administrator first registers or signs in, set `BOOTSTRAP_ADMIN_EMAILS` in
+`.env` to that account's exact email address. The matching account is promoted
+after successful authentication.
+
+## Database compatibility
+
+Community TOSS starts from the single
+`backend/migrations/202607120001_baseline.sql` schema baseline. It does not
+support an in-place database upgrade from earlier TOSS releases or other
+pre-Community migration histories. Use an empty PostgreSQL database and a new
+Git data directory for the first Community deployment, and export any data
+that must be retained before replacing an older installation.
+
+The baseline and every migration published after the first Community release
+are immutable. Future Community releases evolve the baseline only through new,
+forward migrations.
+
+## Build from source
+
+The pinned tools are Node.js 24.x with npm 11.x, Rust 1.97.0, PostgreSQL 16,
+Git, `pkg-config`, and OpenSSL development headers.
 
 ```bash
-scripts/ci-checks.sh
+git submodule update --init third-party/typst.ts
+node scripts/fetch-runtime-artifacts.mjs
+
+cd protocol
+npm ci
+
+cd ../web
+npm ci
+npm run verify:typst-compiler
+npm run build
+
+cd ../backend
+DATABASE_URL=postgres://typst:typst@127.0.0.1:5432/typst \
+WEB_STATIC_DIR=../web/dist \
+TOSS_CONFIG=../distributions/community/toss.json \
+CORE_API_PORT=8080 \
+cargo run --locked
 ```
 
-### Headless E2E scripts
+## Validation
 
-- `web/scripts/headless-smoke.mjs`
-- `web/scripts/headless-collab-git.mjs`
-- `web/scripts/realtime-multiuser-test.mjs`
-- `web/scripts/headless-revision-collab-regression.mjs`
+```bash
+node scripts/check-docs.mjs
 
-## Auth & Access Model
+cd backend
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets
+cargo test --locked
 
-- Local login/register
-- OIDC (discovery-based) configurable from Admin panel
-- Admin-configurable auth switches (local login, registration, OIDC, anonymous policy)
-- PAT-based Git authentication (PAT as HTTP password)
-- Force push protection on project Git endpoints
+cd ../web
+npm test
+npm run build
 
-## Environment Notes
+cd ..
+node scripts/check-latex-worker-contract.mjs
 
-- `DATA_DIR` is the runtime root:
-  - `git/<project_id>` repositories
-  - `thumbnails/<project_id>.thumb` cached previews
-  - `texlive/...` local TeXLive cache/bootstrap files
-- `LATEX_TEXLIVE_BASE_URL` can point to SwiftLaTeX-compatible upstreams or CTAN `/tlnet` mirrors
-- `MAX_REQUEST_BODY_BYTES` defaults to 64 MiB; increase for large assets
+cd workers
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
 
-## Project Scope
-
-TOSS currently focuses on practical self-hosting and feature completeness for collaborative writing workflows.  
-Production hardening and scale-out deployment guidance can be layered on top as needed.
+The repository-wide workflow is `scripts/ci-checks.sh` and requires a
+disposable PostgreSQL database. See
+[testing and validation](./docs/community/development/testing.md).
 
 ## License
 
-This project is distributed under **GNU AGPLv3**. See [LICENSE](./LICENSE).
+TOSS is distributed under GNU AGPLv3; see [LICENSE](./LICENSE). Public
+dependencies and bundled runtime artifacts retain their respective licenses
+and provenance. The `typst.ts` submodule retains its Apache-2.0 license and
+history.
 
-We adopt AGPLv3 because part of the integrated dependency stack carries AGPLv3 requirements.
+## Related
 
-For newly authored contributions in this repository, contributors may additionally declare their original changes under **WTFPL**.  
-However, when distributed as part of this combined project, the effective distribution license remains **AGPLv3**.
-
-## Important Dependencies
-
-- [Typst](https://typst.app/)
-- [Yjs](https://yjs.dev/)
-- [typst.ts / typst.ts ecosystem](https://github.com/Myriad-Dreamin/typst.ts)
-- [SwiftLaTeX](https://github.com/SwiftLaTeX)
+- [Community documentation](./docs/community/README.md)
+- [Product overview](./docs/community/product/overview.md)
+- [Durable document processing](./docs/community/architecture/document-processing.md)
+- [Native LaTeX worker](./docs/community/runtimes/latex-worker.md)
+- [Development setup](./docs/community/development/setup.md)
+- [Deployment and database compatibility](./docs/community/operations/deployment.md)

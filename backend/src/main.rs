@@ -1,13 +1,4 @@
-mod git_utils;
-mod latex_cache;
-mod object_storage;
-mod realtime;
-mod server;
-mod services;
-mod types;
-mod typst_cache;
-
 #[tokio::main]
-async fn main() {
-    server::run().await;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    core_api::run().await
 }

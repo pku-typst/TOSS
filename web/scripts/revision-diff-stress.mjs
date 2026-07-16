@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
 const runId = Date.now().toString();
@@ -48,11 +49,13 @@ async function parseJson(res) {
 }
 
 async function bearerApi(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(baseUrl, method, route, token);
   const res = await fetch(`${baseUrl}${route}`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
-      ...(body ? { "content-type": "application/json" } : {})
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });

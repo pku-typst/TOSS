@@ -55,6 +55,7 @@ export async function renderPdfBytesToCanvas(
       if (!context) continue;
       context.setTransform(qualityScale * deviceScale, 0, 0, qualityScale * deviceScale, 0, 0);
       await page.render({
+        canvas: null,
         canvasContext: context,
         viewport
       }).promise;

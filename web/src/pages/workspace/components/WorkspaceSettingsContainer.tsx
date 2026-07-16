@@ -1,0 +1,220 @@
+import { useMutation } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  updateProjectEntryFile,
+  updateProjectLatexEngine,
+  type AuthConfig,
+  type OrganizationMembership,
+  type Project,
+} from "@/lib/api";
+import type { Translator } from "@/lib/i18n";
+import {
+  formatAccessSource,
+  formatAccessType,
+  formatRoleLabel,
+} from "@/pages/workspace/access";
+import { SettingsPanel } from "@/pages/workspace/components/SettingsPanel";
+import { useWorkspaceAccessActions } from "@/pages/workspace/hooks/useWorkspaceAccessActions";
+import { defaultEntryForProjectType } from "@/pages/workspace/loaders";
+import type {
+  WorkspaceSessionActor,
+  WorkspaceSessionContext,
+} from "@/pages/workspace/workspaceSessionActor";
+
+type WorkspaceSettingsContainerProps = {
+  width: number;
+  project: Project;
+  organizations: OrganizationMembership[];
+  authConfig: AuthConfig | null;
+  permissions: {
+    canManageProject: boolean;
+    canViewWriteShareLink: boolean;
+  };
+  preview: {
+    renderer: "pdf" | "canvas";
+    setRenderer: (renderer: "pdf" | "canvas") => void;
+  };
+  presenceMembershipKey: string;
+  projection: WorkspaceSessionContext;
+  sessionActor: WorkspaceSessionActor;
+  refreshProjects: () => Promise<void>;
+  t: Translator;
+};
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+export function WorkspaceSettingsContainer({
+  width,
+  project,
+  organizations,
+  authConfig,
+  permissions,
+  preview,
+  presenceMembershipKey,
+  projection,
+  sessionActor,
+  refreshProjects,
+  t,
+}: WorkspaceSettingsContainerProps) {
+  const replaceShareLinks = (
+    shareLinks: typeof projection.shareLinks,
+  ) => {
+    sessionActor.send({
+      type: "share-links.replaced",
+      generation: projection.scope.generation,
+      shareLinks,
+    });
+  };
+  const {
+    error: accessError,
+    copiedControl,
+    templateEnabled,
+    organizationAccess: projectOrgAccess,
+    accessUsers: projectAccessUsers,
+    createShare,
+    revokeShare,
+    copyToClipboard,
+    upsertOrganizationAccess: upsertOrgAccessGrant,
+    removeOrganizationAccess: removeOrgAccessGrant,
+    setTemplateState,
+  } = useWorkspaceAccessActions({
+    projectId: project.id,
+    sessionGeneration: projection.scope.generation,
+    projectIsTemplate: project.is_template,
+    canManageProject: permissions.canManageProject,
+    settingsPanelVisible: true,
+    presenceMembershipKey,
+    replaceShareLinks,
+    refreshProjects,
+    t,
+  });
+  const entryFileMutation = useMutation({
+    mutationFn: (operation: {
+      generation: string;
+      entryFilePath: string;
+    }) =>
+      updateProjectEntryFile(project.id, {
+        entry_file_path: operation.entryFilePath,
+      }),
+    onSuccess: (updated, operation) => {
+      sessionActor.send({
+        type: "settings.synchronized",
+        generation: operation.generation,
+        projectType: updated.project_type,
+        latexEngine: updated.latex_engine ?? "xetex",
+        entryFilePath: updated.entry_file_path,
+        settingsRevision: updated.settings_revision,
+      });
+    },
+  });
+  const latexEngineMutation = useMutation({
+    mutationFn: (operation: {
+      generation: string;
+      latexEngine: "pdftex" | "xetex";
+    }) =>
+      updateProjectLatexEngine(project.id, {
+        latex_engine: operation.latexEngine,
+      }),
+    onSuccess: (updated, operation) => {
+      sessionActor.send({
+        type: "settings.synchronized",
+        generation: operation.generation,
+        projectType: updated.project_type,
+        latexEngine: updated.latex_engine ?? operation.latexEngine,
+        entryFilePath: updated.entry_file_path,
+        settingsRevision: updated.settings_revision,
+      });
+    },
+  });
+  const typEntryOptions = useMemo(() => {
+    const pattern = projection.projectType === "latex" ? /\.(tex|ltx)$/i : /\.typ$/i;
+    const values = new Set<string>();
+    for (const path of Object.keys(projection.documents)) {
+      if (pattern.test(path)) values.add(path);
+    }
+    for (const node of projection.nodes) {
+      if (node.kind === "file" && pattern.test(node.path)) values.add(node.path);
+    }
+    if (pattern.test(projection.entryFilePath)) {
+      values.add(projection.entryFilePath);
+    }
+    if (values.size === 0) {
+      values.add(defaultEntryForProjectType(projection.projectType));
+    }
+    return Array.from(values).sort((left, right) => left.localeCompare(right));
+  }, [
+    projection.documents,
+    projection.entryFilePath,
+    projection.nodes,
+    projection.projectType,
+  ]);
+  const activeReadShare =
+    projection.shareLinks.find(
+      (link) => link.permission === "read" && !link.revoked_at,
+    ) ?? null;
+  const activeWriteShare =
+    projection.shareLinks.find(
+      (link) => link.permission === "write" && !link.revoked_at,
+    ) ?? null;
+
+  const mutateEntryFile = async (entryFilePath: string) => {
+    await entryFileMutation.mutateAsync({
+      generation: projection.scope.generation,
+      entryFilePath,
+    }).catch(() => undefined);
+  };
+  const mutateLatexEngine = async (latexEngine: "pdftex" | "xetex") => {
+    await latexEngineMutation.mutateAsync({
+      generation: projection.scope.generation,
+      latexEngine,
+    }).catch(() => undefined);
+  };
+  const settingsMutationError = entryFileMutation.error ?? latexEngineMutation.error;
+  const settingsError = settingsMutationError
+    ? errorMessage(settingsMutationError, t("errors.updateSettings"))
+    : null;
+
+  return (
+    <SettingsPanel
+      width={width}
+      projectId={project.id}
+      projectName={project.name || "typst-project"}
+      projectType={projection.projectType}
+      typstPreviewRenderer={preview.renderer}
+      latexEngine={projection.latexEngine}
+      entryFilePath={projection.entryFilePath}
+      typEntryOptions={typEntryOptions}
+      canManageProject={permissions.canManageProject}
+      canViewWriteShareLink={permissions.canViewWriteShareLink}
+      externalGitProviders={authConfig?.external_git_providers ?? []}
+      gitRepoUrl={projection.gitRepoUrl}
+      copiedControl={copiedControl}
+      templateEnabled={templateEnabled}
+      myOrganizations={organizations}
+      projectOrgAccess={projectOrgAccess}
+      projectAccessUsers={projectAccessUsers}
+      error={settingsError ?? accessError}
+      entryFilePending={entryFileMutation.isPending}
+      latexEnginePending={latexEngineMutation.isPending}
+      onEntryFileChange={mutateEntryFile}
+      onLatexEngineChange={mutateLatexEngine}
+      onTypstPreviewRendererChange={preview.setRenderer}
+      onCopyToClipboard={copyToClipboard}
+      onToggleTemplate={() => setTemplateState(!templateEnabled)}
+      activeReadShare={activeReadShare}
+      activeWriteShare={activeWriteShare}
+      onCreateShare={createShare}
+      onRevokeShare={revokeShare}
+      onGrantOrgAccess={upsertOrgAccessGrant}
+      onRevokeOrgAccess={removeOrgAccessGrant}
+      formatAccessType={(accessType, role) =>
+        formatAccessType(accessType, role, t)
+      }
+      formatRoleLabel={(role) => formatRoleLabel(role, t)}
+      formatAccessSource={(source) => formatAccessSource(source, t)}
+      t={t}
+    />
+  );
+}

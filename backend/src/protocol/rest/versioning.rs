@@ -1,0 +1,61 @@
+use super::ApiErrorResponse;
+use crate::versioning::{
+    CreateRevisionInput, GitRepoLink, GitSyncState, Revision, RevisionTransfer, RevisionsResponse,
+};
+
+json_operation!(
+    list_revisions,
+    get,
+    "/v1/projects/{project_id}/revisions",
+    "versioning",
+    200,
+    RevisionsResponse
+);
+json_operation!(
+    create_revision,
+    post,
+    "/v1/projects/{project_id}/revisions",
+    "versioning",
+    CreateRevisionInput,
+    200,
+    Revision
+);
+json_operation!(
+    revision_documents,
+    get,
+    "/v1/projects/{project_id}/revisions/{revision_id}/documents",
+    "versioning",
+    200,
+    RevisionTransfer
+);
+
+json_operation!(
+    git_status,
+    get,
+    "/v1/git/status/{project_id}",
+    "versioning",
+    200,
+    GitSyncState
+);
+json_operation!(
+    git_repo_link,
+    get,
+    "/v1/git/repo-link/{project_id}",
+    "versioning",
+    200,
+    GitRepoLink
+);
+binary_operation!(
+    git_smart_http_info_refs,
+    get,
+    "/v1/git/repo/{project_id}/{rest}",
+    "versioning",
+    "application/octet-stream"
+);
+binary_operation!(
+    git_smart_http_rpc,
+    post,
+    "/v1/git/repo/{project_id}/{rest}",
+    "versioning",
+    "application/octet-stream"
+);

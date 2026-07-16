@@ -1,9 +1,17 @@
-import type { Project, SharePermission } from "@/lib/api";
+import type {
+  AnonymousMode,
+  Project,
+  ProjectAccessSource,
+  ProjectAccessType,
+  ProjectPermission,
+  ProjectRole
+} from "@/lib/api";
+import type { Translator } from "@/lib/i18n";
 
 type DeriveWorkspacePermissionsInput = {
   isAnonymousShare: boolean;
-  sharePermission: SharePermission | null;
-  anonymousMode?: string | null;
+  sharePermission: ProjectPermission | null;
+  anonymousMode?: AnonymousMode | null;
   project: Project | undefined;
   hasGuestSessionToken: boolean;
   hasAuthUser: boolean;
@@ -52,24 +60,25 @@ export function deriveWorkspacePermissions(input: DeriveWorkspacePermissionsInpu
   };
 }
 
-export function formatAccessType(accessType: string, role: string) {
-  if (accessType === "manage") return "Manage";
-  if (accessType === "write") return "Read + write";
-  if (accessType === "read") return "Read only";
-  return role;
+export function formatAccessType(accessType: ProjectAccessType, role: ProjectRole, t: Translator) {
+  if (accessType === "manage") return t("settings.accessManage");
+  if (accessType === "write") return t("settings.readWrite");
+  if (accessType === "read") return t("settings.readOnly");
+  return formatRoleLabel(role, t);
 }
 
-export function formatRoleLabel(role: string) {
-  if (role === "ReadWrite") return "Read write";
-  if (role === "ReadOnly") return "Read only";
-  return role;
+export function formatRoleLabel(role: ProjectRole, t: Translator) {
+  if (role === "Owner") return t("settings.roleOwner");
+  if (role === "ReadWrite") return t("settings.roleReadWrite");
+  if (role === "ReadOnly") return t("settings.roleReadOnly");
+  return t("common.unknown");
 }
 
-export function formatAccessSource(source: string) {
-  if (source === "share_link_invite") return "Accepted share link";
-  if (source === "direct_role") return "Direct assignment";
-  if (source.startsWith("organization:")) {
-    return `Organization (${source.slice("organization:".length)})`;
+export function formatAccessSource(source: ProjectAccessSource, t: Translator) {
+  if (source.kind === "share_link_invite") return t("settings.sourceShareLink");
+  if (source.kind === "direct_role") return t("settings.sourceDirect");
+  if (source.kind === "organization") {
+    return t("settings.sourceOrganization", { name: source.name });
   }
-  return source;
+  return t("common.unknown");
 }

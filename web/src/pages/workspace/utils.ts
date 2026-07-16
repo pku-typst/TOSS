@@ -17,47 +17,25 @@ export const MIN_SIDE_PANEL_WIDTH = 220;
 export const MAX_SIDE_PANEL_WIDTH = 520;
 export const MIN_EDITOR_RATIO = 0.28;
 export const MAX_EDITOR_RATIO = 0.72;
-export const PREVIEW_MIN_ZOOM = 0.2;
+export const PREVIEW_FIT_MIN_ZOOM = 0.001;
+export const PREVIEW_MANUAL_MIN_ZOOM = 0.05;
 export const PREVIEW_MAX_ZOOM = 5;
+const PREVIEW_RENDER_DENSITY_MIN_ZOOM = 0.2;
+const PREVIEW_ZOOM_STEP_FACTOR = 1.2;
 
 export function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function summarizeContentForHash(content: string) {
-  if (content.length <= 96) return content;
-  return `${content.slice(0, 48)}::${content.slice(-48)}`;
-}
-
-export function fastStringHash(content: string) {
-  // FNV-1a 32-bit hash over full content. Cheap enough for active editor text and
-  // avoids missing equal-length middle replacements.
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < content.length; i += 1) {
-    hash ^= content.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-export function buildCompileInputKey(params: {
-  entryFilePath: string;
-  documents: Array<{ path: string; content: string }>;
-  assets: Array<{ path: string; contentBase64: string }>;
-  fontData: Uint8Array[];
-  activeDocFingerprint?: string | null;
-}) {
-  const docsPart = params.documents
-    .map((doc) => `${doc.path}:${doc.content.length}:${summarizeContentForHash(doc.content)}`)
-    .join("|");
-  const assetsPart = params.assets
-    .map((asset) => `${asset.path}:${asset.contentBase64.length}:${summarizeContentForHash(asset.contentBase64)}`)
-    .join("|");
-  const fontsPart = params.fontData
-    .map((font) => `${font.byteLength}:${font[0] ?? 0}:${font[Math.floor(font.byteLength / 2)] ?? 0}:${font[font.byteLength - 1] ?? 0}`)
-    .join("|");
-  const activeFingerprint = params.activeDocFingerprint?.trim() || "";
-  return `${params.entryFilePath}::${docsPart}::${assetsPart}::${fontsPart}::${activeFingerprint}`;
+export function nextManualPreviewZoom(
+  zoom: number,
+  direction: "in" | "out"
+) {
+  const next =
+    direction === "in"
+      ? zoom * PREVIEW_ZOOM_STEP_FACTOR
+      : zoom / PREVIEW_ZOOM_STEP_FACTOR;
+  return clampNumber(next, PREVIEW_MANUAL_MIN_ZOOM, PREVIEW_MAX_ZOOM);
 }
 
 export function buildTopPreviewThumbnail(canvas: HTMLCanvasElement) {
@@ -77,7 +55,11 @@ export function buildTopPreviewThumbnail(canvas: HTMLCanvasElement) {
   out.height = Math.max(1, Math.round(out.width / targetRatio));
   const ctx = out.getContext("2d");
   if (!ctx) return "";
-  ctx.fillStyle = "#f3f6fb";
+  const colorProbe = document.createElement("span");
+  colorProbe.style.color = "var(--toss-surface-preview)";
+  document.documentElement.append(colorProbe);
+  ctx.fillStyle = getComputedStyle(colorProbe).color || getComputedStyle(document.body).backgroundColor;
+  colorProbe.remove();
   ctx.fillRect(0, 0, out.width, out.height);
   ctx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, out.width, out.height);
   return out.toDataURL("image/png");
@@ -87,7 +69,7 @@ const QUOTED_PATH_REGEX = /"([^"\r\n]+)"/g;
 const ABSOLUTE_OR_REMOTE_PATH_REGEX = /^(?:[a-zA-Z]+:|\/)/;
 
 export function collectReferencedAssetPaths(
-  docsList: Array<{ path: string; content: string }>,
+  docsList: readonly Readonly<{ path: string; content: string }>[],
   assetsByPath: Record<string, AssetMeta>
 ) {
   const references = new Set<string>();
@@ -110,22 +92,6 @@ export function collectReferencedAssetPaths(
   return Array.from(references);
 }
 
-export function prependUniqueById<T extends { id: string }>(primary: T[], fallback: T[]) {
-  const merged: T[] = [];
-  const seen = new Set<string>();
-  for (const item of primary) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    merged.push(item);
-  }
-  for (const item of fallback) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    merged.push(item);
-  }
-  return merged;
-}
-
 export function pickWorkspaceOpenPath(
   nodes: ProjectNode[],
   preferredEntryPath: string | null | undefined,
@@ -136,20 +102,6 @@ export function pickWorkspaceOpenPath(
   if (currentActivePath && fileSet.has(currentActivePath)) return currentActivePath;
   if (preferredEntryPath && fileSet.has(preferredEntryPath)) return preferredEntryPath;
   return filePaths[0] || preferredEntryPath || "main.typ";
-}
-
-export function maxDocumentUpdatedAtIso(
-  documents: Array<{ updated_at: string }>,
-  currentIso?: string | null
-) {
-  let maxMs = currentIso ? Date.parse(currentIso) : Number.NEGATIVE_INFINITY;
-  if (!Number.isFinite(maxMs)) maxMs = Number.NEGATIVE_INFINITY;
-  for (const document of documents) {
-    const nextMs = Date.parse(document.updated_at);
-    if (Number.isFinite(nextMs) && nextMs > maxMs) maxMs = nextMs;
-  }
-  if (Number.isFinite(maxMs)) return new Date(maxMs).toISOString();
-  return null;
 }
 
 export function readWorkspaceLayoutPrefs(): WorkspaceLayoutPrefs {
@@ -285,8 +237,8 @@ export function deriveFitZoom(frame: HTMLElement, pages: HTMLElement, mode: Excl
   const fullPageZoom = Math.min(widthZoom, availableHeight / baseHeight);
   const fitZoom = mode === "width" ? widthZoom : fullPageZoom;
   // Small guard band avoids 1px overflow loops from rounding and device-pixel transforms.
-  const safeFitZoom = Math.max(0.001, fitZoom * 0.998);
-  return clampNumber(safeFitZoom, PREVIEW_MIN_ZOOM, PREVIEW_MAX_ZOOM);
+  const safeFitZoom = Math.max(PREVIEW_FIT_MIN_ZOOM, fitZoom * 0.998);
+  return clampNumber(safeFitZoom, PREVIEW_FIT_MIN_ZOOM, PREVIEW_MAX_ZOOM);
 }
 
 export function applyPreviewZoom(frame: HTMLElement, zoom: number) {
@@ -341,11 +293,14 @@ export function applyPreviewZoom(frame: HTMLElement, zoom: number) {
 
 export function pixelPerPtForZoom(mode: PreviewFitMode, zoom: number) {
   void mode;
-  void zoom;
   const dpr = typeof window === "undefined" ? 1 : Math.max(1, window.devicePixelRatio || 1);
-  // Keep render density stable across zoom changes and use CSS scaling for interaction-time zoom.
-  // This avoids full redraw bursts that can cause visible flicker or viewport drift under rapid clicks.
-  return clampNumber(Math.ceil(dpr * 2.5), 3, 12);
+  // Match the backing bitmap to visible device pixels. NV decks intentionally
+  // use a 2880pt-wide coordinate space, so a 1px/pt floor would still allocate
+  // a 2880x1620 canvas for a slide displayed at roughly 20% scale.
+  const densityStep = 0.25;
+  const targetDensity =
+    dpr * Math.max(PREVIEW_RENDER_DENSITY_MIN_ZOOM, zoom);
+  return clampNumber(Math.ceil(targetDensity / densityStep) * densityStep, 0.25, 6);
 }
 
 export function isImageAsset(path: string, contentType?: string) {
@@ -357,7 +312,13 @@ export function isPdfAsset(path: string, contentType?: string) {
 }
 
 export function presenceColor(userId: string) {
-  const palette = ["#1f5f8c", "#156f43", "#7e3b9f", "#8e5a17", "#8a234b"];
+  const palette = [
+    "var(--nve-ref-color-brand-green-1100)",
+    "var(--nve-ref-color-blue-cobalt-1100)",
+    "var(--nve-ref-color-purple-violet-1100)",
+    "var(--nve-ref-color-orange-pumpkin-1100)",
+    "var(--nve-ref-color-pink-rose-1100)"
+  ];
   let hash = 0;
   for (let i = 0; i < userId.length; i += 1) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
   return palette[hash % palette.length];

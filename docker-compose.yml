@@ -1,8 +1,6 @@
-version: "3.9"
-
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16.14-bookworm
     container_name: typst-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -19,7 +17,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: typst-minio
     command: server /data --console-address ":9001"
     environment:
@@ -31,19 +29,77 @@ services:
     volumes:
       - ./tmp/minio/data:/data
 
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$${S3_BUCKET}" ]; then
+          exit 0
+        fi
+        until /usr/bin/mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && \
+          /usr/bin/mc mb --ignore-existing "local/$${S3_BUCKET}"; do
+          sleep 1
+        done
+
   core-api:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        TOSS_DISTRIBUTION: ${TOSS_DISTRIBUTION:-community}
     container_name: typst-core-api
     env_file:
-      - .env
+      - ${TOSS_ENV_FILE:-.env}
+    environment:
+      # Keep the container endpoint stable. CORE_API_PORT configures only the
+      # host-side port published below when running through Compose.
+      CORE_API_PORT: 8080
+      WEB_STATIC_DIR: /app/web-dist
+      DATA_DIR: /data
+      TOSS_CONFIG: /app/distributions/${TOSS_DISTRIBUTION:-community}/toss.json
     depends_on:
       postgres:
         condition: service_healthy
       minio:
         condition: service_started
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "${CORE_API_PORT:-8080}:8080"
     volumes:
-      - ./tmp/git:/data/git
+      - ./tmp/data:/data
+
+  latex-worker:
+    profiles: ["processing"]
+    build:
+      context: .
+      dockerfile: workers/latex/Dockerfile
+    image: toss-latex-worker:local
+    restart: unless-stopped
+    environment:
+      PROCESSING_CORE_URL: http://core-api:8080
+      PROCESSING_WORKER_TOKEN: ${PROCESSING_WORKER_TOKEN:-}
+      PROCESSING_WORKER_INSTANCE: ${PROCESSING_WORKER_INSTANCE:-community-latex-local}
+      PROCESSING_LATEX_SLOTS: ${PROCESSING_LATEX_SLOTS:-1}
+      PROCESSING_LATEX_EXECUTOR: bubblewrap
+      RUST_LOG: ${PROCESSING_WORKER_LOG:-toss_processing_sdk=info,toss_latex_worker=info}
+    depends_on:
+      core-api:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+      - apparmor=${PROCESSING_APPARMOR_PROFILE:-toss-latex-worker}
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /work:size=4g,mode=0700,uid=10001,gid=10001

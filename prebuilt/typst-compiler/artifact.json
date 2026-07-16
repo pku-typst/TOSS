@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "source_revision": "b1e700986082cce2bd3dd0db8b27af9f4418883b",
+  "source_repository": "https://github.com/lucifer1004/typst.ts",
+  "release_tag": "toss-web-compiler-b1e700986082",
+  "asset_name": "toss-typst-web-compiler-b1e700986082.tar.gz",
+  "url": "https://github.com/lucifer1004/typst.ts/releases/download/toss-web-compiler-b1e700986082/toss-typst-web-compiler-b1e700986082.tar.gz",
+  "archive_root": "package",
+  "archive": {
+    "size_bytes": 10920529,
+    "sha256": "66bbd93bba3d0fc49a661009feea698b4a41ab73f477bad74dacec7da966be2e"
+  }
+}

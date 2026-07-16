@@ -1,12 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import * as Y from "yjs";
+import { useActorRef, useSelector } from "@xstate/react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import type { EditorChange } from "@/components/EditorPane";
-import { bindRealtimeYDoc, type PresencePeer, type RealtimeStatus, type ReconnectState } from "@/lib/realtime";
+import type { RealtimeStatus, ReconnectState } from "@/lib/realtime";
+import type { DocumentIdentity } from "@/pages/workspace/types";
+import {
+  openRealtimeDocumentSession,
+  realtimeDocumentMachine,
+  type RealtimeDocumentConfig,
+  type RealtimeDocumentSession,
+} from "@/pages/workspace/realtimeDocumentActor";
 
 type UseRealtimeDocParams = {
   projectId: string;
   activePath: string;
   docs: Record<string, string>;
+  documentIdentities: Record<string, DocumentIdentity>;
   workspaceLoaded: boolean;
   isRevisionMode: boolean;
   canWrite: boolean;
@@ -16,146 +29,65 @@ type UseRealtimeDocParams = {
   guestSession?: string | null;
 };
 
+const INACTIVE_RECONNECT_STATE: ReconnectState = {
+  active: false,
+  secondsRemaining: 0,
+  attempt: 0,
+};
+
 export function useRealtimeDoc({
   projectId,
   activePath,
   docs,
+  documentIdentities,
   workspaceLoaded,
   isRevisionMode,
   canWrite,
   effectiveUserId,
   effectiveUserName,
   shareToken,
-  guestSession
+  guestSession,
 }: UseRealtimeDocParams) {
-  const ydocRef = useRef<Y.Doc | null>(null);
-  const ytextRef = useRef<Y.Text | null>(null);
-  const realtimeRef = useRef<{
-    close: () => void;
-    sendCursor: (cursor: { line: number; column: number }) => void;
-    reconnectNow: () => void;
-    sendSyncSnapshot: () => void;
-  } | null>(null);
-  const lastSavedDocRef = useRef<string>("");
-  const activeBindingRef = useRef<string>("");
-
-  const [presence, setPresence] = useState<PresencePeer[]>([]);
-  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting");
-  const [reconnectState, setReconnectState] = useState<ReconnectState>({
-    active: false,
-    secondsRemaining: 0,
-    attempt: 0
-  });
-  const [docText, setDocText] = useState("");
-  const [realtimeDocReady, setRealtimeDocReady] = useState(false);
-  const [realtimeBoundPath, setRealtimeBoundPath] = useState("");
-
   const hasActiveLiveDoc = useMemo(
     () => Object.prototype.hasOwnProperty.call(docs, activePath),
-    [activePath, docs]
+    [activePath, docs],
   );
-  const activeFileContent = docs[activePath] ?? "";
-
-  useEffect(() => {
-    if (isRevisionMode) return;
-    if (!projectId || !activePath) {
-      activeBindingRef.current = "";
-      setDocText("");
-      setRealtimeDocReady(false);
-      setRealtimeBoundPath("");
-      return;
+  const activeDocumentIdentity = documentIdentities[activePath] ?? null;
+  const sessionConfig = useMemo<RealtimeDocumentConfig | null>(() => {
+    if (
+      !projectId ||
+      !activePath ||
+      !workspaceLoaded ||
+      isRevisionMode ||
+      !hasActiveLiveDoc ||
+      !activeDocumentIdentity
+    ) {
+      return null;
     }
-    const nextBinding = `${projectId}:${activePath}`;
-    if (activeBindingRef.current !== nextBinding) {
-      activeBindingRef.current = nextBinding;
-      setDocText("");
-      setRealtimeDocReady(false);
-      setRealtimeBoundPath("");
-    }
-  }, [activePath, isRevisionMode, projectId]);
-
-  useEffect(() => {
-    if (!projectId || !activePath || isRevisionMode || !workspaceLoaded) return;
-    if (!hasActiveLiveDoc) {
-      setPresence([]);
-      setDocText("");
-      setRealtimeDocReady(false);
-      setRealtimeBoundPath("");
-      setRealtimeStatus("disconnected");
-      setReconnectState({ active: false, secondsRemaining: 0, attempt: 0 });
-      return;
-    }
-    const fileContent = activeFileContent;
-    const ydoc = new Y.Doc();
-    const ytext = ydoc.getText("main");
-    ydocRef.current = ydoc;
-    ytextRef.current = ytext;
-    let bootstrapResolved = false;
-    setDocText("");
-    setRealtimeDocReady(false);
-    lastSavedDocRef.current = "";
-
-    const resolveBootstrap = (allowSeed: boolean) => {
-      if (bootstrapResolved) return;
-      bootstrapResolved = true;
-      let seeded = false;
-      if (allowSeed && !ytext.toString()) {
-        const seed = new Y.Doc();
-        seed.clientID = 1;
-        if (fileContent) {
-          seed.getText("main").insert(0, fileContent);
-        }
-        const seedUpdate = Y.encodeStateAsUpdate(seed);
-        seed.destroy();
-        Y.applyUpdate(ydoc, seedUpdate, "remote");
-        seeded = seedUpdate.byteLength > 0;
-      }
-      const current = ytext.toString();
-      setDocText(current);
-      lastSavedDocRef.current = ytext.toString();
-      setRealtimeBoundPath(activePath);
-      setRealtimeDocReady(true);
-      if (seeded) {
-        realtimeRef.current?.sendSyncSnapshot();
-      }
-    };
-
-    const observer = (event: Y.YTextEvent) => {
-      const next = event.target.toString();
-      setDocText(next);
-    };
-    ytext.observe(observer);
-    const realtime = bindRealtimeYDoc({
-      docId: `${projectId}:${activePath}`,
+    return {
+      sessionKey: JSON.stringify([
+        projectId,
+        activeDocumentIdentity.id,
+        activeDocumentIdentity.collaborationRevision,
+        effectiveUserId,
+        effectiveUserName,
+        shareToken ?? null,
+        guestSession ?? null,
+        canWrite,
+      ]),
       projectId,
-      wsBaseUrl: `${window.location.origin.replace(/^http/, "ws")}`,
-      ydoc,
+      documentId: activeDocumentIdentity.id,
+      collaborationRevision: activeDocumentIdentity.collaborationRevision,
       userId: effectiveUserId,
       userName: effectiveUserName,
-      shareToken: shareToken ?? undefined,
-      guestSession: guestSession ?? undefined,
+      shareToken: shareToken ?? null,
+      guestSession: guestSession ?? null,
       canWrite,
-      onPresenceChange: setPresence,
-      onStatusChange: setRealtimeStatus,
-      onReconnectChange: setReconnectState,
-      onBootstrapDone: () => resolveBootstrap(true)
-    });
-    realtimeRef.current = realtime;
-    return () => {
-      ytext.unobserve(observer);
-      realtime.close();
-      ydoc.destroy();
-      ydocRef.current = null;
-      ytextRef.current = null;
-      realtimeRef.current = null;
-      setPresence([]);
-      setRealtimeDocReady(false);
-      setRealtimeBoundPath("");
-      setRealtimeStatus("disconnected");
-      setReconnectState({ active: false, secondsRemaining: 0, attempt: 0 });
     };
   }, [
     activePath,
+    canWrite,
+    activeDocumentIdentity,
     effectiveUserId,
     effectiveUserName,
     guestSession,
@@ -163,39 +95,134 @@ export function useRealtimeDoc({
     isRevisionMode,
     projectId,
     shareToken,
-    workspaceLoaded
+    workspaceLoaded,
   ]);
+  const realtimeActor = useActorRef(realtimeDocumentMachine, {
+    input: {
+      openSession: openRealtimeDocumentSession,
+      onProjectReplaced: () => window.location.reload(),
+      onAccessChanged: () => window.location.reload(),
+    },
+  });
+  const snapshot = useSelector(realtimeActor, (current) => current);
 
-  function applyDocumentDeltas(changes: EditorChange[]) {
-    if (isRevisionMode || !canWrite || changes.length === 0) return;
-    const ydoc = ydocRef.current;
-    const ytext = ytextRef.current;
-    if (!ydoc || !ytext) return;
-    ydoc.transact(() => {
-      const ordered = [...changes].sort((a, b) => b.from - a.from || b.to - a.to);
-      for (const change of ordered) {
-        const from = Math.max(0, change.from);
-        const to = Math.max(from, change.to);
-        const deleteCount = Math.max(0, to - from);
-        if (deleteCount > 0) ytext.delete(from, deleteCount);
-        if (change.insert) ytext.insert(from, change.insert);
-      }
-    });
+  useEffect(() => {
+    if (sessionConfig) {
+      realtimeActor.send({ type: "bind", config: sessionConfig });
+    } else {
+      realtimeActor.send({ type: "disable" });
+    }
+  }, [realtimeActor, sessionConfig]);
+
+  const sessionKey = sessionConfig?.sessionKey ?? null;
+  const bindingIsCurrent =
+    !!sessionKey && snapshot.context.config?.sessionKey === sessionKey;
+  const session = bindingIsCurrent ? snapshot.context.session : null;
+  const realtimeDocReady =
+    bindingIsCurrent && snapshot.matches({ active: { document: "ready" } });
+  const subscribeToDocument = useCallback(
+    (notify: () => void) => {
+      if (!session) return () => undefined;
+      const observer = () => notify();
+      session.ytext.observe(observer);
+      return () => session.ytext.unobserve(observer);
+    },
+    [session],
+  );
+  const readDocument = useCallback(
+    () => (session && realtimeDocReady ? session.ytext.toString() : ""),
+    [realtimeDocReady, session],
+  );
+  const docText = useSyncExternalStore(
+    subscribeToDocument,
+    readDocument,
+    readDocument,
+  );
+
+  const lastSavedDocument =
+    bindingIsCurrent && snapshot.context.readyContent !== null
+      ? snapshot.context.readyContent
+      : "";
+
+  const withCurrentSession = useCallback(
+    (action: (current: RealtimeDocumentSession) => void) => {
+      if (!sessionKey) return;
+      const current = realtimeActor.getSnapshot();
+      if (current.context.config?.sessionKey !== sessionKey) return;
+      if (!current.context.session) return;
+      action(current.context.session);
+    },
+    [realtimeActor, sessionKey],
+  );
+
+  const applyDocumentDeltas = useCallback(
+    (changes: EditorChange[]) => {
+      if (isRevisionMode || !canWrite || changes.length === 0) return;
+      withCurrentSession((current) => {
+        if (
+          !realtimeActor
+            .getSnapshot()
+            .matches({ active: { document: "ready" } })
+        ) {
+          return;
+        }
+        current.ydoc.transact(() => {
+          const ordered = [...changes].sort(
+            (a, b) => b.from - a.from || b.to - a.to,
+          );
+          for (const change of ordered) {
+            const from = Math.max(0, change.from);
+            const to = Math.max(from, change.to);
+            const deleteCount = Math.max(0, to - from);
+            if (deleteCount > 0) current.ytext.delete(from, deleteCount);
+            if (change.insert) current.ytext.insert(from, change.insert);
+          }
+        });
+      });
+    },
+    [canWrite, isRevisionMode, realtimeActor, withCurrentSession],
+  );
+
+  let realtimeStatus: RealtimeStatus = "disconnected";
+  if (bindingIsCurrent) {
+    if (snapshot.matches({ active: { connection: "connected" } })) {
+      realtimeStatus = "connected";
+    } else if (snapshot.matches({ active: { connection: "connecting" } })) {
+      realtimeStatus = "connecting";
+    }
   }
 
+  const sendCursor = useCallback(
+    (cursor: { line: number; column: number }) => {
+      withCurrentSession((current) => current.commands.sendCursor(cursor));
+    },
+    [withCurrentSession],
+  );
+  const reconnectNow = useCallback(() => {
+    withCurrentSession((current) => current.commands.reconnectNow());
+  }, [withCurrentSession]);
+  const sendSyncSnapshot = useCallback(() => {
+    let result: Promise<boolean> = Promise.resolve(false);
+    withCurrentSession((current) => {
+      result = current.commands.sendSyncSnapshot();
+    });
+    return result;
+  }, [withCurrentSession]);
+
   return {
-    ydocRef,
-    ytextRef,
-    realtimeRef,
-    lastSavedDocRef,
-    presence,
+    lastSavedDocument,
+    presence: bindingIsCurrent ? snapshot.context.presence : [],
     realtimeStatus,
-    reconnectState,
+    reconnectState: bindingIsCurrent
+      ? snapshot.context.reconnect
+      : INACTIVE_RECONNECT_STATE,
     docText,
-    setDocText,
     realtimeDocReady,
-    realtimeBoundPath,
+    realtimeBoundPath: realtimeDocReady ? activePath : "",
     hasActiveLiveDoc,
-    applyDocumentDeltas
+    applyDocumentDeltas,
+    sendCursor,
+    reconnectNow,
+    sendSyncSnapshot,
   };
 }

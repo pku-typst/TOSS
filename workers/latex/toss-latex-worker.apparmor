@@ -1,0 +1,44 @@
+# TOSS-specific profile for Ubuntu hosts that restrict unprivileged user
+# namespaces. The outer worker stays unprivileged and can enter the setup
+# profile only by executing the dedicated helper path in the worker image.
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile toss-latex-worker flags=(unconfined) {
+  /usr/local/bin/toss-bwrap px -> toss-bwrap,
+}
+
+profile toss-bwrap /usr/local/bin/toss-bwrap flags=(attach_disconnected,mediate_deleted) {
+  allow capability,
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow px /** -> toss-bwrap//&toss-unpriv-bwrap,
+}
+
+profile toss-unpriv-bwrap flags=(attach_disconnected,mediate_deleted) {
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow pix /** -> &toss-unpriv-bwrap,
+  audit deny capability,
+}

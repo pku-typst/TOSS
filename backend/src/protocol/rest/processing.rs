@@ -1,0 +1,50 @@
+use super::ApiErrorResponse;
+use crate::document_processing::{ProcessingCapabilities, ProcessingJob, ProcessingJobList};
+
+json_operation!(
+    create_latex_pdf_build,
+    post,
+    "/v1/projects/{project_id}/builds",
+    "document-processing",
+    202,
+    ProcessingJob
+);
+json_operation!(
+    processing_capabilities,
+    get,
+    "/v1/processing/capabilities",
+    "document-processing",
+    200,
+    ProcessingCapabilities
+);
+json_operation!(
+    list_processing_jobs,
+    get,
+    "/v1/processing/jobs",
+    "document-processing",
+    200,
+    ProcessingJobList
+);
+json_operation!(
+    get_processing_job,
+    get,
+    "/v1/processing/jobs/{job_id}",
+    "document-processing",
+    200,
+    ProcessingJob
+);
+json_operation!(
+    cancel_processing_job,
+    post,
+    "/v1/processing/jobs/{job_id}/cancel",
+    "document-processing",
+    200,
+    ProcessingJob
+);
+binary_operation!(
+    download_processing_artifact,
+    get,
+    "/v1/processing/jobs/{job_id}/artifacts/{artifact_id}",
+    "document-processing",
+    "application/octet-stream"
+);

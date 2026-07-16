@@ -15,15 +15,22 @@ api_json() {
   local path="$2"
   local session_token="$3"
   local body="${4:-}"
+  local content_epoch="${5:-}"
+  local -a epoch_header=()
+  if [[ -n "$content_epoch" ]]; then
+    epoch_header=(-H "x-project-content-epoch: $content_epoch")
+  fi
   if [[ -n "$body" ]]; then
     curl -sS -X "$method" \
       -H "content-type: application/json" \
       -H "authorization: Bearer $session_token" \
+      "${epoch_header[@]}" \
       --data "$body" \
       "$CORE_API_URL$path"
   else
     curl -sS -X "$method" \
       -H "authorization: Bearer $session_token" \
+      "${epoch_header[@]}" \
       "$CORE_API_URL$path"
   fi
 }
@@ -88,7 +95,7 @@ COLLAB_TOKEN="$(printf '%s' "$COLLAB_AUTH" | extract_json_field session_token)"
 
 PROJECT_JSON="$(api_json POST "/v1/projects" "$OWNER_TOKEN" "{\"name\":\"Git Nonoverlap QA ${RUN_ID}\"}")"
 PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | extract_json_field id)"
-api_json POST "/v1/projects/$PROJECT_ID/roles" "$OWNER_TOKEN" "{\"user_id\":\"$COLLAB_ID\",\"role\":\"Student\"}" >/dev/null
+api_json POST "/v1/projects/$PROJECT_ID/roles" "$OWNER_TOKEN" "{\"user_id\":\"$COLLAB_ID\",\"role\":\"ReadWrite\"}" >/dev/null
 
 owner_pat_json="$(api_json POST "/v1/profile/security/tokens" "$OWNER_TOKEN" '{"label":"qa-owner-token"}')"
 OWNER_PAT="$(printf '%s' "$owner_pat_json" | extract_json_field token)"
@@ -96,8 +103,9 @@ REPO_LINK_JSON="$(api_json GET "/v1/git/repo-link/$PROJECT_ID" "$OWNER_TOKEN")"
 REPO_URL="$(printf '%s' "$REPO_LINK_JSON" | extract_json_field repo_url)"
 
 BASE_CONTENT=$'= Merge QA\n\npara A line 1\npara A line 2\npara A line 3\n\npara B line 1\npara B line 2\npara B line 3\n'
+PROJECT_EPOCH="$(api_json GET "/v1/projects/$PROJECT_ID/tree" "$OWNER_TOKEN" | extract_json_field content_epoch)"
 api_json PUT "/v1/projects/$PROJECT_ID/documents/by-path/main.typ" "$OWNER_TOKEN" \
-  "$(node -e 'process.stdout.write(JSON.stringify({content: process.argv[1]}))' "$BASE_CONTENT")" >/dev/null
+  "$(node -e 'process.stdout.write(JSON.stringify({content: process.argv[1]}))' "$BASE_CONTENT")" "$PROJECT_EPOCH" >/dev/null
 api_json POST "/v1/projects/$PROJECT_ID/revisions" "$OWNER_TOKEN" '{"summary":"init"}' >/dev/null
 
 TMP_DIR="$(mktemp -d /tmp/typst-git-nonoverlap.XXXXXX)"
@@ -127,8 +135,9 @@ git add main.typ
 git commit -m "Owner local paragraph A edit" >/dev/null
 
 ONLINE_CONTENT=$'= Merge QA\n\npara A line 1\npara A line 2\npara A line 3\n\npara B line 1\npara B line 2 ONLINE\npara B line 3\n'
+PROJECT_EPOCH="$(api_json GET "/v1/projects/$PROJECT_ID/tree" "$COLLAB_TOKEN" | extract_json_field content_epoch)"
 api_json PUT "/v1/projects/$PROJECT_ID/documents/by-path/main.typ" "$COLLAB_TOKEN" \
-  "$(node -e 'process.stdout.write(JSON.stringify({content: process.argv[1]}))' "$ONLINE_CONTENT")" >/dev/null
+  "$(node -e 'process.stdout.write(JSON.stringify({content: process.argv[1]}))' "$ONLINE_CONTENT")" "$PROJECT_EPOCH" >/dev/null
 
 set +e
 git push origin HEAD:main >/tmp/typst-git-nonoverlap-push.log 2>&1

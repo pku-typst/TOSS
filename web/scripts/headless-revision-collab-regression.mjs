@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? "http://127.0.0.1:18080";
@@ -18,11 +19,13 @@ async function parseJson(res) {
 }
 
 async function api(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -60,18 +63,12 @@ async function registerOrLogin(email, password, displayName) {
 }
 
 async function login(page, email, password) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   const projectsHeading = page.getByRole("heading", { name: "Projects" });
-  if ((await projectsHeading.count()) > 0) {
-    return;
-  }
   const emailInput = page.getByPlaceholder("Email");
-  if ((await emailInput.count()) === 0) {
-    return;
-  }
   await emailInput.fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
   await projectsHeading.waitFor({ timeout: 30000 });
 }
 
@@ -110,12 +107,16 @@ async function main() {
   await api("POST", `/v1/projects/${projectId}/revisions`, token, { summary: "Base" });
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  const contextA = await browser.newContext({
     viewport: { width: 1600, height: 980 },
     locale: "en-US"
   });
-  const pageA = await context.newPage();
-  const pageB = await context.newPage();
+  const contextB = await browser.newContext({
+    viewport: { width: 1600, height: 980 },
+    locale: "en-US"
+  });
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
   const artifacts = [];
 
   try {
@@ -187,9 +188,11 @@ async function main() {
       )
     );
   } catch (error) {
-    const fail = path.join(outDir, "99-failure.png");
-    await pageA.screenshot({ path: fail, fullPage: true }).catch(() => undefined);
-    artifacts.push(fail);
+    const failA = path.join(outDir, "98-failure-a.png");
+    const failB = path.join(outDir, "99-failure-b.png");
+    await pageA.screenshot({ path: failA, fullPage: true }).catch(() => undefined);
+    await pageB.screenshot({ path: failB, fullPage: true }).catch(() => undefined);
+    artifacts.push(failA, failB);
     console.error(
       JSON.stringify(
         {
@@ -205,7 +208,8 @@ async function main() {
   } finally {
     await pageA.close().catch(() => undefined);
     await pageB.close().catch(() => undefined);
-    await context.close().catch(() => undefined);
+    await contextA.close().catch(() => undefined);
+    await contextB.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
 }

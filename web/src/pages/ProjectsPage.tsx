@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
-import { Archive, ArrowRight, Copy, Pencil, Plus } from "lucide-react";
+import { Archive, ArrowRight, Copy, Download, LayoutTemplate, Pencil, Plus } from "lucide-react";
+import { ProviderBrandMark } from "@/components/ProviderBrandMark";
 import { UiBadge, UiButton, UiCard, UiDialog, UiIconButton, UiInput, UiSelect } from "@/components/ui";
 import {
   copyProject,
@@ -9,16 +10,20 @@ import {
   renameProject,
   setProjectArchived,
   type OrganizationMembership,
-  type Project
+  type Project,
+  type ExternalGitProvider
 } from "@/lib/api";
+import { formatDateTime, type Translator, type UiLocale } from "@/lib/i18n";
+import type { ProjectType } from "@/lib/deploymentCapabilities";
 import type { ProjectCopyDialogState, ProjectRenameDialogState } from "@/types/project-ui";
+import { ExternalGitImportDialog } from "@/pages/projects/ExternalGitImportDialog";
 
 function ProjectThumbnail({
   project,
   t
 }: {
   project: Project;
-  t: (key: string) => string;
+  t: Translator;
 }) {
   const [src, setSrc] = useState<string | null>(null);
 
@@ -71,7 +76,9 @@ type ProjectRowProps = {
   onOpenRenameDialog: (project: Project) => void;
   onOpenCopyDialog: (project: Project) => void;
   onToggleProjectArchived: (project: Project) => Promise<void>;
-  t: (key: string) => string;
+  showProjectType: boolean;
+  locale: UiLocale;
+  t: Translator;
 };
 
 function ProjectRow({
@@ -81,30 +88,38 @@ function ProjectRow({
   onOpenRenameDialog,
   onOpenCopyDialog,
   onToggleProjectArchived,
+  showProjectType,
+  locale,
   t
 }: ProjectRowProps) {
   return (
     <div className="projects-row" key={project.id}>
-      <button className="project-title-cell" onClick={() => onOpenProject(project)}>
-        <ProjectThumbnail project={project} t={t} />
-        <div className="project-main">
-          <strong>{project.name}</strong>
-          <div className="project-tags">
-            <UiBadge tone={project.project_type === "latex" ? "success" : "neutral"}>
-              {project.project_type === "latex" ? t("settings.projectTypeLatex") : t("settings.projectTypeTypst")}
-            </UiBadge>
-            {project.is_template && <UiBadge tone="accent">{t("projects.templateBadge")}</UiBadge>}
-            {!project.can_read && <UiBadge tone="warning">{t("projects.templateUseOnly")}</UiBadge>}
+      <nve-button className="project-title-cell" role="button" container="flat" onClick={() => onOpenProject(project)}>
+        <div className="project-title-content">
+          <ProjectThumbnail project={project} t={t} />
+          <div className="project-main">
+            <strong>{project.name}</strong>
+            <div className="project-tags">
+              {showProjectType && (
+                <UiBadge tone={project.project_type === "latex" ? "success" : "neutral"}>
+                  {project.project_type === "latex"
+                    ? t("settings.projectTypeLatex")
+                    : t("settings.projectTypeTypst")}
+                </UiBadge>
+              )}
+              {project.is_template && <UiBadge tone="accent">{t("projects.templateBadge")}</UiBadge>}
+              {!project.can_read && <UiBadge tone="warning">{t("projects.templateUseOnly")}</UiBadge>}
+            </div>
           </div>
         </div>
-      </button>
+      </nve-button>
       <div className="project-owner-cell">
         <span className="project-meta-label">{t("projects.tableOwner")}</span>
         <span className="project-meta-value">{project.owner_display_name}</span>
       </div>
-      <div className="project-edited-cell" title={new Date(project.last_edited_at).toLocaleString()}>
+      <div className="project-edited-cell" title={formatDateTime(locale, project.last_edited_at)}>
         <span className="project-meta-label">{t("projects.tableLastEdited")}</span>
-        <span className="project-meta-value">{formatRelativeTime(project.last_edited_at)}</span>
+        <span className="project-meta-value">{formatRelativeTime(project.last_edited_at, locale)}</span>
       </div>
       <div className="projects-row-actions">
         <UiIconButton
@@ -141,7 +156,7 @@ function ProjectRow({
   );
 }
 
-function formatRelativeTime(iso: string) {
+function formatRelativeTime(iso: string, locale: UiLocale) {
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return iso;
   const diffMs = Date.now() - at;
@@ -177,7 +192,6 @@ function formatRelativeTime(iso: string) {
             : abs < year
               ? "month"
               : "year";
-  const locale = window.navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
   const formatter = new Intl.RelativeTimeFormat(locale, {
     numeric: "auto"
   });
@@ -212,19 +226,43 @@ function updateCopyDialogName(
   );
 }
 
+type NewProjectNameIssue = "required" | "duplicate";
+
+function normalizedProjectName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function newProjectNameIssue(name: string, projects: Project[]): NewProjectNameIssue | null {
+  const normalizedName = normalizedProjectName(name);
+  if (!normalizedName) return "required";
+  return projects.some(
+    (project) => !project.is_template && normalizedProjectName(project.name) === normalizedName
+  )
+    ? "duplicate"
+    : null;
+}
+
 export function ProjectsPage({
   projects,
   organizations,
+  enabledProjectTypes,
+  externalGitProviders,
   refreshProjects,
+  locale,
   t
 }: {
   projects: Project[];
   organizations: OrganizationMembership[];
+  enabledProjectTypes: ProjectType[];
+  externalGitProviders: ExternalGitProvider[];
   refreshProjects: () => Promise<void>;
-  t: (key: string) => string;
+  locale: UiLocale;
+  t: Translator;
 }) {
   const navigate = useNavigate();
   const [name, setName] = useState("");
+  const [nameValidationRequested, setNameValidationRequested] = useState(false);
+  const projectNameInputRef = useRef<HTMLInputElement | null>(null);
   const [newProjectType, setNewProjectType] = useState<"typst" | "latex">("typst");
   const [newLatexEngine, setNewLatexEngine] = useState<"pdftex" | "xetex">("xetex");
   const [search, setSearch] = useState("");
@@ -235,9 +273,20 @@ export function ProjectsPage({
   const [renameDialog, setRenameDialog] = useState<ProjectRenameDialogState | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const latexEnabled = enabledProjectTypes.includes("latex");
+  const showProjectType = enabledProjectTypes.length > 1;
+  const nameIssue = nameValidationRequested ? newProjectNameIssue(name, projects) : null;
+
+  useEffect(() => {
+    if (!latexEnabled && newProjectType !== "typst") {
+      setNewProjectType("typst");
+    }
+  }, [latexEnabled, newProjectType]);
   const filteredProjects = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return projects
+      .filter((project) => !project.is_template)
       .filter((project) => (view === "archived" ? project.archived : !project.archived))
       .filter((project) => {
         if (!keyword) return true;
@@ -311,8 +360,8 @@ export function ProjectsPage({
         err instanceof Error
           ? err.message
           : project.archived
-            ? "Unable to unarchive project"
-            : "Unable to archive project";
+            ? t("projects.unarchiveFailed")
+            : t("projects.archiveFailed");
       setError(message);
     } finally {
       setBusyProjectId(null);
@@ -320,71 +369,136 @@ export function ProjectsPage({
   }
 
   async function createNamedProject() {
-    if (!name.trim()) return;
+    const normalizedName = name.trim();
+    if (newProjectNameIssue(name, projects)) {
+      setError(null);
+      setNameValidationRequested(true);
+      projectNameInputRef.current?.focus();
+      return;
+    }
     try {
       setError(null);
       await createProject({
-        name: name.trim(),
+        name: normalizedName,
         project_type: newProjectType,
         latex_engine: newProjectType === "latex" ? newLatexEngine : undefined
       });
       setName("");
+      setNameValidationRequested(false);
       await refreshProjects();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to create project";
+      const message = err instanceof Error ? err.message : t("projects.createFailed");
       setError(message);
     }
   }
 
   return (
-    <section className="page projects-page">
-      <div className="projects-title-row">
-        <h2>{t("projects.title")}</h2>
-      </div>
-      <UiCard className="projects-create-bar">
-        <strong>{t("projects.createTitle")}</strong>
-        <div className="projects-create-controls">
-          <UiInput
-            className="project-name-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("projects.namePlaceholder")}
-          />
-          <UiSelect
-            className="project-type-select"
-            value={newProjectType}
-            onChange={(e) => setNewProjectType(e.target.value === "latex" ? "latex" : "typst")}
+    <section className="app-page" nve-layout="column gap:lg pad:md @md|pad:xl">
+      <h1 nve-text="heading xl">{t("projects.title")}</h1>
+      <UiCard className="projects-create-card">
+        <div className="projects-create-header">
+          <h2 nve-text="heading sm">{t("projects.createTitle")}</h2>
+          <div nve-layout="row gap:xs align:vertical-center align:wrap">
+            {externalGitProviders.length > 0 && (
+              <UiButton
+                variant="ghost"
+                onClick={() => setImportDialogOpen(true)}
+                data-provider-brand={
+                  externalGitProviders.length === 1
+                    ? externalGitProviders[0]?.brand
+                    : undefined
+                }
+              >
+                {externalGitProviders.length === 1 && externalGitProviders[0] ? (
+                  <ProviderBrandMark
+                    brand={externalGitProviders[0].brand}
+                    size={24}
+                    className="projects-import-provider-mark"
+                  />
+                ) : (
+                  <Download size={16} aria-hidden />
+                )}
+                {t("externalGit.importFrom", {
+                  provider:
+                    externalGitProviders.length === 1
+                      ? externalGitProviders[0]?.display_name ?? t("externalGit.providerGeneric")
+                      : t("externalGit.providerGeneric")
+                })}
+              </UiButton>
+            )}
+            <UiButton variant="ghost" onClick={() => navigate("/gallery")}>
+              <LayoutTemplate size={16} aria-hidden />
+              {t("projects.browseTemplates")}
+            </UiButton>
+          </div>
+        </div>
+        <div nve-layout="grid gap:sm align:vertical-stretch">
+          <div
+            nve-layout={`span:12 @md|span:${
+              !latexEnabled ? "10" : newProjectType === "latex" ? "6" : "7"
+            }`}
           >
-            <option value="typst">{t("settings.projectTypeTypst")}</option>
-            <option value="latex">{t("settings.projectTypeLatex")}</option>
-          </UiSelect>
-          {newProjectType === "latex" && (
-            <UiSelect
-              className="project-engine-select"
-              value={newLatexEngine}
-              onChange={(e) => setNewLatexEngine(e.target.value === "pdftex" ? "pdftex" : "xetex")}
-            >
-              <option value="xetex">XeTeX</option>
-              <option value="pdftex">pdfTeX</option>
-            </UiSelect>
+            <UiInput
+              ref={projectNameInputRef}
+              label={t("projects.namePlaceholder")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("projects.namePlaceholder")}
+              required
+              error={
+                nameIssue === "required"
+                  ? t("projects.nameRequired")
+                  : nameIssue === "duplicate"
+                    ? t("projects.nameDuplicate")
+                    : undefined
+              }
+            />
+          </div>
+          {latexEnabled && (
+            <div nve-layout={`span:12 @md|span:${newProjectType === "latex" ? "2" : "3"}`}>
+              <UiSelect
+                label={t("settings.projectType")}
+                value={newProjectType}
+                onChange={(e) =>
+                  setNewProjectType(e.target.value === "latex" ? "latex" : "typst")
+                }
+              >
+                <option value="typst">{t("settings.projectTypeTypst")}</option>
+                <option value="latex">{t("settings.projectTypeLatex")}</option>
+              </UiSelect>
+            </div>
           )}
-          <UiButton
-            variant="primary"
-            onClick={createNamedProject}
-          >
-            <Plus size={16} />
-            <span>{t("projects.createAction")}</span>
-          </UiButton>
+          {latexEnabled && newProjectType === "latex" && (
+            <div nve-layout="span:12 @md|span:2">
+              <UiSelect
+                label={t("settings.latexEngine")}
+                value={newLatexEngine}
+                onChange={(e) => setNewLatexEngine(e.target.value === "pdftex" ? "pdftex" : "xetex")}
+              >
+                <option value="xetex">XeTeX</option>
+                <option value="pdftex">pdfTeX</option>
+              </UiSelect>
+            </div>
+          )}
+          <div nve-layout="span:12 @md|span:2 column align:right align:bottom">
+            <UiButton variant="primary" onClick={createNamedProject}>
+              <Plus size={16} />
+              <span>{t("projects.createAction")}</span>
+            </UiButton>
+          </div>
         </div>
       </UiCard>
-      <UiCard className="projects-controls">
+      <UiCard
+        className="projects-filter-card"
+        contentLayout="column gap:sm pad:lg align:horizontal-stretch"
+      >
         <UiInput
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("projects.searchPlaceholder")}
           aria-label={t("projects.searchPlaceholder")}
         />
-        <div className="toolbar compact-left">
+        <div nve-layout="row gap:xs align:vertical-center">
           <UiButton variant={view === "active" ? "primary" : "secondary"} onClick={() => setView("active")}>
             {t("projects.active")}
           </UiButton>
@@ -393,7 +507,10 @@ export function ProjectsPage({
           </UiButton>
         </div>
       </UiCard>
-      <UiCard className="projects-table-shell">
+      <UiCard
+        className="projects-table-card"
+        contentLayout="column gap:sm pad:lg align:horizontal-stretch"
+      >
         <div className="projects-grid-header">
           <span>{t("projects.tableTitle")}</span>
           <span>{t("projects.tableOwner")}</span>
@@ -410,20 +527,22 @@ export function ProjectsPage({
               onOpenRenameDialog={openRenameDialog}
               onOpenCopyDialog={openCopyDialog}
               onToggleProjectArchived={toggleProjectArchived}
+              showProjectType={showProjectType}
+              locale={locale}
               t={t}
             />
           ))}
           {filteredProjects.length === 0 && <div className="projects-empty">{t("projects.empty")}</div>}
         </div>
       </UiCard>
-      <UiCard className="projects-org-memberships">
-        <strong>{t("projects.organizations")}</strong>
-        <div className="projects-org-list">
+      <UiCard className="projects-organizations-card">
+        <h2 nve-text="heading sm">{t("projects.organizations")}</h2>
+        <div nve-layout="row gap:xs align:vertical-center align:wrap">
           {organizations.length > 0 ? (
             organizations.map((org) => (
-              <span key={org.organization_id} className="org-pill">
+              <UiBadge key={org.organization_id} tone="neutral">
                 {org.organization_name}
-              </span>
+              </UiBadge>
             ))
           ) : (
             <span className="muted">{t("projects.noOrganizations")}</span>
@@ -445,6 +564,7 @@ export function ProjectsPage({
         }
       >
         <UiInput
+          label={t("projects.namePlaceholder")}
           value={renameDialog?.nextName ?? ""}
           onChange={(e) => updateRenameDialogName(e.target.value, setRenameDialog)}
           placeholder={t("projects.namePlaceholder")}
@@ -465,12 +585,30 @@ export function ProjectsPage({
         }
       >
         <UiInput
+          label={t("projects.namePlaceholder")}
           value={copyDialog?.suggestedName ?? ""}
           onChange={(e) => updateCopyDialogName(e.target.value, setCopyDialog)}
           placeholder={t("projects.namePlaceholder")}
         />
       </UiDialog>
       {error && <div className="error">{error}</div>}
+      {externalGitProviders.length > 0 && (
+        <ExternalGitImportDialog
+          open={importDialogOpen}
+          providers={externalGitProviders}
+          enabledProjectTypes={enabledProjectTypes}
+          onClose={() => {
+            setImportDialogOpen(false);
+            void refreshProjects();
+          }}
+          onComplete={async (projectId) => {
+            await refreshProjects();
+            setImportDialogOpen(false);
+            navigate(`/project/${projectId}`);
+          }}
+          t={t}
+        />
+      )}
     </section>
   );
 }

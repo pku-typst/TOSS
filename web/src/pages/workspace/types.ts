@@ -3,6 +3,12 @@ export type ProjectNode = {
   kind: "file" | "directory";
 };
 
+export type DocumentIdentity = {
+  id: string;
+  pathRevision: number;
+  collaborationRevision: number;
+};
+
 export type ProjectTreeNodeView = {
   name: string;
   path: string;
@@ -12,7 +18,7 @@ export type ProjectTreeNodeView = {
 
 export type AssetMeta = {
   id?: string;
-  objectKey?: string;
+  contentRevision?: string;
   contentType: string;
   sizeBytes?: number;
   createdAt?: string;
@@ -48,5 +54,12 @@ export type WorkspaceLayoutPrefs = {
   revisionsWidth: number;
   editorRatio: number;
 };
+
+export type WorkspacePanelView =
+  | "editor"
+  | "files"
+  | "preview"
+  | "settings"
+  | "revisions";
 
 export type PreviewFitMode = "manual" | "page" | "width";

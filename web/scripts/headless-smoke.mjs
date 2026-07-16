@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { projectContentEpochHeader } from "./lib/project-content-epoch.mjs";
 
 const baseUrl = process.env.WEB_BASE_URL ?? "http://127.0.0.1:18080";
 const coreApi = process.env.CORE_API_URL ?? baseUrl;
@@ -33,11 +34,13 @@ async function parseJson(res) {
 }
 
 async function bearerApi(method, route, token, body) {
+  const contentEpochHeader = await projectContentEpochHeader(coreApi, method, route, token);
   const res = await fetch(`${coreApi}${route}`, {
     method,
     headers: {
       ...(body ? { "content-type": "application/json" } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...contentEpochHeader
     },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -94,11 +97,12 @@ async function registerOrLogin(email, password, displayName) {
 }
 
 async function login(page, email, password) {
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.getByPlaceholder("Email").fill(email);
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
   await page.getByRole("heading", { name: "Projects" }).waitFor({ timeout: 30000 });
+  await assertStandardPageLayout(page);
 }
 
 async function openWorkspace(page, projectId) {
@@ -108,6 +112,15 @@ async function openWorkspace(page, projectId) {
   });
   await page.locator(".panel-editor .panel-header h2").first().waitFor({ timeout: 30000 });
   await page.locator(".tree-label", { hasText: "main.typ" }).first().waitFor({ timeout: 30000 });
+}
+
+async function openSettingsStorage(page) {
+  const storageTab = page.getByRole("tab", { name: "Storage" });
+  await storageTab.waitFor({ timeout: 10000 });
+  if ((await storageTab.getAttribute("aria-selected")) !== "true") {
+    await storageTab.click();
+  }
+  await page.getByText("Git access").waitFor({ timeout: 10000 });
 }
 
 async function waitForActiveFile(page, filePath, timeoutMs = 10000) {
@@ -168,17 +181,54 @@ async function assertVisiblePreviewPage(page) {
     const maxWidth = sizes.reduce((m, s) => Math.max(m, s.width), 0);
     const maxHeight = sizes.reduce((m, s) => Math.max(m, s.height), 0);
     const zoomText = document.querySelector(".zoom-indicator")?.textContent?.trim() || "";
-    return { count: nodes.length, maxWidth, maxHeight, zoomText };
+    const typstCanvases = Array.from(
+      document.querySelectorAll(".pdf-frame canvas[data-typst-ready='true']")
+    );
+    const maxBackingRatio = typstCanvases.reduce((maxRatio, canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return maxRatio;
+      return Math.max(maxRatio, canvas.width / rect.width, canvas.height / rect.height);
+    }, 0);
+    const semanticLayers = document.querySelectorAll(
+      ".pdf-frame .typst-html-semantics, .pdf-frame .typst-semantic-layer"
+    ).length;
+    return {
+      count: nodes.length,
+      maxWidth,
+      maxHeight,
+      zoomText,
+      maxBackingRatio,
+      semanticLayers,
+      devicePixelRatio: window.devicePixelRatio || 1
+    };
   });
   if (metrics.count < 1 || metrics.maxWidth < 120 || metrics.maxHeight < 120) {
     throw new Error(
       `Preview page looks collapsed (count=${metrics.count}, maxWidth=${metrics.maxWidth}, maxHeight=${metrics.maxHeight}, zoom=${metrics.zoomText})`
     );
   }
+  if (metrics.semanticLayers > 0) {
+    throw new Error(`Canvas preview rendered unused semantic layers (${metrics.semanticLayers})`);
+  }
+  if (metrics.maxBackingRatio > Math.max(1, metrics.devicePixelRatio) * 1.75) {
+    throw new Error(
+      `Canvas backing bitmap is oversized (ratio=${metrics.maxBackingRatio.toFixed(2)}, dpr=${metrics.devicePixelRatio})`
+    );
+  }
 }
 
 async function assertWorkspaceLayout(page) {
   const metrics = await page.evaluate(() => {
+    const resolveBackground = (value) => {
+      const probe = document.createElement("span");
+      probe.style.position = "fixed";
+      probe.style.pointerEvents = "none";
+      probe.style.background = value;
+      document.body.append(probe);
+      const background = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return background;
+    };
     const stage = document.querySelector(".workspace-stage")?.getBoundingClientRect();
     const shell = document.querySelector(".workspace-shell")?.getBoundingClientRect();
     const app = document.querySelector(".app-shell")?.getBoundingClientRect();
@@ -188,6 +238,58 @@ async function assertWorkspaceLayout(page) {
     const previewFrame = document.querySelector(".pdf-frame")?.getBoundingClientRect();
     const toggles = document.querySelectorAll(".workspace-icon-toggles .icon-toggle").length;
     const rootHeight = document.documentElement.clientHeight;
+    const editor = document.querySelector(".cm-editor");
+    const editorScroller = document.querySelector(".cm-scroller");
+    const editorGutters = document.querySelector(".cm-gutters");
+    const editorBody = document.querySelector(".cm-content");
+    const syntaxColors = new Set(
+      Array.from(document.querySelectorAll(".cm-line span"))
+        .map((node) => getComputedStyle(node).color)
+        .filter(Boolean)
+    );
+    const paintedButtonHosts = Array.from(document.querySelectorAll("nve-button")).filter(
+      (node) => {
+        const style = getComputedStyle(node);
+        const background = style.backgroundColor;
+        const transparent =
+          background === "transparent" ||
+          background === "rgba(0, 0, 0, 0)" ||
+          /\/\s*0\s*\)$/.test(background);
+        return (
+          !transparent ||
+          style.backgroundImage !== "none" ||
+          parseFloat(style.borderTopWidth) > 0 ||
+          parseFloat(style.paddingTop) > 0 ||
+          parseFloat(style.paddingLeft) > 0
+        );
+      }
+    );
+    const topbarOutOfBounds = Array.from(
+      document.querySelectorAll(".topbar nve-button, .topbar .workspace-project-menu-wrap")
+    ).filter((node) => {
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      return rect.left < -0.5 || rect.right > document.documentElement.clientWidth + 0.5;
+    });
+    const accountMeta = document.querySelector(".topbar.workspace .workspace-meta");
+    const accountLabel = accountMeta?.querySelector("span");
+    const accountButton = accountMeta?.querySelector("nve-button");
+    const workspaceButton = Array.from(
+      document.querySelectorAll(".workspace-icon-toggles nve-button")
+    ).find((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    const accountLabelRect = accountLabel?.getBoundingClientRect();
+    const accountButtonRect = accountButton?.getBoundingClientRect();
+    const workspaceButtonRect = workspaceButton?.getBoundingClientRect();
+    const activeToggle = document.querySelector("nve-button.icon-toggle.active");
+    const activeToggleInternal = activeToggle?.shadowRoot?.querySelector("[internal-host]");
+    const selectedTreeNode = document.querySelector(".tree-node.active");
+    const activeEditorLine = document.querySelector(".cm-activeLine");
+    const firstPanel = document.querySelector(".workspace-stage .panel");
+    const firstPanelHeader = firstPanel?.querySelector(".panel-header");
+    const workspaceShell = document.querySelector(".workspace-shell");
     return {
       stageBottomGap: stage ? Math.max(0, rootHeight - stage.bottom) : 999,
       stageTop: stage?.top ?? -1,
@@ -200,7 +302,46 @@ async function assertWorkspaceLayout(page) {
       editorPadding: editorContent ? getComputedStyle(editorContent).padding : "missing",
       previewHeightDelta:
         previewContent && previewFrame ? Math.abs(previewContent.height - previewFrame.height) : 999,
-      toggles
+      toggles,
+      editorDisplay: editor ? getComputedStyle(editor).display : "missing",
+      editorFont: editorScroller ? getComputedStyle(editorScroller).fontFamily : "missing",
+      editorGutterDisplay: editorGutters ? getComputedStyle(editorGutters).display : "missing",
+      editorWhiteSpace: editorBody ? getComputedStyle(editorBody).whiteSpace : "missing",
+      syntaxColorCount: syntaxColors.size,
+      paintedButtonHostCount: paintedButtonHosts.length,
+      topbarOutOfBoundsCount: topbarOutOfBounds.length,
+      accountFlexWrap: accountMeta ? getComputedStyle(accountMeta).flexWrap : "missing",
+      accountLabelHeight: accountLabelRect?.height ?? 0,
+      accountLabelButtonCenterDelta:
+        accountLabelRect && accountButtonRect
+          ? Math.abs(
+              accountLabelRect.top + accountLabelRect.height / 2 -
+                (accountButtonRect.top + accountButtonRect.height / 2)
+            )
+          : 999,
+      accountButtonCenterDelta:
+        accountButtonRect && workspaceButtonRect
+          ? Math.abs(
+              accountButtonRect.top + accountButtonRect.height / 2 -
+                (workspaceButtonRect.top + workspaceButtonRect.height / 2)
+            )
+          : 999,
+      brandBackground: resolveBackground("var(--toss-brand-primary)"),
+      selectedBackground: resolveBackground("var(--toss-surface-selected)"),
+      activeLineBackgroundToken: resolveBackground("var(--toss-brand-subtle)"),
+      activeToggleBackground: activeToggleInternal
+        ? getComputedStyle(activeToggleInternal).backgroundColor
+        : "missing",
+      selectedTreeBackground: selectedTreeNode
+        ? getComputedStyle(selectedTreeNode).backgroundColor
+        : "missing",
+      activeEditorLineBackground: activeEditorLine
+        ? getComputedStyle(activeEditorLine).backgroundColor
+        : "missing",
+      panelRadius: firstPanel ? parseFloat(getComputedStyle(firstPanel).borderRadius) || 0 : 999,
+      panelShadow: firstPanel ? getComputedStyle(firstPanel).boxShadow : "missing",
+      panelHeaderHeight: firstPanelHeader?.getBoundingClientRect().height ?? 999,
+      workspacePadding: workspaceShell ? getComputedStyle(workspaceShell).padding : "missing"
     };
   });
   if (metrics.toggles < 4) throw new Error("panel icon toggles are missing");
@@ -211,6 +352,356 @@ async function assertWorkspaceLayout(page) {
   if (metrics.stageBottomGap > 20) {
     throw new Error(
       `workspace leaves large bottom gap (${metrics.stageBottomGap}px, stageTop=${metrics.stageTop}, stageHeight=${metrics.stageHeight}, shellHeight=${metrics.shellHeight}, shellGap=${metrics.shellBottomGap}, appHeight=${metrics.appHeight}, appGap=${metrics.appBottomGap}, topbar=${metrics.topbarHeight})`
+    );
+  }
+  if (metrics.editorDisplay !== "flex" || metrics.editorGutterDisplay !== "flex") {
+    throw new Error(
+      `CodeMirror base theme is missing (editor=${metrics.editorDisplay}, gutters=${metrics.editorGutterDisplay})`
+    );
+  }
+  if (!/mono/i.test(metrics.editorFont) || !/^(pre|break-spaces)$/.test(metrics.editorWhiteSpace)) {
+    throw new Error(
+      `CodeMirror typography is missing (font=${metrics.editorFont}, whiteSpace=${metrics.editorWhiteSpace})`
+    );
+  }
+  if (metrics.syntaxColorCount < 2) {
+    throw new Error(`CodeMirror syntax highlighting is missing (colors=${metrics.syntaxColorCount})`);
+  }
+  if (metrics.paintedButtonHostCount > 0) {
+    throw new Error(
+      `Elements buttons have duplicate host-level paint (count=${metrics.paintedButtonHostCount})`
+    );
+  }
+  if (metrics.topbarOutOfBoundsCount > 0) {
+    throw new Error(`Workspace topbar controls overflow the viewport (count=${metrics.topbarOutOfBoundsCount})`);
+  }
+  if (
+    metrics.accountFlexWrap !== "nowrap" ||
+    metrics.accountLabelHeight < 12 ||
+    metrics.accountLabelButtonCenterDelta > 1.5 ||
+    metrics.accountButtonCenterDelta > 1.5
+  ) {
+    throw new Error(
+      `Workspace account controls are misaligned (wrap=${metrics.accountFlexWrap}, labelHeight=${metrics.accountLabelHeight}, labelDelta=${metrics.accountLabelButtonCenterDelta}, buttonDelta=${metrics.accountButtonCenterDelta})`
+    );
+  }
+  if (
+    metrics.activeToggleBackground !== metrics.brandBackground ||
+    metrics.selectedTreeBackground !== metrics.selectedBackground ||
+    metrics.activeEditorLineBackground !== metrics.activeLineBackgroundToken
+  ) {
+    throw new Error(
+      `Workspace semantic accent states drifted: ${JSON.stringify({
+        brand: metrics.brandBackground,
+        activeToggle: metrics.activeToggleBackground,
+        selected: metrics.selectedBackground,
+        selectedTree: metrics.selectedTreeBackground,
+        activeLine: metrics.activeLineBackgroundToken,
+        editorLine: metrics.activeEditorLineBackground
+      })}`
+    );
+  }
+  if (
+    metrics.panelRadius > 6.5 ||
+    metrics.panelShadow !== "none" ||
+    metrics.panelHeaderHeight > 39 ||
+    metrics.workspacePadding !== "0px"
+  ) {
+    throw new Error(
+      `Workspace editor density drifted: ${JSON.stringify({
+        panelRadius: metrics.panelRadius,
+        panelShadow: metrics.panelShadow,
+        panelHeaderHeight: metrics.panelHeaderHeight,
+        workspacePadding: metrics.workspacePadding
+      })}`
+    );
+  }
+}
+
+async function assertElementsOverlays(page) {
+  if (await page.locator("nve-tooltip:popover-open").count()) {
+    throw new Error("Elements tooltip is open before its trigger is hovered");
+  }
+
+  const tooltipTrigger = page.locator(".ui-tooltip-trigger:visible").first();
+  await tooltipTrigger.hover();
+  await page.locator("nve-tooltip:popover-open").waitFor({ timeout: 3000 });
+  if ((await page.locator("nve-tooltip:popover-open").count()) !== 1) {
+    throw new Error("Elements tooltip did not open exactly once");
+  }
+  await page.mouse.move(600, 600);
+  await page.waitForFunction(() => !document.querySelector("nve-tooltip:popover-open"));
+
+  const pageIndicator = page.locator(".preview-page-indicator");
+  await pageIndicator.click();
+  const pageJump = page.locator("#preview-page-jump:popover-open");
+  await pageJump.waitFor({ timeout: 3000 });
+  const pageJumpMetrics = await pageJump.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const input = node.querySelector("input");
+    return {
+      inputValue: input?.value ?? "",
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      viewportWidth: document.documentElement.clientWidth,
+      viewportHeight: document.documentElement.clientHeight
+    };
+  });
+  if (
+    !/^\d+$/.test(pageJumpMetrics.inputValue) ||
+    pageJumpMetrics.left < 0 ||
+    pageJumpMetrics.top < 0 ||
+    pageJumpMetrics.right > pageJumpMetrics.viewportWidth ||
+    pageJumpMetrics.bottom > pageJumpMetrics.viewportHeight
+  ) {
+    throw new Error(`Elements page jump popover is invalid: ${JSON.stringify(pageJumpMetrics)}`);
+  }
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector("#preview-page-jump:popover-open"));
+}
+
+async function assertPreviewPagination(page) {
+  await page.waitForFunction(
+    () => document.querySelectorAll(".pdf-frame .typst-page").length === 3,
+    null,
+    { timeout: 15000 }
+  );
+
+  const waitForPage = (current) =>
+    page.waitForFunction(
+      (expected) => {
+        const label = document.querySelector(".preview-page-indicator")?.textContent || "";
+        return label.includes(`${expected}/3`);
+      },
+      current,
+      { timeout: 3000 }
+    );
+
+  const alignment = await page.evaluate(() => {
+    const textBounds = (element) => {
+      if (!element) return null;
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect();
+    };
+    const title = textBounds(document.querySelector(".preview-title-group h2"));
+    const indicator = textBounds(document.querySelector(".preview-page-indicator"));
+    return {
+      titleCenter: title ? (title.top + title.bottom) / 2 : null,
+      indicatorCenter: indicator ? (indicator.top + indicator.bottom) / 2 : null
+    };
+  });
+  if (
+    alignment.titleCenter === null ||
+    alignment.indicatorCenter === null ||
+    Math.abs(alignment.titleCenter - alignment.indicatorCenter) > 1
+  ) {
+    throw new Error(`Preview title and page indicator are misaligned: ${JSON.stringify(alignment)}`);
+  }
+
+  await page.evaluate(() => {
+    const frame = document.querySelector(".pdf-frame");
+    if (frame) frame.scrollTop = 0;
+  });
+  await waitForPage(1);
+
+  await page.evaluate(() => {
+    const frame = document.querySelector(".pdf-frame");
+    if (frame) frame.scrollTop = frame.scrollHeight - frame.clientHeight;
+  });
+  await waitForPage(3);
+
+  await page.locator(".preview-page-indicator").click();
+  const pageJump = page.locator("#preview-page-jump:popover-open");
+  await pageJump.waitFor({ timeout: 3000 });
+  await pageJump.locator("input").fill("2");
+  await pageJump.locator("nve-button").click();
+  await page.waitForFunction(() => !document.querySelector("#preview-page-jump:popover-open"));
+  await waitForPage(2);
+
+  const jumpMetrics = await page.evaluate(() => {
+    const frame = document.querySelector(".pdf-frame");
+    if (!frame) return null;
+    return {
+      scrollTop: frame.scrollTop,
+      maxScrollTop: frame.scrollHeight - frame.clientHeight
+    };
+  });
+  if (
+    !jumpMetrics ||
+    jumpMetrics.maxScrollTop <= 0 ||
+    jumpMetrics.scrollTop <= 0 ||
+    jumpMetrics.scrollTop >= jumpMetrics.maxScrollTop
+  ) {
+    throw new Error(`Preview page jump did not reach page 2: ${JSON.stringify(jumpMetrics)}`);
+  }
+}
+
+async function assertMobileWorkspaceLayout(page) {
+  const metrics = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const settings = document.querySelector(".panel-settings");
+    const settingsRect = settings?.getBoundingClientRect();
+    const settingsContent = settings?.querySelector(":scope > .panel-content");
+    const cards = Array.from(
+      settingsContent?.querySelectorAll(".settings-tab-panel nve-card.ui-card") ?? []
+    );
+    const visibleControls = Array.from(
+      settings?.querySelectorAll("nve-input, nve-select, nve-button, nve-icon-button, nve-checkbox") ?? []
+    ).filter((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    const outOfBoundsControls = visibleControls.filter((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.left < -0.5 || rect.right > viewportWidth + 0.5;
+    });
+    const clippedCards = cards.filter(
+      (card) => card.scrollHeight > card.clientHeight + 2
+    );
+    const copyButton = Array.from(
+      settings?.querySelectorAll("nve-button, nve-icon-button") ?? []
+    ).find((node) =>
+      /^(Copy|Copied)$/.test(
+        node.getAttribute("aria-label") || node.textContent?.trim() || ""
+      )
+    );
+    const copyRect = copyButton?.getBoundingClientRect();
+    const topbarOutOfBounds = Array.from(
+      document.querySelectorAll(".topbar nve-button, .topbar .workspace-project-menu-wrap")
+    ).filter((node) => {
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      return rect.left < -0.5 || rect.right > viewportWidth + 0.5;
+    });
+    return {
+      viewportWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      settingsLeft: settingsRect?.left ?? -1,
+      settingsRight: settingsRect?.right ?? -1,
+      settingsWidth: settingsRect?.width ?? -1,
+      settingsContentOverflow: settingsContent
+        ? settingsContent.scrollWidth - settingsContent.clientWidth
+        : 999,
+      cardCount: cards.length,
+      clippedCardCount: clippedCards.length,
+      copyButtonVisible: !!copyRect && copyRect.width > 0 && copyRect.height > 0,
+      outOfBoundsControlCount: outOfBoundsControls.length,
+      topbarOutOfBoundsCount: topbarOutOfBounds.length
+    };
+  });
+  if (
+    metrics.documentScrollWidth > metrics.viewportWidth + 1 ||
+    metrics.settingsLeft > 10 ||
+    metrics.settingsRight < metrics.viewportWidth - 10 ||
+    metrics.settingsWidth < metrics.viewportWidth - 20
+  ) {
+    throw new Error(`Mobile workspace does not fill the viewport: ${JSON.stringify(metrics)}`);
+  }
+  if (
+    metrics.settingsContentOverflow > 1 ||
+    metrics.outOfBoundsControlCount > 0 ||
+    metrics.topbarOutOfBoundsCount > 0
+  ) {
+    throw new Error(`Mobile settings controls overflow: ${JSON.stringify(metrics)}`);
+  }
+  if (
+    metrics.cardCount < 2 ||
+    metrics.clippedCardCount > 0 ||
+    !metrics.copyButtonVisible
+  ) {
+    throw new Error(`Mobile settings content is clipped or missing: ${JSON.stringify(metrics)}`);
+  }
+}
+
+async function assertStandardPageLayout(page) {
+  const metrics = await page.evaluate(() => {
+    const resolveBackground = (value) => {
+      const probe = document.createElement("span");
+      probe.style.background = value;
+      document.body.append(probe);
+      const background = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return background;
+    };
+    const pageNode = document.querySelector(".app-page");
+    const pageRect = pageNode?.getBoundingClientRect();
+    const controls = Array.from(
+      document.querySelectorAll(
+        ".app-page nve-input, .app-page nve-select, .app-page nve-button, .app-page nve-checkbox"
+      )
+    ).filter((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    let overlappingControlPairs = 0;
+    for (let i = 0; i < controls.length; i += 1) {
+      for (let j = i + 1; j < controls.length; j += 1) {
+        if (controls[i].contains(controls[j]) || controls[j].contains(controls[i])) continue;
+        const left = controls[i].getBoundingClientRect();
+        const right = controls[j].getBoundingClientRect();
+        const overlapX = Math.min(left.right, right.right) - Math.max(left.left, right.left);
+        const overlapY = Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top);
+        if (overlapX > 1 && overlapY > 1) overlappingControlPairs += 1;
+      }
+    }
+    const collapsedCardLayouts = Array.from(
+      document.querySelectorAll(".app-page nve-card-content.ui-card-layout")
+    ).filter((node) => {
+      if (node.closest(".projects-table-card")) return false;
+      const style = getComputedStyle(node);
+      return Math.max(parseFloat(style.rowGap) || 0, parseFloat(style.columnGap) || 0) < 4;
+    });
+    const projectRow = document.querySelector(".projects-row");
+    const createCard = document.querySelector(".projects-create-card");
+    return {
+      pageLeft: pageRect?.left ?? -1,
+      pageRight: pageRect?.right ?? -1,
+      viewportWidth: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      topbarOverflowCount: Array.from(
+        document.querySelectorAll(".topbar nve-button, .topbar nve-icon-button, .topbar nve-dropdown")
+      ).filter((node) => {
+        const rect = node.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        return rect.left < -0.5 || rect.right > document.documentElement.clientWidth + 0.5;
+      }).length,
+      overlappingControlPairs,
+      collapsedCardLayoutCount: collapsedCardLayouts.length,
+      projectRowRadius: projectRow ? parseFloat(getComputedStyle(projectRow).borderRadius) || 0 : 0,
+      projectRowShadow: projectRow ? getComputedStyle(projectRow).boxShadow : "none",
+      brandBackground: resolveBackground("var(--toss-brand-primary)"),
+      createCardAccent: createCard ? getComputedStyle(createCard).borderTopColor : "missing"
+    };
+  });
+  if (
+    metrics.pageLeft < -0.5 ||
+    metrics.pageRight > metrics.viewportWidth + 0.5 ||
+    metrics.documentScrollWidth > metrics.viewportWidth + 1 ||
+    metrics.topbarOverflowCount > 0
+  ) {
+    throw new Error(`Standard page overflows the viewport: ${JSON.stringify(metrics)}`);
+  }
+  if (metrics.overlappingControlPairs > 0) {
+    throw new Error(`Standard page controls overlap (pairs=${metrics.overlappingControlPairs})`);
+  }
+  if (metrics.collapsedCardLayoutCount > 0) {
+    throw new Error(`Standard page card spacing collapsed (count=${metrics.collapsedCardLayoutCount})`);
+  }
+  if (
+    metrics.projectRowRadius > 0.5 ||
+    metrics.projectRowShadow !== "none" ||
+    metrics.createCardAccent !== metrics.brandBackground
+  ) {
+    throw new Error(
+      `Project page design system drifted: ${JSON.stringify({
+        rowRadius: metrics.projectRowRadius,
+        rowShadow: metrics.projectRowShadow,
+        createAccent: metrics.createCardAccent,
+        brand: metrics.brandBackground
+      })}`
     );
   }
 }
@@ -294,7 +785,8 @@ function contextMenuAction(page, label) {
   return page
     .locator(".context-menu-floating:visible")
     .last()
-    .getByRole("button", { name: new RegExp(`^\\s*${escaped}\\s*$`) })
+    .locator("nve-menu-item, button")
+    .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`) })
     .first();
 }
 
@@ -304,9 +796,9 @@ async function ensureDirectoryExpanded(page, name) {
     const row = treeNode(page, name);
     await row.waitFor({ timeout: 4000 });
     const toggle = row.locator(".tree-toggle").first();
-    const symbol = (await toggle.textContent())?.trim();
-    if (symbol === "▾") return;
-    if (symbol === "▸") {
+    const toggleLabel = (await toggle.getAttribute("aria-label")) || "";
+    if (toggleLabel.startsWith("Collapse ")) return;
+    if (toggleLabel.startsWith("Expand ")) {
       await row.locator(".tree-label").first().click();
       await wait(120);
       continue;
@@ -332,7 +824,7 @@ async function waitForEditorContains(page, snippet, timeoutMs = 15000) {
 async function openContextMenu(page, name, method = "button") {
   const row = treeNode(page, name);
   if (method === "right") await row.click({ button: "right" });
-  else await row.locator("button.mini").first().click();
+  else await row.locator(".mini").first().click();
   await page.locator(".context-menu-floating").first().waitFor({ timeout: 10000 });
 }
 
@@ -359,6 +851,42 @@ const contextB = await browser.newContext({
   locale: "en-US"
 });
 await contextA.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
+await contextA.addInitScript(() => {
+  window.__tossTypstCompileFrames = [];
+  window.__tossTypstCompileRequests = [];
+  window.__tossTypstPrewarmRequests = 0;
+  const NativeWorker = window.Worker;
+  window.Worker = class InstrumentedWorker extends NativeWorker {
+    constructor(...args) {
+      super(...args);
+      this.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data || typeof data.id !== "number" || !data.vectorMode) return;
+        window.__tossTypstCompileFrames.push({
+          mode: data.vectorMode,
+          vectorBytes: data.vectorBytes?.byteLength ?? 0
+        });
+      });
+    }
+
+    postMessage(data, ...rest) {
+      if (data?.kind === "prewarm") {
+        window.__tossTypstPrewarmRequests += 1;
+      }
+      if (data?.kind === "compile") {
+        window.__tossTypstCompileRequests.push({
+          resetWorkspace: data.resetWorkspace === true,
+          documentUpserts: data.documentUpserts?.length ?? 0,
+          documentDeletes: data.documentDeletes?.length ?? 0,
+          assetUpserts: data.assetUpserts?.length ?? 0,
+          assetDeletes: data.assetDeletes?.length ?? 0,
+          fontCount: data.fontData?.length ?? 0
+        });
+      }
+      return super.postMessage(data, ...rest);
+    }
+  };
+});
 const pageA = await contextA.newPage();
 const pageB = await contextB.newPage();
 const browserErrors = [];
@@ -400,9 +928,8 @@ try {
   const simpleSvg = new TextEncoder().encode(
     '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#2f7d4a"/></svg>'
   );
-  const bibText = new TextEncoder().encode(
-    "@article{smoke2026,\n  title = {Headless Smoke},\n  author = {Tester, A.}\n}\n"
-  );
+  const bibText =
+    "@article{smoke2026,\n  title = {Headless Smoke},\n  author = {Tester, A.}\n}\n";
   const rawBinary = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 255, 254, 253, 252]);
   const tempUploadFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "typst-upload-")), "upload.typ");
   await fs.writeFile(tempUploadFile, "= Uploaded From UI\n\nThis file came from file chooser.\n", "utf8");
@@ -431,6 +958,7 @@ try {
     owner.sessionToken,
     {
       content: [
+        "#set page(width: 16cm, height: 9cm)",
         '#import "@preview/cetz:0.4.2": *',
         '#import "chapters/intro.typ": intro',
         '#set text(font: "Libertinus Serif")',
@@ -439,11 +967,17 @@ try {
         "",
         "#intro",
         "",
-        '#image("figures/shape.svg", width: 20pt)'
+        '#image("figures/shape.svg", width: 20pt)',
+        "",
+        "#pagebreak()",
+        "= Smoke Page Two",
+        "",
+        "#pagebreak()",
+        "= Smoke Page Three"
       ].join("\n")
     }
   );
-  await bearerApi("PUT", `/v1/projects/${projectId}/settings`, owner.sessionToken, {
+  await bearerApi("PATCH", `/v1/projects/${projectId}/settings/entry-file`, owner.sessionToken, {
     entry_file_path: "main.typ"
   });
   await bearerApi("POST", `/v1/projects/${projectId}/assets`, owner.sessionToken, {
@@ -463,15 +997,21 @@ try {
     content_base64: Buffer.from(rawBinary).toString("base64"),
     content_type: "application/octet-stream"
   });
-  // Intentionally uploaded as asset to verify backend migration into editable text document.
-  await bearerApi("POST", `/v1/projects/${projectId}/assets`, owner.sessionToken, {
-    path: "refs/library.bib",
-    content_base64: Buffer.from(bibText).toString("base64"),
-    content_type: "application/octet-stream"
-  });
+  await bearerApi(
+    "PUT",
+    `/v1/projects/${projectId}/documents/by-path/${encodeURIComponent("refs/library.bib")}`,
+    owner.sessionToken,
+    { content: bibText }
+  );
 
   await login(pageA, owner.email, owner.password);
   currentStep = "login-owner";
+  await pageA.setViewportSize({ width: 390, height: 844 });
+  await assertStandardPageLayout(pageA);
+  const mobileProjectsShot = path.join(outDir, "00-projects-mobile.png");
+  await pageA.screenshot({ path: mobileProjectsShot, fullPage: true });
+  artifacts.push(mobileProjectsShot);
+  await pageA.setViewportSize({ width: 1620, height: 1020 });
   await login(pageB, collaborator.email, collaborator.password);
   currentStep = "login-collaborator";
   await openWorkspace(pageA, projectId);
@@ -481,8 +1021,15 @@ try {
   await waitForActiveFile(pageA, "main.typ", 15000);
   await waitForActiveFile(pageB, "main.typ", 15000);
   await waitForCanvas(pageA, 60000);
+  const prewarmRequests = await pageA.evaluate(() => window.__tossTypstPrewarmRequests);
+  if (prewarmRequests < 1) {
+    throw new Error("Typst compiler prewarm did not run before the initial preview");
+  }
   await assertVisiblePreviewPage(pageA);
   await assertWorkspaceLayout(pageA);
+  currentStep = "preview-pagination";
+  await assertPreviewPagination(pageA);
+  await assertElementsOverlays(pageA);
   await ensureDirectoryExpanded(pageA, "refs");
   await pageA.locator(".tree-label", { hasText: "library.bib" }).first().click();
   currentStep = "editable-bib-file";
@@ -506,6 +1053,7 @@ try {
   if ((await pageA.locator(".panel-files").count()) === 0) {
     await pageA.getByRole("button", { name: "Files" }).click();
   }
+  currentStep = "resize-layout";
   const filesHandle = pageA.locator(".workspace-stage > .panel-resizer").first();
   const splitHandle = pageA.locator(".center-split > .panel-resizer").first();
   await dragHandleX(pageA, filesHandle, 64, "files resizer");
@@ -523,9 +1071,25 @@ try {
   if (widthsAfterDrag.editor > widthsBefore.editor - 40) {
     throw new Error("editor/preview split resize did not apply");
   }
+  await pageA.waitForFunction(
+    () => {
+      const raw = window.localStorage.getItem("workspace.layout.v2");
+      const filesWidth = document.querySelector(".panel-files")?.getBoundingClientRect().width ?? 0;
+      if (!raw || filesWidth <= 0) return false;
+      try {
+        const stored = JSON.parse(raw);
+        return Math.abs(Number(stored.filesWidth) - filesWidth) <= 6;
+      } catch {
+        return false;
+      }
+    },
+    null,
+    { timeout: 2000 }
+  );
 
   await pageA.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
   await pageA.locator(".panel-editor .panel-header h2").first().waitFor({ timeout: 30000 });
+  await waitForCanvas(pageA, 60000);
   const widthsAfterReload = await pageA.evaluate(() => {
     const files = document.querySelector(".panel-files")?.getBoundingClientRect().width ?? 0;
     const editor = document.querySelector(".panel-editor")?.getBoundingClientRect().width ?? 0;
@@ -550,6 +1114,73 @@ try {
   const afterChecksum = await canvasChecksum(pageA);
   if (afterChecksum === beforeChecksum || afterChecksum === 0) {
     throw new Error("Preview did not update after realtime edit");
+  }
+  const incrementalFrame = await pageA.evaluate(() =>
+    window.__tossTypstCompileFrames.find(
+      (frame) => frame.mode === "delta" && frame.vectorBytes > 0
+    )
+  );
+  if (!incrementalFrame) {
+    throw new Error("Typst preview edit did not use an incremental vector delta");
+  }
+  const incrementalRequest = await pageA.evaluate(() =>
+    window.__tossTypstCompileRequests.findLast(
+      (request) =>
+        !request.resetWorkspace &&
+        request.documentUpserts === 1 &&
+        request.documentDeletes === 0
+    )
+  );
+  if (
+    !incrementalRequest ||
+    incrementalRequest.assetUpserts !== 0 ||
+    incrementalRequest.assetDeletes !== 0 ||
+    incrementalRequest.fontCount !== 0
+  ) {
+    throw new Error("Typst edit resent a full workspace instead of a one-document patch");
+  }
+
+  // Equal-length replacements previously produced a new Typst artifact that
+  // could be mistaken for the already-rendered one by a sparse byte signature.
+  await pageA.evaluate(() => {
+    const canvas = document.querySelector(".pdf-frame canvas");
+    window.__tossPreviewBeforeEqualLengthEdit = {
+      canvas,
+      cacheKey: canvas?.dataset.typstCacheKey || ""
+    };
+  });
+  await pageA.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home");
+  await pageA.keyboard.press("Shift+ArrowRight");
+  await pageA.keyboard.type("X");
+  await pageA.waitForFunction(
+    () => {
+      const current = document.querySelector(".pdf-frame canvas");
+      const previous = window.__tossPreviewBeforeEqualLengthEdit;
+      if (!current || !previous) return false;
+      const cacheKey = current.dataset.typstCacheKey || "";
+      return (
+        (!!cacheKey && cacheKey !== previous.cacheKey) ||
+        current !== previous.canvas
+      );
+    },
+    null,
+    { timeout: 15000, polling: "raf" }
+  );
+
+  await pageA.evaluate(() => {
+    window.__tossSaveDefaultPrevented = null;
+    const observeSave = (event) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+      window.removeEventListener("keydown", observeSave);
+      window.__tossSaveDefaultPrevented = event.defaultPrevented;
+    };
+    window.addEventListener("keydown", observeSave);
+  });
+  await pageA.keyboard.press(process.platform === "darwin" ? "Meta+s" : "Control+s");
+  await wait(100);
+  const saveDefaultPrevented = await pageA.evaluate(() => window.__tossSaveDefaultPrevented);
+  if (saveDefaultPrevented !== true) {
+    throw new Error("Cmd/Ctrl+S was not handled by the editor");
   }
 
   await openContextMenu(pageA, "chapters", "right");
@@ -659,7 +1290,6 @@ try {
 
   await pageA.getByRole("button", { name: "Settings" }).click();
   currentStep = "open-settings";
-  await pageA.getByText("Git access").waitFor({ timeout: 10000 });
   const settingsPanelInfo = await pageA.evaluate(() => {
     const panel = document.querySelector(".panel-settings .panel-content");
     const entrySelect = document.querySelector(".panel-settings select");
@@ -685,6 +1315,7 @@ try {
   if (settingsPanelInfo.optionCount < 1) {
     throw new Error("entry file select has no options");
   }
+  await openSettingsStorage(pageA);
   const copyButtonBefore = pageA.getByRole("button", { name: "Copy" }).first();
   await copyButtonBefore.click();
   await pageA.getByRole("button", { name: "Copied" }).first().waitFor({ timeout: 3000 });
@@ -709,6 +1340,13 @@ try {
     }
   }
   if (historyCount < 1) throw new Error("No revisions available");
+  const historyBorder = await pageA.locator(".history-item").first().evaluate((host) => {
+    const internal = host.shadowRoot?.querySelector("[internal-host]");
+    return internal ? getComputedStyle(internal).borderTopWidth : "0px";
+  });
+  if (Number.parseFloat(historyBorder) < 1) {
+    throw new Error(`Revision item has no visible boundary (${historyBorder})`);
+  }
   await pageA.locator(".history-item").first().click();
   await pageA.waitForFunction(
     () => {
@@ -727,6 +1365,19 @@ try {
   const shot2 = path.join(outDir, "02-realtime-and-fileops.png");
   await pageA.screenshot({ path: shot2, fullPage: true });
   artifacts.push(shot2);
+
+  currentStep = "mobile-settings-layout";
+  await pageA.setViewportSize({ width: 390, height: 844 });
+  await wait(300);
+  await pageA.getByRole("button", { name: "View" }).click();
+  await pageA.getByRole("menuitem", { name: "Settings" }).click();
+  await openSettingsStorage(pageA);
+  await assertMobileWorkspaceLayout(pageA);
+  const mobileSettingsShot = path.join(outDir, "02b-mobile-settings.png");
+  await pageA.screenshot({ path: mobileSettingsShot, fullPage: true });
+  artifacts.push(mobileSettingsShot);
+  await pageA.setViewportSize({ width: 1620, height: 1020 });
+  await wait(200);
 
   await pageA.getByRole("button", { name: "Logout" }).click();
   await pageA.getByPlaceholder("Email").waitFor({ timeout: 10000 });

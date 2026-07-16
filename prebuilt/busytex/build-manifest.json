@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "runtime_version": "1.2.3",
+  "npm_package": "texlyre-busytex",
+  "npm_package_version": "1.2.3",
+  "texlive_version": "2026",
+  "source": {
+    "repository": "https://github.com/TeXlyre/texlyre-busytex-build",
+    "revision": "d7f4e922a0b3d72ba85dd528ff0263caeebd68fb",
+    "release_tag": "build_wasm_d7f4e922a0b3d72ba85dd528ff0263caeebd68fb_28704779867_1"
+  },
+  "files": {
+    "busytex.js": {
+      "size_bytes": 271047,
+      "sha256": "316a48050159ce60d57aa58d66b5cf3ca7a8f13525179f1d2dd56ed095a49819"
+    },
+    "busytex.wasm": {
+      "size_bytes": 32501975,
+      "sha256": "58d60c73c2aa4fc09ae86d671d13e083c5cd7c34ab8878f42abba29a1cf0348f"
+    },
+    "busytex_pipeline.js": {
+      "size_bytes": 33701,
+      "sha256": "5fea68b97caa45cfd17899903811442fc0310b50888ef3787d3ac3457ed5fced"
+    },
+    "busytex_worker.js": {
+      "size_bytes": 3006,
+      "sha256": "c27e7f7e5772984a2348d4381ef51122b75fc820d15ccb3b2c69a9fa5d256a0c"
+    },
+    "texlive-basic.data": {
+      "size_bytes": 90786746,
+      "sha256": "a5be427683774e8de6d6f3ea6b8255758eb973a4dac5df86a3f4cf5a837ccf81"
+    },
+    "texlive-basic.js": {
+      "size_bytes": 2049150,
+      "sha256": "9b66d750257045f5c6a8b6c35266608c4dc156e8ea50a7b575327c0f43a0943a"
+    }
+  }
+}

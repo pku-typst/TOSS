@@ -12,7 +12,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: typstapp
-          POSTGRES_PASSWORD: iv61v6mRPCGxvWjt
+          POSTGRES_PASSWORD: community-ci
           POSTGRES_DB: typstappdb
         ports:
           - 5432:5432
@@ -24,17 +24,29 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24.18.0"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
+
+      - name: Cache verified browser runtime artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            prebuilt/typst-compiler/package
+            prebuilt/busytex/package
+          key: browser-runtime-${{ hashFiles('prebuilt/typst-compiler/build-manifest.json', 'prebuilt/typst-compiler/artifact.json', 'prebuilt/busytex/build-manifest.json') }}
 
       - name: Install Playwright Chromium
         run: |
@@ -44,7 +56,7 @@ jobs:
 
       - name: Run CI checks
         env:
-          DATABASE_URL: postgres://typstapp:iv61v6mRPCGxvWjt@127.0.0.1:5432/typstappdb
+          DATABASE_URL: postgres://typstapp:community-ci@127.0.0.1:5432/typstappdb
           CORE_API_PORT: "18080"
         run: |
           chmod +x scripts/ci-checks.sh

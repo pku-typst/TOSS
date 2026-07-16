@@ -1,238 +1,464 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { UiButton, UiCard, UiInput, UiSelect } from "@/components/ui";
+import {
+  Building2,
+  KeyRound,
+  LoaderCircle,
+  Network,
+  Plus,
+  Save,
+  ShieldCheck,
+  ShieldCog,
+  Trash2,
+  TriangleAlert,
+  UserRoundPlus,
+  UsersRound
+} from "lucide-react";
+import { applicationBootstrapQueryKey } from "@/applicationSession";
+import {
+  UiBadge,
+  UiButton,
+  UiCard,
+  UiCheckbox,
+  UiDialog,
+  UiHelpTooltip,
+  UiIconButton,
+  UiInput,
+  UiSelect
+} from "@/components/ui";
 import {
   createOrganization,
-  listOrganizations,
   deleteOrgGroupRoleMapping,
   getAdminAuthSettings,
+  listOrganizations,
   listOrgGroupRoleMappings,
   upsertAdminAuthSettings,
   upsertOrgGroupRoleMapping,
   type AdminAuthSettings,
-  type OrgGroupRoleMapping,
   type Organization,
-  type OrganizationMembershipRole
+  type OrganizationMembershipRole,
+  type OrgGroupRoleMapping
 } from "@/lib/api";
+import type { Translator } from "@/lib/i18n";
 
-export function AdminPage({ t }: { t: (key: string) => string }) {
+type BusyAction = "auth" | "organization" | "mapping" | "remove" | null;
+const EMPTY_ORGANIZATIONS: Organization[] = [];
+const EMPTY_MAPPINGS: OrgGroupRoleMapping[] = [];
+
+export function AdminPage({ t }: { t: Translator }) {
+  const queryClient = useQueryClient();
   const roleOptions: Array<{ value: OrganizationMembershipRole; label: string }> = [
-    { value: "owner", label: "Owner" },
-    { value: "member", label: "Member" }
+    { value: "owner", label: t("admin.roleOwner") },
+    { value: "member", label: t("admin.roleMember") }
   ];
   const [orgId, setOrgId] = useState("");
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [newOrganizationName, setNewOrganizationName] = useState("");
-  const [mappings, setMappings] = useState<OrgGroupRoleMapping[]>([]);
   const [groupName, setGroupName] = useState("");
   const [role, setRole] = useState<OrganizationMembershipRole>("member");
   const [settings, setSettings] = useState<AdminAuthSettings | null>(null);
   const [discoveryUrl, setDiscoveryUrl] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [removeCandidate, setRemoveCandidate] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
-  async function refreshMappings(targetOrgId: string) {
-    if (!targetOrgId) {
-      setMappings([]);
-      return;
-    }
-    const groupMappings = await listOrgGroupRoleMappings(targetOrgId);
-    setMappings(groupMappings);
-  }
+  const overviewQuery = useQuery({
+    queryKey: ["admin-overview"],
+    queryFn: async () => {
+      const [organizations, authSettings] = await Promise.all([
+        listOrganizations(),
+        getAdminAuthSettings()
+      ]);
+      return { organizations: organizations.organizations, authSettings };
+    },
+    retry: false
+  });
+  const organizations: Organization[] =
+    overviewQuery.data?.organizations ?? EMPTY_ORGANIZATIONS;
+  const mappingsQuery = useQuery({
+    queryKey: ["admin-group-mappings", orgId],
+    queryFn: () => listOrgGroupRoleMappings(orgId),
+    enabled: !!orgId,
+    retry: false
+  });
+  const mappings: OrgGroupRoleMapping[] =
+    mappingsQuery.data ?? EMPTY_MAPPINGS;
 
-  async function refresh() {
-    try {
-      const [orgs, authSettings] = await Promise.all([listOrganizations(), getAdminAuthSettings()]);
-      const resolvedOrgId = orgId || orgs.organizations[0]?.id || "";
-      setOrganizations(orgs.organizations);
-      setOrgId(resolvedOrgId);
-      await refreshMappings(resolvedOrgId);
-      setSettings(authSettings);
-      setDiscoveryUrl(authSettings.oidc_issuer || "");
-      setError(null);
-    } catch (err) {
-      setMappings([]);
-      setSettings(null);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load admin settings. Organization admin permission required."
+  useEffect(() => {
+    const authSettings = overviewQuery.data?.authSettings;
+    if (!authSettings) return;
+    setSettings(authSettings);
+    setDiscoveryUrl(authSettings.oidc_issuer || "");
+  }, [overviewQuery.data?.authSettings]);
+
+  useEffect(() => {
+    if (organizations.some((organization) => organization.id === orgId)) return;
+    setOrgId(organizations[0]?.id || "");
+  }, [orgId, organizations]);
+
+  const saveAuthMutation = useMutation({
+    mutationFn: upsertAdminAuthSettings,
+    onSuccess: async (updated) => {
+      queryClient.setQueryData<{
+        organizations: Organization[];
+        authSettings: AdminAuthSettings;
+      }>(["admin-overview"], (current) =>
+        current ? { ...current, authSettings: updated } : current
       );
-    }
-  }
-
-  useEffect(() => {
-    refresh().catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    if (!orgId) return;
-    refreshMappings(orgId)
-      .catch(() => {
-        setMappings([]);
+      setSettings(updated);
+      setDiscoveryUrl(updated.oidc_issuer || "");
+      await queryClient.invalidateQueries({
+        queryKey: applicationBootstrapQueryKey
       });
-  }, [orgId]);
+    }
+  });
+  const createOrganizationMutation = useMutation({
+    mutationFn: createOrganization,
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["signed-in-context"] })
+      ])
+  });
+  const saveMappingMutation = useMutation({
+    mutationFn: (input: {
+      organizationId: string;
+      groupName: string;
+      role: OrganizationMembershipRole;
+    }) =>
+      upsertOrgGroupRoleMapping(input.organizationId, {
+        group_name: input.groupName,
+        role: input.role
+      }),
+    onSuccess: (_mapping, input) =>
+      queryClient.invalidateQueries({
+        queryKey: ["admin-group-mappings", input.organizationId]
+      })
+  });
+  const removeMappingMutation = useMutation({
+    mutationFn: (input: { organizationId: string; groupName: string }) =>
+      deleteOrgGroupRoleMapping(input.organizationId, input.groupName),
+    onSuccess: (_result, input) =>
+      queryClient.invalidateQueries({
+        queryKey: ["admin-group-mappings", input.organizationId]
+      })
+  });
+  const busyAction: BusyAction = saveAuthMutation.isPending
+    ? "auth"
+    : createOrganizationMutation.isPending
+      ? "organization"
+      : saveMappingMutation.isPending
+        ? "mapping"
+        : removeMappingMutation.isPending
+          ? "remove"
+          : null;
+  const queryError = overviewQuery.error ?? mappingsQuery.error;
+  const error =
+    operationError ??
+    (queryError
+      ? queryError instanceof Error
+        ? queryError.message
+        : t("admin.loadFailed")
+      : null);
 
   async function saveAuthSettings() {
     if (!settings) return;
-    const updated = await upsertAdminAuthSettings({
-      allow_local_login: settings.allow_local_login,
-      allow_local_registration: settings.allow_local_registration,
-      allow_oidc: settings.allow_oidc,
-      anonymous_mode: settings.anonymous_mode || "off",
-      site_name: settings.site_name || null,
-      announcement: settings.announcement || null,
-      oidc_discovery_url: discoveryUrl || null,
-      oidc_client_id: settings.oidc_client_id || null,
-      oidc_client_secret: settings.oidc_client_secret || null,
-      oidc_redirect_uri: settings.oidc_redirect_uri || null,
-      oidc_groups_claim: settings.oidc_groups_claim || "groups"
-    });
-    setSettings(updated);
+    try {
+      setOperationError(null);
+      await saveAuthMutation.mutateAsync({
+        allow_local_login: settings.allow_local_login,
+        allow_local_registration: settings.allow_local_registration,
+        allow_oidc: settings.allow_oidc,
+        anonymous_mode: settings.anonymous_mode || "off",
+        site_name: settings.site_name || null,
+        announcement: settings.announcement || null,
+        oidc_discovery_url: discoveryUrl || null,
+        oidc_client_id: settings.oidc_client_id || null,
+        oidc_client_secret: settings.oidc_client_secret || null,
+        oidc_redirect_uri: settings.oidc_redirect_uri || null,
+        oidc_groups_claim: settings.oidc_groups_claim || "groups"
+      });
+    } catch (err) {
+      setOperationError(
+        err instanceof Error ? err.message : t("admin.saveAuthFailed")
+      );
+    }
   }
 
   async function createOrganizationAction() {
     const name = newOrganizationName.trim();
     if (!name) return;
-    await createOrganization({ name });
-    setNewOrganizationName("");
-    await refresh();
+    try {
+      setOperationError(null);
+      await createOrganizationMutation.mutateAsync({ name });
+      setNewOrganizationName("");
+    } catch (err) {
+      setOperationError(
+        err instanceof Error
+          ? err.message
+          : t("admin.createOrganizationFailed")
+      );
+    }
   }
 
   async function saveMapping() {
     if (!orgId || !groupName.trim()) return;
-    await upsertOrgGroupRoleMapping(orgId, { group_name: groupName.trim(), role });
-    setGroupName("");
-    await refresh();
+    try {
+      setOperationError(null);
+      await saveMappingMutation.mutateAsync({
+        organizationId: orgId,
+        groupName: groupName.trim(),
+        role
+      });
+      setGroupName("");
+    } catch (err) {
+      setOperationError(
+        err instanceof Error ? err.message : t("admin.saveMappingFailed")
+      );
+    }
   }
 
   async function removeMapping(group: string) {
-    await deleteOrgGroupRoleMapping(orgId, group);
-    await refresh();
+    try {
+      setOperationError(null);
+      await removeMappingMutation.mutateAsync({
+        organizationId: orgId,
+        groupName: group
+      });
+      setRemoveCandidate(null);
+    } catch (err) {
+      setOperationError(
+        err instanceof Error ? err.message : t("admin.removeMappingFailed")
+      );
+    }
   }
 
   return (
-    <section className="page">
-      <h2>{t("admin.title")}</h2>
-      <div className="card-list">
-        <UiCard className="card">
-          <strong>{t("admin.authSettings")}</strong>
+    <section className="app-page admin-page" nve-layout="column gap:lg pad:md @md|pad:xl">
+      <header className="admin-page-header">
+        <span className="admin-page-icon" aria-hidden>
+          <ShieldCog size={24} />
+        </span>
+        <h1 nve-text="heading xl">{t("admin.title")}</h1>
+      </header>
+
+      <div className="admin-content">
+        <UiCard className="admin-auth-card">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" aria-hidden>
+              <ShieldCheck size={18} />
+            </span>
+            <h2>{t("admin.authSettings")}</h2>
+            <UiHelpTooltip content={t("admin.authDescription")} />
+          </div>
+
           {settings ? (
             <>
-              <UiInput
-                value={settings.site_name || ""}
-                onChange={(e) => setSettings({ ...settings, site_name: e.target.value })}
-                placeholder={t("admin.siteName")}
-              />
-              <UiInput
-                value={settings.announcement || ""}
-                onChange={(e) => setSettings({ ...settings, announcement: e.target.value })}
-                placeholder="Login announcement banner message (optional)"
-              />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.allow_local_login}
-                  onChange={(e) => setSettings({ ...settings, allow_local_login: e.target.checked })}
+              <div className="admin-fields-grid admin-fields-grid-two">
+                <div className="admin-managed-field">
+                  <UiInput
+                    label={t("admin.siteName")}
+                    value={settings.site_name || ""}
+                    disabled={settings.managed_fields.includes("site_name")}
+                    onChange={(event) => setSettings({ ...settings, site_name: event.target.value })}
+                    placeholder={t("admin.siteName")}
+                  />
+                  {settings.managed_fields.includes("site_name") && (
+                    <small>{t("admin.managedByDeployment")}</small>
+                  )}
+                </div>
+                <UiInput
+                  label={t("admin.loginAnnouncement")}
+                  value={settings.announcement || ""}
+                  onChange={(event) => setSettings({ ...settings, announcement: event.target.value })}
+                  placeholder={t("admin.loginAnnouncementPlaceholder")}
                 />
-                Allow local login
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.allow_local_registration}
-                  onChange={(e) =>
-                    setSettings({ ...settings, allow_local_registration: e.target.checked })
-                  }
-                />
-                Allow self registration
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={settings.allow_oidc}
-                  onChange={(e) => setSettings({ ...settings, allow_oidc: e.target.checked })}
-                />
-                Allow OIDC
-              </label>
-              <UiSelect
-                value={settings.anonymous_mode || "off"}
-                onChange={(e) => setSettings({ ...settings, anonymous_mode: e.target.value })}
-              >
-                <option value="off">Off (everyone must log in)</option>
-                <option value="read_only">Guest read-only</option>
-                <option value="read_write_named">Guest read+write with self-identified name</option>
-              </UiSelect>
-              <UiInput
-                value={discoveryUrl}
-                onChange={(e) => setDiscoveryUrl(e.target.value)}
-                placeholder="OIDC discovery URL or issuer URL"
-              />
-              <UiInput
-                value={settings.oidc_client_id || ""}
-                onChange={(e) => setSettings({ ...settings, oidc_client_id: e.target.value })}
-                placeholder="OIDC client id"
-              />
-              <UiInput
-                value={settings.oidc_client_secret || ""}
-                onChange={(e) => setSettings({ ...settings, oidc_client_secret: e.target.value })}
-                placeholder="OIDC client secret"
-              />
-              <UiInput
-                value={settings.oidc_redirect_uri || ""}
-                onChange={(e) => setSettings({ ...settings, oidc_redirect_uri: e.target.value })}
-                placeholder="OIDC redirect URI"
-              />
-              <UiInput
-                value={settings.oidc_groups_claim || "groups"}
-                onChange={(e) => setSettings({ ...settings, oidc_groups_claim: e.target.value })}
-                placeholder="OIDC groups claim"
-              />
-              <UiButton
-                onClick={saveAuthSettings}
-              >
-                Save Auth Settings
-              </UiButton>
+              </div>
+
+              <section className="admin-settings-section">
+                <div className="admin-section-heading">
+                  <KeyRound size={16} aria-hidden />
+                  <h3>{t("admin.signInMethods")}</h3>
+                </div>
+                <div className="admin-signin-methods">
+                  <UiCheckbox
+                    label={t("admin.allowLocalLogin")}
+                    checked={settings.allow_local_login}
+                    onChange={(event) => setSettings({ ...settings, allow_local_login: event.target.checked })}
+                  />
+                  <UiCheckbox
+                    label={t("admin.allowRegistration")}
+                    checked={settings.allow_local_registration}
+                    onChange={(event) =>
+                      setSettings({ ...settings, allow_local_registration: event.target.checked })
+                    }
+                  />
+                  <UiCheckbox
+                    label={t("admin.allowOidc")}
+                    checked={settings.allow_oidc}
+                    onChange={(event) => setSettings({ ...settings, allow_oidc: event.target.checked })}
+                  />
+                </div>
+                <UiSelect
+                  label={t("admin.anonymousAccess")}
+                  value={settings.anonymous_mode || "off"}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "off" || value === "read_only" || value === "read_write_named") {
+                      setSettings({ ...settings, anonymous_mode: value });
+                    }
+                  }}
+                >
+                  <option value="off">{t("admin.anonymousOff")}</option>
+                  <option value="read_only">{t("admin.anonymousReadOnly")}</option>
+                  <option value="read_write_named">{t("admin.anonymousReadWrite")}</option>
+                </UiSelect>
+              </section>
+
+              <section className="admin-settings-section admin-oidc-section">
+                <div className="admin-section-heading admin-section-heading-with-help">
+                  <Network size={16} aria-hidden />
+                  <h3>{t("admin.oidcTitle")}</h3>
+                  <UiHelpTooltip content={t("admin.oidcDescription")} />
+                </div>
+                <div className="admin-fields-grid admin-oidc-grid">
+                  <UiInput
+                    className="admin-oidc-discovery"
+                    label={t("admin.discoveryUrl")}
+                    value={discoveryUrl}
+                    onChange={(event) => setDiscoveryUrl(event.target.value)}
+                    placeholder="https://login.example.com/.well-known/openid-configuration"
+                  />
+                  <UiInput
+                    label={t("admin.clientId")}
+                    value={settings.oidc_client_id || ""}
+                    onChange={(event) => setSettings({ ...settings, oidc_client_id: event.target.value })}
+                    placeholder={t("admin.clientId")}
+                  />
+                  <UiInput
+                    label={t("admin.clientSecret")}
+                    type="password"
+                    value={settings.oidc_client_secret || ""}
+                    onChange={(event) => setSettings({ ...settings, oidc_client_secret: event.target.value })}
+                    placeholder={t("admin.clientSecret")}
+                  />
+                  <UiInput
+                    className="admin-oidc-redirect"
+                    label={t("admin.redirectUri")}
+                    value={settings.oidc_redirect_uri || ""}
+                    onChange={(event) => setSettings({ ...settings, oidc_redirect_uri: event.target.value })}
+                    placeholder={t("admin.redirectUri")}
+                  />
+                  <UiInput
+                    label={t("admin.groupsClaim")}
+                    value={settings.oidc_groups_claim || "groups"}
+                    onChange={(event) => setSettings({ ...settings, oidc_groups_claim: event.target.value })}
+                    placeholder={t("admin.groupsClaim")}
+                  />
+                </div>
+              </section>
+
+              <div className="admin-card-actions">
+                <UiButton variant="primary" onClick={saveAuthSettings} disabled={busyAction !== null}>
+                  <span className="admin-button-content">
+                    {busyAction === "auth" ? (
+                      <LoaderCircle className="admin-spin" size={15} aria-hidden />
+                    ) : (
+                      <Save size={15} aria-hidden />
+                    )}
+                    {t("admin.saveAuthSettings")}
+                  </span>
+                </UiButton>
+              </div>
             </>
           ) : (
-            <span>{t("common.loading")}</span>
+            <div className="admin-loading">
+              <LoaderCircle className="admin-spin" size={18} aria-hidden />
+              <span>{t("common.loading")}</span>
+            </div>
           )}
         </UiCard>
 
-        <UiCard className="card">
-          <strong>Organizations</strong>
-          <div className="toolbar">
+        <UiCard className="admin-organizations-card">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" aria-hidden>
+              <Building2 size={18} />
+            </span>
+            <h2>{t("admin.organizations")}</h2>
+            <div className="admin-card-header-actions">
+              <span
+                className="admin-count"
+                aria-label={t("admin.organizationCount", { count: organizations.length })}
+              >
+                {organizations.length}
+              </span>
+              <UiHelpTooltip content={t("admin.organizationsDescription")} />
+            </div>
+          </div>
+          <div className="admin-organization-create">
             <UiInput
+              label={t("admin.newOrganization")}
               value={newOrganizationName}
-              onChange={(e) => setNewOrganizationName(e.target.value)}
-              placeholder="Organization name"
+              onChange={(event) => setNewOrganizationName(event.target.value)}
+              placeholder={t("admin.organizationName")}
             />
             <UiButton
+              variant="primary"
               onClick={createOrganizationAction}
+              disabled={!newOrganizationName.trim() || busyAction !== null}
             >
-              Create
+              <span className="admin-button-content">
+                {busyAction === "organization" ? (
+                  <LoaderCircle className="admin-spin" size={15} aria-hidden />
+                ) : (
+                  <Plus size={15} aria-hidden />
+                )}
+                {t("common.create")}
+              </span>
             </UiButton>
           </div>
-          <UiSelect value={orgId} onChange={(e) => setOrgId(e.target.value)} disabled={organizations.length === 0}>
+          <UiSelect
+            label={t("admin.organizationToManage")}
+            value={orgId}
+            onChange={(event) => setOrgId(event.target.value)}
+            disabled={organizations.length === 0}
+          >
             {organizations.length === 0 ? (
-              <option value="">No organizations</option>
+              <option value="">{t("admin.noOrganizations")}</option>
             ) : (
-              organizations.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name}
+              organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
                 </option>
               ))
             )}
           </UiSelect>
         </UiCard>
 
-        <UiCard className="card">
-          <strong>OIDC Group to Organization Membership Mapping</strong>
-          <div className="toolbar">
+        <UiCard className="admin-mapping-card">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" aria-hidden>
+              <UsersRound size={18} />
+            </span>
+            <h2>{t("admin.groupMapping")}</h2>
+            <div className="admin-card-header-actions">
+              <span className="admin-count" aria-label={t("admin.mappingCount", { count: mappings.length })}>
+                {mappings.length}
+              </span>
+              <UiHelpTooltip content={t("admin.groupMappingDescription")} />
+            </div>
+          </div>
+
+          <div className="admin-mapping-form">
             <UiInput
+              label={t("admin.oidcGroup")}
               value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              placeholder="OIDC group"
+              onChange={(event) => setGroupName(event.target.value)}
+              placeholder={t("admin.groupName")}
             />
-            <UiSelect value={role} onChange={(e) => setRole(e.target.value as OrganizationMembershipRole)}>
+            <UiSelect
+              label={t("admin.organizationRole")}
+              value={role}
+              onChange={(event) => setRole(event.target.value as OrganizationMembershipRole)}
+            >
               {roleOptions.map((option) => (
                 <option value={option.value} key={option.value}>
                   {option.label}
@@ -240,28 +466,78 @@ export function AdminPage({ t }: { t: (key: string) => string }) {
               ))}
             </UiSelect>
             <UiButton
+              variant="primary"
               onClick={saveMapping}
-              disabled={!orgId}
+              disabled={!orgId || !groupName.trim() || busyAction !== null}
             >
-              Save
+              <span className="admin-button-content">
+                {busyAction === "mapping" ? (
+                  <LoaderCircle className="admin-spin" size={15} aria-hidden />
+                ) : (
+                  <UserRoundPlus size={15} aria-hidden />
+                )}
+                {t("common.save")}
+              </span>
             </UiButton>
           </div>
-          <div className="card-list">
+
+          <div className="admin-mapping-list">
             {mappings.map((mapping) => (
-              <div className="card" key={mapping.group_name}>
+              <article key={mapping.group_name} className="admin-mapping-item">
+                <span className="admin-mapping-icon" aria-hidden>
+                  <UsersRound size={16} />
+                </span>
                 <strong>{mapping.group_name}</strong>
-                <span>{roleOptions.find((option) => option.value === mapping.role)?.label ?? mapping.role}</span>
-                <UiButton
-                  onClick={() => removeMapping(mapping.group_name)}
+                <UiBadge tone={mapping.role === "owner" ? "accent" : "neutral"}>
+                  {roleOptions.find((option) => option.value === mapping.role)?.label ?? mapping.role}
+                </UiBadge>
+                <UiIconButton
+                  tooltip={t("common.remove")}
+                  label={t("common.remove")}
+                  className="admin-remove-mapping"
+                  onClick={() => setRemoveCandidate(mapping.group_name)}
                 >
-                  Remove
-                </UiButton>
-              </div>
+                  <Trash2 size={15} />
+                </UiIconButton>
+              </article>
             ))}
+            {mappings.length === 0 ? (
+              <div className="admin-mapping-empty">
+                <span className="admin-mapping-empty-icon" aria-hidden>
+                  <UsersRound size={21} />
+                </span>
+                <span>{t("admin.noMappings")}</span>
+              </div>
+            ) : null}
           </div>
         </UiCard>
+
+        {error ? (
+          <div className="admin-error" role="alert">
+            <TriangleAlert size={15} aria-hidden />
+            <span>{error}</span>
+          </div>
+        ) : null}
       </div>
-      {error && <div className="error">{error}</div>}
+
+      <UiDialog
+        open={!!removeCandidate}
+        title={t("admin.removeMappingTitle")}
+        description={removeCandidate ? t("admin.removeMappingHint", { group: removeCandidate }) : undefined}
+        onClose={() => setRemoveCandidate(null)}
+        actions={
+          <>
+            <UiButton onClick={() => setRemoveCandidate(null)}>{t("common.cancel")}</UiButton>
+            <UiButton
+              variant="danger"
+              disabled={!removeCandidate || busyAction !== null}
+              onClick={() => removeCandidate && removeMapping(removeCandidate)}
+            >
+              {t("common.remove")}
+            </UiButton>
+          </>
+        }
+      />
     </section>
   );
 }

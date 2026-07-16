@@ -1,0 +1,59 @@
+:root {
+  /* Brand */
+  --toss-brand-accent: #2563eb;
+  --toss-brand-contrast: #ffffff;
+  --toss-brand-primary: var(--toss-brand-accent);
+  --toss-brand-hover: color-mix(in oklab, var(--toss-brand-accent) 88%, black);
+  --toss-brand-strong: color-mix(in oklab, var(--toss-brand-accent) 72%, black);
+  --toss-brand-ink: color-mix(in oklab, var(--toss-brand-accent) 52%, black);
+  --toss-brand-subtle: color-mix(in oklab, var(--toss-brand-accent) 10%, white);
+  --toss-brand-muted: color-mix(in oklab, var(--toss-brand-accent) 18%, white);
+  --toss-brand-highlight: color-mix(in oklab, var(--toss-brand-accent) 30%, white);
+
+  /* Application layers */
+  --toss-canvas: var(--nve-sys-layer-canvas-background);
+  --toss-shell: var(--nve-sys-layer-shell-background);
+  --toss-surface: var(--nve-sys-layer-container-background);
+  --toss-surface-subtle: var(--nve-sys-layer-container-accent-background);
+  --toss-surface-preview: var(--nve-ref-color-neutral-500);
+  --toss-surface-hover: var(--toss-brand-subtle);
+  --toss-surface-selected: var(--toss-brand-muted);
+
+  /* Content and structure */
+  --toss-text: var(--nve-sys-text-color);
+  --toss-text-muted: var(--nve-sys-text-muted-color);
+  --toss-text-emphasis: var(--nve-sys-text-emphasis-color);
+  --toss-border-subtle: var(--nve-ref-border-color-muted);
+  --toss-border: var(--nve-ref-border-color);
+  --toss-border-strong: var(--nve-ref-border-color-emphasis);
+
+  /* Semantic feedback */
+  --toss-danger: var(--nve-sys-support-danger-emphasis-color);
+  --toss-danger-surface: var(--nve-ref-color-red-cardinal-200);
+  --toss-danger-border: var(--nve-ref-color-red-cardinal-600);
+  --toss-warning: var(--nve-sys-support-warning-emphasis-color);
+  --toss-warning-surface: var(--nve-ref-color-yellow-nova-200);
+  --toss-warning-border: var(--nve-ref-color-yellow-nova-700);
+
+  /* Shape, elevation, and motion */
+  --toss-radius-control: var(--nve-ref-border-radius-xs);
+  --toss-radius-panel: var(--nve-ref-border-radius-sm);
+  --toss-radius-card: var(--nve-ref-border-radius-md);
+  --toss-shadow-surface: var(--nve-ref-shadow-100);
+  --toss-shadow-floating: var(--nve-ref-shadow-300);
+  --toss-transition-fast: var(--nve-ref-animation-duration-150) var(--nve-ref-animation-easing-100);
+
+  /* Product semantic overrides for the NVIDIA Elements implementation layer. */
+  --nve-sys-accent-primary-background: var(--toss-brand-primary);
+  --nve-sys-interaction-emphasis-color: var(--toss-brand-contrast);
+  --nve-sys-interaction-emphasis-background: var(--toss-brand-primary);
+  --nve-sys-interaction-highlighted-background: var(--toss-brand-highlight);
+  --nve-sys-interaction-highlighted-muted-background: var(--toss-brand-subtle);
+  --nve-sys-interaction-selected-background: var(--toss-surface-selected);
+  --nve-sys-interaction-selected-color: var(--toss-brand-ink);
+  --nve-sys-support-accent-color: var(--toss-brand-strong);
+  --nve-sys-support-accent-muted-color: var(--toss-brand-muted);
+  --nve-sys-support-accent-emphasis-color: var(--toss-brand-ink);
+  --nve-sys-text-link-hover-color: var(--toss-brand-strong);
+  --nve-sys-text-link-emphasis-color: var(--toss-brand-strong);
+}
