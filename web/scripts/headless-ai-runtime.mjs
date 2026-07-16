@@ -524,7 +524,7 @@ async function verifyBrowserBoundary(projectId, provider) {
     const contextMarker = `TOSS_CONTEXT_${runId}`;
     const responseTimeout = provider.kind === "external" ? 120_000 : 30_000;
     const assistantMessages = page.locator('.ai-message--assistant[data-state="complete"]');
-    const waitForAssistant = async (index, label) => {
+    const waitForAssistantTurn = async (index, label) => {
       const message = assistantMessages.nth(index);
       try {
         await message.waitFor({ timeout: responseTimeout });
@@ -541,6 +541,10 @@ async function verifyBrowserBoundary(projectId, provider) {
           { cause: error }
         );
       }
+      return message;
+    };
+    const waitForAssistant = async (index, label) => {
+      const message = await waitForAssistantTurn(index, label);
       const text = (await message.locator(".ai-markdown").textContent())?.trim() ?? "";
       assert(text && text !== "Failed", `${label} completed without assistant text`);
       return text;
@@ -580,23 +584,42 @@ async function verifyBrowserBoundary(projectId, provider) {
         (await page.locator(".ai-edit-review-code").textContent())?.includes("+#set document("),
         "central Editor review did not render the proposed unified diff"
       );
+      const reviewHandoff = await waitForAssistantTurn(0, "review handoff");
+      for (const trigger of await reviewHandoff
+        .locator('.ai-activity-trigger[aria-expanded="false"]')
+        .all()) {
+        await trigger.click();
+      }
       assert(
-        await page.locator('.ai-message--assistant[data-state="streaming"]').isVisible(),
-        "agent turn did not remain pending during human review"
+        await reviewHandoff.locator('.ai-tool-activity[data-state="complete"]').count() >= 3,
+        "review handoff did not preserve the completed Workspace tool activity"
+      );
+      assert(
+        !(await page.locator('.ai-message--assistant[data-state="streaming"]').isVisible()),
+        "agent turn remained active after handing the proposal to Workspace review"
       );
       await acceptReview.click();
-      await page.locator('.ai-turn-activity[data-activity="analyzing-tool-results"]').waitFor({
+      await page.waitForFunction(() => (
+        document.querySelector(".cm-content")?.textContent?.includes("title: [AI Runtime Smoke]")
+      ), null, { timeout: 10_000 });
+      await page.locator('.ai-live-status[data-status="ready"]').waitFor({
         timeout: responseTimeout
       });
+      await page.locator('.ai-composer [name="prompt"]').fill(
+        "Summarize the accepted review result."
+      );
+      await page.locator('[data-action="send-prompt"]').click();
       await page.locator('.ai-reasoning-part[data-state="streaming"]').waitFor({
         timeout: responseTimeout
       });
       assert(
-        !(await assistantMessages.nth(0).isVisible()),
+        !(await assistantMessages.nth(1).isVisible()),
         "assistant response completed before streamed reasoning became visible"
       );
     }
-    const firstResponse = await waitForAssistant(0, "first pi Runtime response");
+    const firstResponseIndex = provider.kind === "mock" ? 1 : 0;
+    const secondResponseIndex = firstResponseIndex + 1;
+    const firstResponse = await waitForAssistant(firstResponseIndex, "first pi Runtime response");
     if (provider.kind === "mock") {
       await page.locator('.ai-token-usage[data-source="provider"]').waitFor({ timeout: 5_000 });
       assert(
@@ -631,15 +654,15 @@ async function verifyBrowserBoundary(projectId, provider) {
       : "Reply with only the exact token I asked you to remember in my previous message.";
     await page.locator('.ai-composer [name="prompt"]').fill(secondPrompt);
     await page.locator('[data-action="send-prompt"]').click();
-    const secondResponse = await waitForAssistant(1, "second pi Runtime response");
+    const secondResponse = await waitForAssistant(secondResponseIndex, "second pi Runtime response");
     if (provider.kind === "mock") {
       assert(secondResponse.includes("Mock provider turn 5 completed."), "unexpected mock second response");
       assert(
-        await assistantMessages.nth(1).locator(".katex").count() >= 2,
+        await assistantMessages.nth(secondResponseIndex).locator(".katex").count() >= 2,
         "assistant response did not render inline and display math with KaTeX"
       );
       assert(
-        await assistantMessages.nth(1).locator(".katex-display").count() === 1,
+        await assistantMessages.nth(secondResponseIndex).locator(".katex-display").count() === 1,
         "assistant response did not render exactly one display-math block"
       );
       assert(provider.requests.length === 5, "mock provider did not receive the compile/revise/review loop and second turn");
@@ -721,21 +744,31 @@ async function verifyBrowserBoundary(projectId, provider) {
       );
       assert(
         provider.requests[3].body.messages.map((message) => message.role).join(",") ===
-          "system,user,assistant,tool,assistant,tool,assistant,tool",
-        "pi Agent did not resume after the human-reviewed patch"
+          "system,user,assistant,tool,assistant,tool,assistant,tool,user",
+        "the post-review message did not start a fresh Agent turn with retained history"
       );
-      const acceptedPatchToolMessage = provider.requests[3].body.messages.findLast(
+      const pendingPatchToolMessage = provider.requests[3].body.messages.findLast(
         (message) => message.role === "tool"
       );
       assert(
-        typeof acceptedPatchToolMessage?.content === "string" &&
-          acceptedPatchToolMessage.content.includes('\"status\":\"accepted\"') &&
-          acceptedPatchToolMessage.content.includes('\"status\":\"passed\"'),
-        "review acceptance and candidate verification did not return to the model"
+        typeof pendingPatchToolMessage?.content === "string" &&
+          pendingPatchToolMessage.content.includes('\"status\":\"review_pending\"') &&
+          pendingPatchToolMessage.content.includes('\"status\":\"passed\"') &&
+          !pendingPatchToolMessage.content.includes('\"status\":\"accepted\"'),
+        "the completed edit turn did not retain its review-pending tool result"
+      );
+      const postReviewSystemPrompt = provider.requests[3].body.messages.find(
+        (message) => message.role === "system"
+      )?.content;
+      assert(
+        typeof postReviewSystemPrompt === "string" &&
+          postReviewSystemPrompt.includes('"last_edit_review": {') &&
+          postReviewSystemPrompt.includes('"decision": "accepted"'),
+        "the accepted Workspace review was not exposed in the next turn snapshot"
       );
       assert(
         provider.requests[4].body.messages.map((message) => message.role).join(",") ===
-          "system,user,assistant,tool,assistant,tool,assistant,tool,assistant,user",
+          "system,user,assistant,tool,assistant,tool,assistant,tool,user,assistant,user",
         "pi Agent did not retain the completed tool-assisted turn"
       );
     } else {
@@ -794,7 +827,7 @@ async function verifyBrowserBoundary(projectId, provider) {
       );
     }
     await conversationSelect.selectOption(originalConversationId);
-    await assistantMessages.nth(1).waitFor({ timeout: 5_000 });
+    await assistantMessages.nth(secondResponseIndex).waitFor({ timeout: 5_000 });
     assert(
       await conversationSelect.locator("option").count() === 2,
       "conversation switch discarded the new conversation"
@@ -807,7 +840,7 @@ async function verifyBrowserBoundary(projectId, provider) {
     await settingsToggle.click();
     assert(await page.locator(".workspace-optional-panel-host").isHidden(), "Assistant did not close");
     await assistantToggle.click();
-    await assistantMessages.nth(1).waitFor({ timeout: 5_000 });
+    await assistantMessages.nth(secondResponseIndex).waitFor({ timeout: 5_000 });
 
     await runtimeFrame.evaluate(() => {
       window.location.href = `${window.location.pathname}?navigation-probe=1`;
@@ -837,7 +870,8 @@ async function verifyBrowserBoundary(projectId, provider) {
       "project conversation collection was not restored from IndexedDB"
     );
     assert(
-      await page.locator('.ai-message--assistant[data-state="complete"]').count() === 2,
+      await page.locator('.ai-message--assistant[data-state="complete"]').count() ===
+        secondResponseIndex + 1,
       "active conversation transcript was not restored after reload"
     );
     for (const trigger of await page.locator('.ai-activity-trigger[aria-expanded="false"]').all()) {
