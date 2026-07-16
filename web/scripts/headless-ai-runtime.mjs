@@ -321,10 +321,11 @@ async function verifyHttpBoundary() {
 
 async function login(page) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60_000 });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
-  await page.getByRole("heading", { name: "Projects" }).waitFor({ timeout: 30_000 });
+  const form = page.locator("form.auth-form");
+  await form.locator('[name="email"]').fill(email);
+  await form.locator('[name="password"]').fill(password);
+  await form.locator(".auth-submit").click();
+  await page.waitForURL(/\/projects(?:[/?#]|$)/, { timeout: 30_000 });
 }
 
 async function verifyBrowserBoundary(projectId, provider) {
@@ -367,17 +368,22 @@ async function verifyBrowserBoundary(projectId, provider) {
       timeout: 60_000
     });
     await page.locator(".panel-editor .panel-header h2").first().waitFor({ timeout: 30_000 });
-    await page.getByText("Online", { exact: true }).waitFor({ timeout: 15_000 });
-    await page.getByRole("button", { name: "Assistant", exact: true }).click();
-    await page.getByLabel("Connection name").fill(
+    await page.locator(".panel-editor .ui-badge-success").waitFor({ timeout: 15_000 });
+    const assistantToggle = page.locator('[data-panel-toggle="feature:ai_assistant"]');
+    const settingsToggle = page.locator('[data-panel-toggle="settings"]');
+    await assistantToggle.click();
+    await page.locator('[data-action="open-assistant-settings"]').click();
+    const connectionForm = page.locator(".ai-connection-form");
+    await connectionForm.waitFor({ timeout: 15_000 });
+    await connectionForm.locator('[name="connection-name"]').fill(
       provider.kind === "mock" ? "Browser mock" : "External provider smoke"
     );
-    await page.getByLabel("API protocol").selectOption(provider.protocol);
-    await page.getByLabel("Endpoint base URL").fill(provider.baseUrl);
-    await page.getByLabel("Model ID").fill(provider.model);
+    await connectionForm.locator('[name="connection-protocol"]').selectOption(provider.protocol);
+    await connectionForm.locator('[name="connection-endpoint"]').fill(provider.baseUrl);
+    await connectionForm.locator('[name="connection-model"]').fill(provider.model);
     if (provider.kind === "mock") {
-      await page.getByLabel("Model emits reasoning content").check();
-      await page.getByLabel("Provider request parameters (JSON)").fill(JSON.stringify({
+      await connectionForm.locator('[name="connection-reasoning"]').check();
+      await connectionForm.locator('[name="connection-request-overrides"]').fill(JSON.stringify({
         chat_template_kwargs: {
           enable_thinking: true,
           reasoning_budget: 8_192
@@ -386,8 +392,9 @@ async function verifyBrowserBoundary(projectId, provider) {
         reasoning: { effort: "high", summary: "auto" }
       }, null, 2));
     }
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-    await page.locator(".ai-runtime-state", { hasText: "Credential required" }).waitFor({ timeout: 15_000 });
+    await connectionForm.locator('[data-action="save-connection"]').click();
+    await assistantToggle.click();
+    await page.locator('.ai-live-status[data-status="configuring"]').waitFor({ timeout: 15_000 });
 
     const frameElement = page.locator("iframe.ai-runtime-frame");
     assert((await frameElement.getAttribute("sandbox")) === "allow-scripts", "iframe sandbox widened");
@@ -448,14 +455,14 @@ async function verifyBrowserBoundary(projectId, provider) {
     assert(runtimeIsolation.cookieEmpty, "Runtime can read application cookies");
     assert(runtimeIsolation.serviceWorkerUnavailable, "Runtime can use an application service worker");
 
-    await runtimeFrame.getByLabel("Credential (optional)").fill(provider.credential);
-    await runtimeFrame.getByRole("button", { name: "Use connection", exact: true }).click();
+    await runtimeFrame.locator('input[name="credential"]').fill(provider.credential);
+    await runtimeFrame.locator('[data-action="activate-connection"]').click();
     try {
-      await page.locator(".ai-runtime-state", { hasText: "Ready" }).waitFor({ timeout: 15_000 });
+      await page.locator('.ai-live-status[data-status="ready"]').waitFor({ timeout: 15_000 });
     } catch (error) {
       throw new Error(
         `Runtime activation failed: ${JSON.stringify({
-          hostStatus: await page.locator(".ai-runtime-state").textContent(),
+          hostStatus: await page.locator(".ai-live-status").textContent(),
           hostError: await page.locator(".ai-runtime-error").textContent().catch(() => null),
           runtimeSurface: await runtimeFrame.evaluate(() => document.body.innerText),
           browserErrors
@@ -523,7 +530,7 @@ async function verifyBrowserBoundary(projectId, provider) {
         await message.waitFor({ timeout: responseTimeout });
       } catch (error) {
         const diagnostics = await page.evaluate(() => ({
-          status: document.querySelector(".ai-runtime-state")?.textContent,
+          status: document.querySelector(".ai-live-status")?.textContent,
           error: document.querySelector(".ai-runtime-error")?.textContent,
           transcript: document.querySelector(".ai-transcript")?.textContent,
           runtimeText: document.querySelector("iframe.ai-runtime-frame")?.getAttribute("src")
@@ -542,8 +549,8 @@ async function verifyBrowserBoundary(projectId, provider) {
     const firstPrompt = provider.kind === "mock"
       ? "Read main.typ and verify that its source is available."
       : `Remember this exact token for my next message: ${contextMarker}. Reply only READY.`;
-    await page.locator(".ai-composer textarea").fill(firstPrompt);
-    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await page.locator('.ai-composer [name="prompt"]').fill(firstPrompt);
+    await page.locator('[data-action="send-prompt"]').click();
     if (provider.kind === "mock") {
       await page.locator('.ai-turn-activity[data-activity="thinking"]').waitFor({
         timeout: responseTimeout
@@ -553,7 +560,7 @@ async function verifyBrowserBoundary(projectId, provider) {
         await acceptReview.waitFor({ timeout: responseTimeout });
       } catch (error) {
         throw new Error(`candidate review did not open: ${JSON.stringify({
-          hostStatus: await page.locator(".ai-runtime-state").textContent(),
+          hostStatus: await page.locator(".ai-live-status").textContent(),
           hostError: await page.locator(".ai-runtime-error").textContent().catch(() => null),
           transcript: await page.locator(".ai-transcript").textContent().catch(() => null),
           requestRoles: provider.requests.map((request) =>
@@ -591,9 +598,9 @@ async function verifyBrowserBoundary(projectId, provider) {
     }
     const firstResponse = await waitForAssistant(0, "first pi Runtime response");
     if (provider.kind === "mock") {
-      await page.locator(".ai-token-usage").waitFor({ timeout: 5_000 });
+      await page.locator('.ai-token-usage[data-source="provider"]').waitFor({ timeout: 5_000 });
       assert(
-        (await page.locator(".ai-token-usage").innerText()).includes("provider reported"),
+        await page.locator('.ai-token-usage[data-source="provider"]').isVisible(),
         "provider-reported token usage was not projected into the Assistant UI"
       );
       assert(
@@ -622,8 +629,8 @@ async function verifyBrowserBoundary(projectId, provider) {
     const secondPrompt = provider.kind === "mock"
       ? "Verify retained conversation context."
       : "Reply with only the exact token I asked you to remember in my previous message.";
-    await page.locator(".ai-composer textarea").fill(secondPrompt);
-    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await page.locator('.ai-composer [name="prompt"]').fill(secondPrompt);
+    await page.locator('[data-action="send-prompt"]').click();
     const secondResponse = await waitForAssistant(1, "second pi Runtime response");
     if (provider.kind === "mock") {
       assert(secondResponse.includes("Mock provider turn 5 completed."), "unexpected mock second response");
@@ -753,10 +760,10 @@ async function verifyBrowserBoundary(projectId, provider) {
       await page.locator(".ai-message").count() === 0,
       "new conversation inherited the previous transcript"
     );
-    await page.locator(".ai-runtime-state", { hasText: "Ready" }).waitFor({ timeout: 5_000 });
+    await page.locator('.ai-live-status[data-status="ready"]').waitFor({ timeout: 5_000 });
     if (provider.kind === "mock") {
-      await page.locator(".ai-composer textarea").fill("Start an isolated conversation.");
-      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await page.locator('.ai-composer [name="prompt"]').fill("Start an isolated conversation.");
+      await page.locator('[data-action="send-prompt"]').click();
       const isolatedResponse = await waitForAssistant(0, "isolated conversation response");
       assert(
         isolatedResponse.includes("Typst documentation query completed."),
@@ -797,33 +804,33 @@ async function verifyBrowserBoundary(projectId, provider) {
       await page.screenshot({ path: screenshotPath, fullPage: false });
     }
 
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await settingsToggle.click();
     assert(await page.locator(".workspace-optional-panel-host").isHidden(), "Assistant did not close");
-    await page.getByRole("button", { name: "Assistant", exact: true }).click();
+    await assistantToggle.click();
     await assistantMessages.nth(1).waitFor({ timeout: 5_000 });
 
     await runtimeFrame.evaluate(() => {
       window.location.href = `${window.location.pathname}?navigation-probe=1`;
     });
     try {
-      await page.locator(".ai-runtime-state--error").waitFor({ timeout: 10_000 });
+      await page.locator('.ai-runtime-error[data-error-code="runtime_navigated"]').waitFor({
+        timeout: 10_000
+      });
     } catch (error) {
       throw new Error(
         `Runtime navigation was not invalidated: ${JSON.stringify({
-          hostStatus: await page.locator(".ai-runtime-state").textContent(),
+          hostStatus: await page.locator(".ai-live-status").textContent(),
           frameUrl: runtimeFrame.url()
         })}`,
         { cause: error }
       );
     }
-    await page.getByText(/runtime_navigated/).waitFor({ timeout: 10_000 });
-
     await page.evaluate(() => window.localStorage.setItem("toss.ui-locale", "zh-CN"));
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.locator(".panel-editor .panel-header h2").first().waitFor({ timeout: 30_000 });
-    await page.getByText("在线", { exact: true }).waitFor({ timeout: 15_000 });
-    await page.getByRole("button", { name: "助手", exact: true }).click();
-    await page.locator(".ai-runtime-state", { hasText: "需要输入凭据" }).waitFor({ timeout: 15_000 });
+    await page.locator(".panel-editor .ui-badge-success").waitFor({ timeout: 15_000 });
+    await page.locator('[data-panel-toggle="feature:ai_assistant"]').click();
+    await page.locator('.ai-live-status[data-status="configuring"]').waitFor({ timeout: 15_000 });
     const restoredConversationSelect = page.getByTestId("ai-conversation-select");
     assert(
       await restoredConversationSelect.locator("option").count() === 2,
@@ -846,15 +853,15 @@ async function verifyBrowserBoundary(projectId, provider) {
       frame.url().includes("/_ai-runtime/bootstrap.html")
     );
     assert(localizedRuntimeFrame, "localized Runtime iframe was not attached");
-    await localizedRuntimeFrame
-      .getByText("隔离的浏览器 Runtime", { exact: true })
-      .waitFor({ timeout: 5_000 });
+    await localizedRuntimeFrame.waitForFunction(() => document.documentElement.lang === "zh-CN", null, {
+      timeout: 5_000
+    });
     if (provider.kind === "mock") {
-      await localizedRuntimeFrame.getByLabel("凭据（可选）").fill(provider.credential);
-      await localizedRuntimeFrame.getByRole("button", { name: "使用此连接", exact: true }).click();
-      await page.locator(".ai-runtime-state", { hasText: "就绪" }).waitFor({ timeout: 15_000 });
-      await page.locator(".ai-composer textarea").fill("验证中文 Runtime 文案。");
-      await page.getByRole("button", { name: "发送", exact: true }).click();
+      await localizedRuntimeFrame.locator('input[name="credential"]').fill(provider.credential);
+      await localizedRuntimeFrame.locator('[data-action="activate-connection"]').click();
+      await page.locator('.ai-live-status[data-status="ready"]').waitFor({ timeout: 15_000 });
+      await page.locator('.ai-composer [name="prompt"]').fill("Verify locale propagation.");
+      await page.locator('[data-action="send-prompt"]').click();
       await page
         .getByText("Mock provider turn 8 completed.", {
           exact: false

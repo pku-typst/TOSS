@@ -772,7 +772,12 @@ export default function AssistantPanel({
           icon={<Brain size={22} aria-hidden />}
           description={t("ai.settings.connectionRequired")}
           actions={
-            <UiButton type="button" variant="primary" onClick={onOpenSettings}>
+            <UiButton
+              type="button"
+              variant="primary"
+              data-action="open-assistant-settings"
+              onClick={onOpenSettings}
+            >
               {t("ai.settings.open")}
             </UiButton>
           }
@@ -924,16 +929,22 @@ export default function AssistantPanel({
               </button>
             )}
           </div>
-          <p className="ai-live-status" role="status" aria-live="polite">
+          <p
+            className="ai-live-status"
+            data-status={snapshot.status}
+            role="status"
+            aria-live="polite"
+          >
             {statusLabel(snapshot.status, t)}
           </p>
           {snapshot.usage && <TokenUsageBar usage={snapshot.usage} locale={locale} t={t} />}
-          {snapshot.error && <p className="ai-runtime-error">
+          {snapshot.error && <p className="ai-runtime-error" data-error-code={snapshot.error}>
             {snapshot.errorMessage ?? t("ai.error", { code: snapshot.error })}
           </p>}
           <form className="ai-composer" onSubmit={submitPrompt}>
             <UiTextarea
               className="ai-composer-field"
+              name="prompt"
               value={promptDraft}
               onChange={(event) => setPromptDraft(event.target.value)}
               onKeyDown={handleComposerKeyDown}
@@ -958,6 +969,7 @@ export default function AssistantPanel({
                   key="start-turn"
                   type="submit"
                   variant="primary"
+                  data-action="send-prompt"
                   disabled={snapshot.status !== "ready" || !promptDraft.trim()}
                 >
                   {t("ai.send")}

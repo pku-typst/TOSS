@@ -183,6 +183,7 @@ function renderCredentialSurface(
   const credentialLabel = document.createElement("span");
   const input = document.createElement("input");
   input.type = "password";
+  input.name = "credential";
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("data-1p-ignore", "true");
@@ -192,6 +193,7 @@ function renderCredentialSurface(
   hint.className = "credential-hint";
   const submit = document.createElement("button");
   submit.type = "button";
+  submit.dataset.action = "activate-connection";
   container.append(field, hint, submit);
   let activated = false;
   const activate = () => {

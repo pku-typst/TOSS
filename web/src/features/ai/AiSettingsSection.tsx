@@ -280,6 +280,7 @@ export default function AiSettingsSection({
             <h4>{editingId ? t("ai.connection.editTitle") : t("ai.connection.addTitle")}</h4>
             <UiInput
               label={t("ai.connection.name")}
+              name="connection-name"
               value={connectionDraft.name}
               maxLength={80}
               required
@@ -287,6 +288,7 @@ export default function AiSettingsSection({
             />
             <UiSelect
               label={t("ai.connection.protocol")}
+              name="connection-protocol"
               value={connectionDraft.protocol}
               onChange={(event) => setConnectionDraft((current) => ({
                 ...current,
@@ -299,6 +301,7 @@ export default function AiSettingsSection({
             </UiSelect>
             <UiInput
               label={t("ai.connection.endpoint")}
+              name="connection-endpoint"
               value={connectionDraft.endpoint}
               type="url"
               maxLength={2_048}
@@ -308,6 +311,7 @@ export default function AiSettingsSection({
             />
             <UiInput
               label={t("ai.connection.model")}
+              name="connection-model"
               value={connectionDraft.model}
               maxLength={256}
               required
@@ -315,6 +319,7 @@ export default function AiSettingsSection({
             />
             <UiCheckbox
               label={t("ai.connection.reasoningCapability")}
+              name="connection-reasoning"
               checked={connectionDraft.reasoning}
               onChange={(event) => setConnectionDraft((current) => ({
                 ...current,
@@ -325,6 +330,7 @@ export default function AiSettingsSection({
             <UiTextarea
               className="ai-connection-json-field"
               label={t("ai.connection.requestOverrides")}
+              name="connection-request-overrides"
               value={connectionDraft.requestOverrides}
               rows={6}
               spellCheck={false}
@@ -337,6 +343,7 @@ export default function AiSettingsSection({
             <div className="ai-connection-token-fields">
               <UiInput
                 label={t("ai.connection.contextWindow")}
+                name="connection-context-window"
                 value={connectionDraft.contextWindow}
                 type="number"
                 inputMode="numeric"
@@ -351,6 +358,7 @@ export default function AiSettingsSection({
               />
               <UiInput
                 label={t("ai.connection.maxOutputTokens")}
+                name="connection-max-output-tokens"
                 value={connectionDraft.maxOutputTokens}
                 type="number"
                 inputMode="numeric"
@@ -377,7 +385,9 @@ export default function AiSettingsSection({
                   {t("common.cancel")}
                 </UiButton>
               )}
-              <UiButton type="submit" variant="primary">{t("common.save")}</UiButton>
+              <UiButton type="submit" variant="primary" data-action="save-connection">
+                {t("common.save")}
+              </UiButton>
             </div>
           </form>
         </UiCard>

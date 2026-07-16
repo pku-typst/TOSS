@@ -217,6 +217,7 @@ export function WorkspaceToolbar({
                 )}
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="files"
                   current={showFilesPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
@@ -228,6 +229,7 @@ export function WorkspaceToolbar({
                 </nve-menu-item>
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="preview"
                   current={showPreviewPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
@@ -241,6 +243,7 @@ export function WorkspaceToolbar({
                   <nve-menu-item
                     key={control.panel}
                     role="menuitem"
+                    data-panel-toggle={control.panel}
                     current={control.active ? "page" : undefined}
                     onClick={() => {
                       closePopover(viewMenuId);
@@ -253,6 +256,7 @@ export function WorkspaceToolbar({
                 ))}
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="settings"
                   current={showProjectSettingsPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
@@ -264,6 +268,7 @@ export function WorkspaceToolbar({
                 </nve-menu-item>
                 <nve-menu-item
                   role="menuitem"
+                  data-panel-toggle="revisions"
                   current={showRevisionPanel ? "page" : undefined}
                   onClick={() => {
                     closePopover(viewMenuId);
@@ -327,6 +332,7 @@ export function WorkspaceToolbar({
           <>
             <UiButton
               className={`workspace-toolbar-toggle ${showFilesPanel ? "active" : ""}`}
+              data-panel-toggle="files"
               aria-label={t("workspace.files")}
               aria-pressed={showFilesPanel}
               title={t("workspace.files")}
@@ -337,6 +343,7 @@ export function WorkspaceToolbar({
             </UiButton>
             <UiButton
               className={`workspace-toolbar-toggle ${showPreviewPanel ? "active" : ""}`}
+              data-panel-toggle="preview"
               aria-label={t("workspace.preview")}
               aria-pressed={showPreviewPanel}
               title={t("workspace.preview")}
@@ -349,6 +356,7 @@ export function WorkspaceToolbar({
               <UiButton
                 key={control.panel}
                 className={`workspace-toolbar-toggle ${control.active ? "active" : ""}`}
+                data-panel-toggle={control.panel}
                 aria-label={control.label}
                 aria-pressed={control.active}
                 title={control.label}
@@ -360,6 +368,7 @@ export function WorkspaceToolbar({
             ))}
             <UiButton
               className={`workspace-toolbar-toggle ${showProjectSettingsPanel ? "active" : ""}`}
+              data-panel-toggle="settings"
               aria-label={t("workspace.settings")}
               aria-pressed={showProjectSettingsPanel}
               title={t("workspace.settings")}
@@ -370,6 +379,7 @@ export function WorkspaceToolbar({
             </UiButton>
             <UiButton
               className={`workspace-toolbar-toggle ${showRevisionPanel ? "active" : ""}`}
+              data-panel-toggle="revisions"
               aria-label={t("workspace.revisions")}
               aria-pressed={showRevisionPanel}
               title={t("workspace.revisions")}
