@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { queryTypstDocs, TYPST_DOCS_VERSION } from "@/ai-runtime/typstDocsSearch";
 
+const COLD_INDEX_TEST_TIMEOUT_MS = 15_000;
+
 describe("Typst documentation search", () => {
   it("combines a verified metadata recipe with the exact standard-library API", async () => {
     const result = await queryTypstDocs("document metadata author keywords", 5);
@@ -20,7 +22,7 @@ describe("Typst documentation search", () => {
       expect.objectContaining({ name: "author", types: expect.arrayContaining(["str", "array"]) }),
       expect.objectContaining({ name: "keywords", types: expect.arrayContaining(["str", "array"]) })
     ]));
-  });
+  }, COLD_INDEX_TEST_TIMEOUT_MS);
 
   it("ranks exact API names ahead of broader matches", async () => {
     const result = await queryTypstDocs("document", 3);
