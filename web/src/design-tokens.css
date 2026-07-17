@@ -74,6 +74,8 @@
   --toss-control-height-sm: var(--nve-ref-size-700);
   --toss-control-height-md: var(--nve-ref-size-800);
   --toss-control-height-lg: var(--nve-ref-size-900);
+  --toss-touch-target: 44px;
+  --toss-touch-target-compact: 36px;
   --toss-control-padding-inline-sm: var(--nve-ref-size-200);
   --toss-icon-size-sm: var(--nve-ref-size-400);
   --toss-icon-size-md: var(--nve-ref-size-500);

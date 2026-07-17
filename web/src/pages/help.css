@@ -33,6 +33,10 @@
   outline: 0;
 }
 
+.help-topic-picker {
+  display: none;
+}
+
 .help-layout {
   min-height: 480px;
   margin-top: 24px;
@@ -204,15 +208,19 @@
 }
 
 @media (max-width: 720px) {
+  .help-topic-picker {
+    display: block;
+    margin-top: 16px;
+  }
+
   .help-layout {
     grid-template-columns: 1fr;
+    min-height: 0;
+    margin-top: 12px;
   }
 
   .help-topic-nav {
-    max-height: 250px;
-    overflow-y: auto;
-    border-right: 0;
-    border-bottom: var(--toss-border-width) solid var(--toss-border-subtle);
+    display: none;
   }
 }
 

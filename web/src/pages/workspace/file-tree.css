@@ -128,3 +128,39 @@ nve-button.tree-label {
   position: fixed;
   z-index: 60;
 }
+
+@media (max-width: 600px), (pointer: coarse) {
+  .tree-children {
+    margin-left: var(--toss-space-sm);
+    padding-left: var(--toss-space-xs);
+  }
+
+  .tree-node {
+    grid-template-columns: var(--toss-touch-target-compact) minmax(0, 1fr)
+      var(--toss-touch-target-compact);
+    min-height: 40px;
+    padding-block: 0;
+  }
+
+  nve-icon-button.tree-toggle,
+  nve-icon-button.mini {
+    --width: var(--toss-touch-target-compact);
+    --height: 40px;
+  }
+
+  .tree-placeholder {
+    width: var(--toss-touch-target-compact);
+  }
+
+  nve-button.tree-label {
+    --height: 40px;
+  }
+
+  .context-menu {
+    --max-height: calc(100dvh - 24px);
+  }
+
+  .context-menu nve-menu-item {
+    --min-height: var(--toss-touch-target);
+  }
+}

@@ -529,19 +529,58 @@ a {
 }
 
 @media (max-width: 700px) {
+  .topbar {
+    height: 56px;
+  }
+
   .topbar:not(.workspace) {
-    --padding: var(--toss-space-sm) var(--toss-space-lg);
+    --padding: 6px var(--toss-space-lg);
     --margin-inline: var(--toss-space-sm);
   }
 
   .topbar:not(.workspace) .topbar-brand,
-  .topbar:not(.workspace) .topbar-nav,
-  .topbar:not(.workspace) .workspace-meta {
+  .topbar:not(.workspace) .topbar-nav {
     display: none;
   }
 
   .topbar:not(.workspace) .topbar-nav-mobile {
     display: flex;
+  }
+
+  .app-navigation-menu {
+    --max-height: calc(100dvh - 72px);
+  }
+
+  .topbar:not(.workspace) .workspace-meta {
+    display: flex;
+    flex: 0 0 auto;
+    margin-inline-start: var(--toss-space-xs);
+  }
+
+  .topbar:not(.workspace) .workspace-meta > :not(.processing-task-trigger, .processing-task-overlay) {
+    display: none;
+  }
+
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .topbar-brand-link,
+  .topbar-link {
+    min-height: var(--toss-touch-target);
+  }
+
+  .topbar-nav-mobile > nve-button {
+    --height: var(--toss-touch-target);
+    --padding: 0 var(--toss-space-md);
+  }
+
+  .app-navigation-menu nve-menu-item {
+    --min-height: var(--toss-touch-target);
+  }
+
+  .topbar .processing-task-trigger .ui-icon-button {
+    --width: 40px;
+    --height: 40px;
   }
 }
 

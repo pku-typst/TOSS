@@ -784,6 +784,59 @@ nve-button.ai-assistant-menu-trigger:hover {
   border-top: var(--toss-border-width) solid var(--toss-border-subtle);
 }
 
+@media (max-width: 600px), (pointer: coarse) {
+  nve-button.ai-assistant-menu-trigger {
+    --height: var(--toss-touch-target-compact);
+    width: var(--toss-touch-target-compact);
+    height: var(--toss-touch-target-compact);
+  }
+
+  .ai-conversation-toolbar {
+    grid-template-columns: minmax(0, 1fr) var(--toss-touch-target-compact);
+    padding: 6px 8px;
+  }
+
+  .ai-conversation-toolbar .ui-select,
+  .ai-managed-model-picker .ui-input,
+  .ai-managed-model-picker .ui-select,
+  .ai-composer .ui-button {
+    --height: 40px;
+  }
+
+  .ai-activity-trigger {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 600px) {
+  .ai-connection-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-managed-model-picker,
+  .ai-managed-model-picker .ui-input,
+  .ai-managed-model-picker .ui-select {
+    width: 100%;
+  }
+
+  .ai-settings-fields,
+  .ai-connection-token-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-edit-review-heading,
+  .ai-edit-review-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-edit-review-stats,
+  .ai-edit-review-footer > div {
+    flex-wrap: wrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ai-transcript {
     scroll-behavior: auto;
