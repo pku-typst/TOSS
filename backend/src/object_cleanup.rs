@@ -1,4 +1,5 @@
 use crate::object_storage::{delete_object, ObjectStorage};
+use crate::process_lifecycle::DrainSignal;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::time::Duration;
@@ -190,13 +191,18 @@ async fn defer_object_deletion(
     Ok(())
 }
 
-pub fn spawn_object_cleanup_worker(db: PgPool, storage: Option<ObjectStorage>) {
-    let Some(storage) = storage else {
-        return;
-    };
-    tokio::spawn(async move {
+pub fn spawn_object_cleanup_worker(
+    db: PgPool,
+    storage: Option<ObjectStorage>,
+    drain: DrainSignal,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let storage = storage?;
+    Some(tokio::spawn(async move {
         loop {
             for _ in 0..DELETE_BATCH_SIZE {
+                if drain.is_triggered() {
+                    return;
+                }
                 let claimed = match claim_due_object(&db).await {
                     Ok(Some(value)) => value,
                     Ok(None) => break,
@@ -219,9 +225,12 @@ pub fn spawn_object_cleanup_worker(db: PgPool, storage: Option<ObjectStorage>) {
                     error!(object_key = key, %error, "object cleanup retry persistence failed");
                 }
             }
-            tokio::time::sleep(DELETE_WORKER_INTERVAL).await;
+            tokio::select! {
+                _ = drain.triggered() => return,
+                _ = tokio::time::sleep(DELETE_WORKER_INTERVAL) => {}
+            }
         }
-    });
+    }))
 }
 
 #[cfg(test)]

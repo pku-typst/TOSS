@@ -2,6 +2,7 @@ use super::ApiErrorResponse;
 use crate::server::HealthResponse;
 
 json_operation!(health, get, "/health", "runtime", 200, HealthResponse);
+json_operation!(ready, get, "/ready", "runtime", 200, HealthResponse);
 binary_operation!(
     typst_package,
     get,

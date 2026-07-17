@@ -13,4 +13,4 @@ pub(super) use operation_state::{
 };
 pub(crate) use persistence::record_project_activity;
 pub(crate) use state::{ExternalGitCheckpointPhase, ExternalGitCheckpointState};
-pub(crate) use worker::spawn_external_git_checkpoint_worker;
+pub(super) use worker::spawn_external_git_checkpoint_worker;

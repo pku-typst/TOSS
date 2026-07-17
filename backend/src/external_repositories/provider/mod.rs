@@ -568,18 +568,30 @@ impl ExternalGitProviderRegistry {
 pub(crate) struct ExternalGitGateway<'runtime> {
     db: &'runtime PgPool,
     provider: Option<&'runtime ExternalGitProvider>,
+    drain: crate::process_lifecycle::DrainSignal,
 }
 
 impl<'runtime> ExternalGitGateway<'runtime> {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         db: &'runtime PgPool,
         provider: Option<&'runtime ExternalGitProvider>,
+        drain: crate::process_lifecycle::DrainSignal,
     ) -> Self {
-        Self { db, provider }
+        Self {
+            db,
+            provider,
+            drain,
+        }
     }
 
     pub(crate) fn provider_id(&self) -> Option<ProviderInstanceId> {
         self.provider.map(|provider| provider.instance_id().clone())
+    }
+
+    pub(in crate::external_repositories) fn drain_signal(
+        &self,
+    ) -> crate::process_lifecycle::DrainSignal {
+        self.drain.clone()
     }
 
     pub(in crate::external_repositories) async fn git_http_authorization(

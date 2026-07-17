@@ -12,10 +12,10 @@ use super::job_lifecycle::{
 };
 use super::persistence::{self, AppliedInboundJob, ClaimedInboundJob, InboundJobLink};
 use super::ExternalGitInboundPhase;
-use crate::app_state::AppState;
 use crate::audit::record_event;
 use crate::collaboration::CollaborationContext;
 use crate::distribution::DistributionConfig;
+use crate::external_repositories::worker_runtime::ExternalGitWorkerRuntime;
 use crate::external_repositories::{
     external_git_command_timeout_seconds, ExternalGitCommandFailure, ExternalGitFailureCode,
     ExternalGitGateway,
@@ -603,21 +603,24 @@ async fn record_inbound_failure(
     }
 }
 
-pub(crate) fn spawn_external_git_inbound_worker(state: AppState) {
+pub(in crate::external_repositories) fn spawn_external_git_inbound_worker(
+    runtime: ExternalGitWorkerRuntime,
+) -> Vec<tokio::task::JoinHandle<()>> {
     let interval = Duration::from_secs(inbound_worker_interval_seconds());
     let batch_size = inbound_worker_batch_size();
-    let providers = state
-        .external_git_providers
-        .instance_ids()
-        .collect::<Vec<_>>();
+    let providers = runtime.provider_ids();
+    let mut workers = Vec::with_capacity(providers.len());
     for provider in providers {
-        let state = state.clone();
-        tokio::spawn(async move {
+        let runtime = runtime.clone();
+        workers.push(tokio::spawn(async move {
             loop {
                 for _ in 0..batch_size {
+                    if runtime.drain.is_triggered() {
+                        return;
+                    }
                     let now = Utc::now();
                     let claimed = match persistence::claim_due_job(
-                        &state.db,
+                        &runtime.db,
                         &provider,
                         now,
                         now - chrono::Duration::minutes(15),
@@ -634,13 +637,13 @@ pub(crate) fn spawn_external_git_inbound_worker(state: AppState) {
                             break;
                         }
                     };
-                    let gateway = state.external_git_gateway(&provider);
+                    let gateway = runtime.gateway(&provider);
                     match process_inbound_job(
-                        &state.db,
-                        state.storage.as_ref(),
-                        &state.distribution,
-                        &state.collaboration,
-                        &state.versioning,
+                        &runtime.db,
+                        runtime.storage.as_ref(),
+                        &runtime.distribution,
+                        &runtime.collaboration,
+                        &runtime.versioning,
                         &gateway,
                         &claimed,
                     )
@@ -655,14 +658,18 @@ pub(crate) fn spawn_external_git_inbound_worker(state: AppState) {
                                 failure_code = %failure.code(),
                                 "external Git inbound job failed"
                             );
-                            record_inbound_failure(&state.db, &claimed, &failure).await;
+                            record_inbound_failure(&runtime.db, &claimed, &failure).await;
                         }
                     }
                 }
-                tokio::time::sleep(interval).await;
+                tokio::select! {
+                    _ = runtime.drain.triggered() => return,
+                    _ = tokio::time::sleep(interval) => {}
+                }
             }
-        });
+        }));
     }
+    workers
 }
 
 #[cfg(test)]

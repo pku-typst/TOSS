@@ -1,5 +1,11 @@
 import * as Y from "yjs";
 import { base64ToBytes, bytesToBase64 } from "@/lib/base64";
+import { reconnectDelayMs } from "@/lib/reconnectPolicy";
+import {
+  appendProtocolEpoch,
+  isProtocolIncompatibleClose,
+  requireProtocolReload,
+} from "@/lib/protocolCompatibility";
 import type {
   RealtimeClientMessage,
   RealtimeServerEvent,
@@ -28,7 +34,6 @@ type CursorPayload = {
   column: number;
 };
 
-const DEFAULT_RECONNECT_DELAY_SECONDS = 5;
 const RECONNECT_COUNTDOWN_TICK_MS = 1_000;
 const SNAPSHOT_DEBOUNCE_MS = 320;
 const SNAPSHOT_ACK_TIMEOUT_MS = 10_000;
@@ -154,18 +159,17 @@ export function bindRealtimeYDoc(params: {
   const userId = params.userId ?? crypto.randomUUID();
   const userName = params.userName?.trim() || `User-${userId.slice(0, 8)}`;
   const canWrite = params.canWrite ?? true;
-  const reconnectDelaySeconds = Math.max(
-    1,
-    Math.floor(
-      params.reconnectDelaySeconds ?? DEFAULT_RECONNECT_DELAY_SECONDS,
-    ),
-  );
+  const reconnectOverrideSeconds =
+    params.reconnectDelaySeconds === undefined
+      ? undefined
+      : Math.max(1, Math.floor(params.reconnectDelaySeconds));
   const query = new URLSearchParams({
     project_id: params.projectId,
     collaboration_revision: String(params.collaborationRevision),
     user_id: userId,
     user_name: userName,
   });
+  appendProtocolEpoch(query);
   if (params.sessionToken?.trim()) {
     query.set("session_token", params.sessionToken.trim());
   }
@@ -257,13 +261,27 @@ export function bindRealtimeYDoc(params: {
     snapshotTimer = null;
   };
 
-  const startReconnectCountdown = () => {
+  const startReconnectCountdown = (closeCode?: number) => {
     if (closed) return;
+    if (closeCode !== undefined && isProtocolIncompatibleClose(closeCode)) {
+      closed = true;
+      stopReconnectCountdown();
+      params.onStatusChange?.("disconnected");
+      requireProtocolReload();
+      return;
+    }
     if (reconnectAttemptTimer !== null) return;
     params.onStatusChange?.("disconnected");
     resetPresenceToSelf();
     reconnectAttemptCount += 1;
-    reconnectSecondsRemaining = reconnectDelaySeconds;
+    const delayMs = reconnectDelayMs({
+      attempt: reconnectAttemptCount,
+      closeCode,
+      overrideSeconds: reconnectOverrideSeconds,
+    });
+    reconnectSecondsRemaining = Math.ceil(
+      delayMs / RECONNECT_COUNTDOWN_TICK_MS,
+    );
     notifyReconnect(true, reconnectSecondsRemaining);
     reconnectCountdownTimer = window.setInterval(() => {
       if (closed) return;
@@ -274,7 +292,7 @@ export function bindRealtimeYDoc(params: {
       if (closed) return;
       stopReconnectCountdown();
       connect();
-    }, reconnectDelaySeconds * RECONNECT_COUNTDOWN_TICK_MS);
+    }, delayMs);
   };
 
   const sendSnapshotTo = (socket: WebSocket): Promise<boolean> => {
@@ -304,16 +322,16 @@ export function bindRealtimeYDoc(params: {
     clearSnapshotTimer();
     snapshotTimer = window.setTimeout(() => {
       snapshotTimer = null;
-      if (ws) void sendSnapshotTo(ws);
+      if (ws && bootstrapComplete) void sendSnapshotTo(ws);
     }, SNAPSHOT_DEBOUNCE_MS);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      sendRealtimeMessage(ws, {
-        kind: "yjs.update",
-        origin,
-        request_id: nextRequestId(),
-        payload: bytesToBase64(update),
-      });
-    }
+    if (closed || !bootstrapComplete || !ws || ws.readyState !== WebSocket.OPEN)
+      return;
+    sendRealtimeMessage(ws, {
+      kind: "yjs.update",
+      origin,
+      request_id: nextRequestId(),
+      payload: bytesToBase64(update),
+    });
   };
 
   params.ydoc.on("update", onLocalUpdate);
@@ -342,7 +360,6 @@ export function bindRealtimeYDoc(params: {
     socket.addEventListener("open", () => {
       if (closed || ws !== socket) return;
       params.onStatusChange?.("connected");
-      reconnectAttemptCount = 0;
       stopReconnectCountdown();
       notifyPresence();
       sendPresenceMetadata();
@@ -479,7 +496,10 @@ export function bindRealtimeYDoc(params: {
           }
         }
         if (kind === "bootstrap.done") {
+          if (bootstrapComplete) return;
           bootstrapComplete = true;
+          reconnectAttemptCount = 0;
+          notifyReconnect(false, 0);
           params.onBootstrapDone?.();
           void sendSnapshotTo(socket);
         }
@@ -513,14 +533,17 @@ export function bindRealtimeYDoc(params: {
       }
     });
 
-    const handleDisconnect = () => {
+    const handleDisconnect = (closeCode?: number) => {
       if (closed || ws !== socket) return;
       settlePendingSnapshots(false);
-      startReconnectCountdown();
+      startReconnectCountdown(closeCode);
     };
 
-    socket.addEventListener("error", handleDisconnect);
-    socket.addEventListener("close", handleDisconnect);
+    socket.addEventListener("error", () => {
+      if (closed || ws !== socket) return;
+      params.onStatusChange?.("disconnected");
+    });
+    socket.addEventListener("close", (event) => handleDisconnect(event.code));
   };
 
   notifyReconnect(false, 0);

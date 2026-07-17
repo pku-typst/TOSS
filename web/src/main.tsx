@@ -15,6 +15,9 @@ import "@/elements";
 import "@/design-tokens.css";
 import "@/design-system.css";
 import "@/styles.css";
+import { handleLazyChunkLoadFailure } from "@/lib/protocolCompatibility";
+
+window.addEventListener("vite:preloadError", handleLazyChunkLoadFailure);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

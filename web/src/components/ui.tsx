@@ -272,6 +272,7 @@ export function UiDialog({
   open,
   title,
   description,
+  closable = true,
   onClose,
   children,
   actions
@@ -279,6 +280,7 @@ export function UiDialog({
   open: boolean;
   title: string;
   description?: string;
+  closable?: boolean;
   onClose: () => void;
   children?: ReactNode;
   actions?: ReactNode;
@@ -307,7 +309,7 @@ export function UiDialog({
       className="ui-dialog"
       role="dialog"
       modal
-      closable
+      closable={closable ? true : undefined}
       aria-modal="true"
       aria-label={title}
     >

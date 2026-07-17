@@ -3,6 +3,7 @@
 use super::model::{processing_retry_delay, ProcessingJobState, ProcessingOperation};
 use super::{DocumentProcessingContext, ProcessingConfig};
 use crate::access::{ensure_project_role_for_user, AccessNeed, ProjectAuthorizationError};
+use crate::process_lifecycle::DrainSignal;
 use chrono::{DateTime, Utc};
 use sha2::Digest;
 use sqlx::{PgPool, Row};
@@ -69,13 +70,22 @@ impl ValidationFailure {
     }
 }
 
-pub(crate) fn spawn_processing_maintenance(context: DocumentProcessingContext) {
+pub(crate) fn spawn_processing_maintenance(
+    context: DocumentProcessingContext,
+    drain: DrainSignal,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
+            if drain.is_triggered() {
+                return;
+            }
             if let Err(error) = maintain_lifecycle(&context.db).await {
                 tracing::error!(?error, "document processing lifecycle maintenance failed");
             }
             for _ in 0..MAINTENANCE_BATCH {
+                if drain.is_triggered() {
+                    return;
+                }
                 match finalize_one(&context.db, &context.config).await {
                     Ok(true) => {}
                     Ok(false) => break,
@@ -85,9 +95,12 @@ pub(crate) fn spawn_processing_maintenance(context: DocumentProcessingContext) {
                     }
                 }
             }
-            tokio::time::sleep(MAINTENANCE_INTERVAL).await;
+            tokio::select! {
+                _ = drain.triggered() => return,
+                _ = tokio::time::sleep(MAINTENANCE_INTERVAL) => {}
+            }
         }
-    });
+    })
 }
 
 async fn maintain_lifecycle(db: &PgPool) -> Result<(), sqlx::Error> {
@@ -579,12 +592,121 @@ fn valid_pdf(content: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_pdf;
+    use super::*;
+    use crate::document_processing::ProcessingConfigFile;
+    use std::path::Path;
+
+    async fn migrated_test_pool() -> Result<Option<PgPool>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let database_url =
+            std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"));
+        let Ok(database_url) = database_url else {
+            return Ok(None);
+        };
+        let pool = PgPool::connect(&database_url).await?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Some(pool))
+    }
 
     #[test]
     fn pdf_validation_requires_header_and_trailer() {
         assert!(valid_pdf(b"%PDF-1.7\n1 0 obj\nendobj\n%%EOF\n"));
         assert!(!valid_pdf(b"%PDF-1.7\ntruncated"));
         assert!(!valid_pdf(b"not a pdf\n%%EOF"));
+    }
+
+    #[tokio::test]
+    async fn expired_finalization_lease_is_reacquired_and_fences_its_predecessor(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(pool) = migrated_test_pool().await? else {
+            return Ok(());
+        };
+        let user_id = Uuid::new_v4();
+        let job_id = Uuid::new_v4();
+        let now = Utc::now();
+        let oldest = now - chrono::Duration::days(3_650);
+        let username = format!("finalizer-{}", user_id.simple());
+        sqlx::query(
+            "insert into users (id, email, username, display_name, created_at)
+             values ($1, $2, $3, 'Finalizer recovery', $4)",
+        )
+        .bind(user_id)
+        .bind(format!("{user_id}@example.test"))
+        .bind(username.chars().take(32).collect::<String>())
+        .bind(now)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "insert into processing_jobs (
+                 id, operation, requester_user_id, project_id,
+                 idempotency_scope, idempotency_key, command_digest,
+                 normalized_options, options_digest, state, phase,
+                 max_attempts, next_attempt_at, created_at, updated_at,
+                 queue_expires_at, retained_until
+             ) values (
+                 $1, 'latex.compile.pdf/v1', $2, null,
+                 'finalization-recovery', $3, $4,
+                 '{}'::jsonb, $4, 'finalizing', 'validating_result',
+                 3, $5, $5, $5, $6, $6
+             )",
+        )
+        .bind(job_id)
+        .bind(user_id)
+        .bind(Uuid::new_v4().to_string())
+        .bind(vec![0_u8; 32])
+        .bind(oldest)
+        .bind(now + chrono::Duration::days(1))
+        .execute(&pool)
+        .await?;
+        let config = ProcessingConfig::from_config(ProcessingConfigFile::default(), Path::new("."))
+            .map_err(std::io::Error::other)?;
+        let first = acquire_finalization_lease(&pool, &config)
+            .await?
+            .ok_or_else(|| std::io::Error::other("first finalization lease was not acquired"))?;
+        assert_eq!(first.job_id, job_id);
+
+        sqlx::query(
+            "update processing_jobs
+             set finalization_expires_at = $2, updated_at = $3
+             where id = $1",
+        )
+        .bind(job_id)
+        .bind(now - chrono::Duration::seconds(1))
+        .bind(oldest)
+        .execute(&pool)
+        .await?;
+        let second = acquire_finalization_lease(&pool, &config)
+            .await?
+            .ok_or_else(|| {
+                std::io::Error::other("expired finalization lease was not reacquired")
+            })?;
+        assert_eq!(second.job_id, job_id);
+        assert_ne!(first.token, second.token);
+
+        publish_artifacts(&pool, &first, &[]).await?;
+        reject_artifacts(&pool, &first, ValidationFailure::ArtifactSet).await?;
+        let (state, token) = sqlx::query_as::<_, (String, Option<Uuid>)>(
+            "select state, finalization_token from processing_jobs where id = $1",
+        )
+        .bind(job_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(state, "finalizing");
+        assert_eq!(token, Some(second.token));
+
+        reject_artifacts(&pool, &second, ValidationFailure::ArtifactSet).await?;
+        let (state, token) = sqlx::query_as::<_, (String, Option<Uuid>)>(
+            "select state, finalization_token from processing_jobs where id = $1",
+        )
+        .bind(job_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(state, "failed");
+        assert_eq!(token, None);
+        sqlx::query("delete from users where id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
+        Ok(())
     }
 }

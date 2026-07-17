@@ -1,4 +1,4 @@
-use super::runtime::health;
+use super::runtime::{health, ready};
 use crate::access::{
     auth_config, auth_logout, auth_me, create_organization, create_personal_access_token,
     create_project_share_link, create_temporary_share_login, delete_group_role,
@@ -61,6 +61,7 @@ pub(super) fn build_router() -> Router<AppState> {
     Router::new()
         .route("/", get(spa_index))
         .route("/index.html", get(spa_index))
+        .route("/ready", get(ready))
         .route("/health", get(health))
         .route(
             "/internal/v1/processing/worker-sessions",

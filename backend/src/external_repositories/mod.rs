@@ -14,10 +14,11 @@ mod oauth;
 mod oauth_http;
 mod provider;
 mod reauthorization;
+mod worker_runtime;
 
 pub(crate) use checkpoint::{
-    record_project_activity, request_external_git_checkpoint, spawn_external_git_checkpoint_worker,
-    ExternalGitCheckpointPhase, ExternalGitCheckpointState,
+    record_project_activity, request_external_git_checkpoint, ExternalGitCheckpointPhase,
+    ExternalGitCheckpointState,
 };
 pub(crate) use command::ExternalGitCommandFailure;
 pub(crate) use config::{external_git_provider_registry_from_config, ExternalGitConfigFile};
@@ -33,8 +34,7 @@ pub(crate) use git_command::{external_git_command_timeout_seconds, ExternalGitCo
 pub(crate) use inbound::{
     create_external_git_import, get_external_git_inbound_job,
     list_linked_external_git_repository_branches, request_external_git_inbound_sync,
-    spawn_external_git_inbound_worker, CreateExternalGitImportInput, ExternalRepositoryInboundJob,
-    RequestExternalGitInboundSyncInput,
+    CreateExternalGitImportInput, ExternalRepositoryInboundJob, RequestExternalGitInboundSyncInput,
 };
 pub(crate) use linking::{ExternalGitLinkStatus, ExternalRepositoryProjectStatus};
 pub(crate) use linking_http::{
@@ -49,6 +49,7 @@ pub(crate) use provider::{
     ExternalGitGateway, ExternalGitProviderCapabilities, ExternalGitProviderRegistry,
     ExternalGitRepositoryVisibility, ProviderBrand, ProviderInstanceId, ProviderKind,
 };
+pub(crate) use worker_runtime::spawn_external_git_workers;
 
 #[cfg(test)]
 pub(crate) use inbound::{

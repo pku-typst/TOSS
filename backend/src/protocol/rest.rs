@@ -130,6 +130,7 @@ pub use external_repositories::ExternalGitCheckpointResponse;
     ),
     paths(
         runtime::health,
+        runtime::ready,
         experience::experience,
         experience::help,
         experience::product_favicon,

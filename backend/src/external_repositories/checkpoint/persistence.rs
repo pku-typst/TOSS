@@ -452,3 +452,137 @@ pub(crate) async fn fail_checkpoint(
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace::{LatexEngine, ProjectName, ProjectType};
+
+    async fn migrated_test_pool() -> Result<Option<PgPool>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let database_url =
+            std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"));
+        let Ok(database_url) = database_url else {
+            return Ok(None);
+        };
+        let pool = PgPool::connect(&database_url).await?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Some(pool))
+    }
+
+    #[tokio::test]
+    async fn stale_checkpoint_claim_is_reacquired_without_losing_captured_commit(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(pool) = migrated_test_pool().await? else {
+            return Ok(());
+        };
+        let user_id = Uuid::new_v4();
+        let project_id = Uuid::new_v4();
+        let suffix = user_id.simple().to_string();
+        let provider = format!("recovery-{}", &suffix[..12]).parse::<ProviderInstanceId>()?;
+        let now = Utc::now();
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            "insert into users (id, email, username, display_name, created_at)
+             values ($1, $2, $3, 'Checkpoint recovery', $4)",
+        )
+        .bind(user_id)
+        .bind(format!("{user_id}@example.test"))
+        .bind(format!("checkpoint-{}", &suffix[..12]))
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "insert into external_git_oauth_grants (
+                 user_id, provider_instance_id, provider_account_id, provider_username,
+                 encrypted_access_token, refresh_redirect_uri, scopes, status, created_at, updated_at
+             ) values ($1, $2, $3, 'owner', '\\x01',
+                       'https://collab.example.test/callback', '{}', 'active', $4, $4)",
+        )
+        .bind(user_id)
+        .bind(&provider)
+        .bind(user_id.to_string())
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        let project_name = ProjectName::parse("Checkpoint recovery")?;
+        let project = crate::workspace::CreateProjectGraph::empty(
+            project_id,
+            user_id,
+            &project_name,
+            ProjectType::Typst,
+            LatexEngine::Pdftex,
+            now,
+        );
+        crate::workspace::provision_project(&mut transaction, &project).await?;
+        sqlx::query(
+            "insert into external_git_project_links (
+                 project_id, provider_instance_id, provider_repository_id, full_path,
+                 web_url, clone_url, default_branch, checkpoint_branch, status,
+                 linked_by_user_id, created_at, updated_at
+             ) values ($1, $2, $3, 'tests/recovery',
+                       'https://git.example.test/tests/recovery',
+                       'https://git.example.test/tests/recovery.git', 'main', 'checkpoint',
+                       'active', $4, $5, $5)",
+        )
+        .bind(project_id)
+        .bind(&provider)
+        .bind(Uuid::new_v4().to_string())
+        .bind(user_id)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        let checkpoint_sha = "0123456789abcdef0123456789abcdef01234567";
+        sqlx::query(
+            "insert into external_git_checkpoint_queue (
+                 project_id, target_workspace_version, captured_workspace_version,
+                 checkpoint_sha, captured_at, next_attempt_at, state, phase,
+                 attempt_count, last_attempt_at, locked_at, created_at, updated_at
+             ) values ($1, 42, 42, $2, $3, $3, 'processing', 'push_git',
+                       1, $3, $3, $3, $3)",
+        )
+        .bind(project_id)
+        .bind(checkpoint_sha)
+        .bind(now - chrono::Duration::minutes(5))
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+
+        assert!(
+            claim_due(&pool, &provider, now, now - chrono::Duration::minutes(10),)
+                .await?
+                .is_none()
+        );
+        sqlx::query(
+            "update external_git_checkpoint_queue set locked_at = $2 where project_id = $1",
+        )
+        .bind(project_id)
+        .bind(now - chrono::Duration::minutes(11))
+        .execute(&pool)
+        .await?;
+        let claimed = claim_due(&pool, &provider, now, now - chrono::Duration::minutes(10))
+            .await?
+            .ok_or_else(|| std::io::Error::other("stale checkpoint was not reacquired"))?;
+        assert_eq!(claimed.project_id, project_id);
+        assert_eq!(claimed.attempt_count, 2);
+        let (captured_version, captured_sha) = sqlx::query_as::<_, (Option<i64>, Option<String>)>(
+            "select captured_workspace_version, checkpoint_sha
+                 from external_git_checkpoint_queue where project_id = $1",
+        )
+        .bind(project_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(captured_version, Some(42));
+        assert_eq!(captured_sha.as_deref(), Some(checkpoint_sha));
+
+        sqlx::query("delete from projects where id = $1")
+            .bind(project_id)
+            .execute(&pool)
+            .await?;
+        sqlx::query("delete from users where id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
+        Ok(())
+    }
+}

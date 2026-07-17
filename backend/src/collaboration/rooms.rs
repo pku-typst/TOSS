@@ -86,26 +86,36 @@ pub(super) struct CollaborationRooms {
     channels: Arc<RwLock<HashMap<RoomKey, broadcast::Sender<RoomEvent>>>>,
 }
 
+pub(super) struct RoomSubscription {
+    pub sender: broadcast::Sender<RoomEvent>,
+    pub receiver: broadcast::Receiver<RoomEvent>,
+}
+
 impl CollaborationRooms {
-    pub async fn sender(&self, project_id: Uuid, doc_id: &str) -> broadcast::Sender<RoomEvent> {
+    pub async fn subscribe(&self, project_id: Uuid, doc_id: &str) -> RoomSubscription {
         let key = RoomKey {
             project_id,
             doc_id: doc_id.to_string(),
         };
-        if let Some(sender) = self.channels.read().await.get(&key).cloned() {
-            return sender;
+        {
+            let channels = self.channels.read().await;
+            if let Some(sender) = channels.get(&key).cloned() {
+                let receiver = sender.subscribe();
+                return RoomSubscription { sender, receiver };
+            }
         }
         let mut channels = self.channels.write().await;
         if let Some(sender) = channels.get(&key).cloned() {
-            return sender;
+            let receiver = sender.subscribe();
+            return RoomSubscription { sender, receiver };
         }
-        let (sender, _receiver) = broadcast::channel(512);
+        let (sender, receiver) = broadcast::channel(512);
         channels.insert(key, sender.clone());
-        sender
+        RoomSubscription { sender, receiver }
     }
 
-    pub async fn project_sender(&self, project_id: Uuid) -> broadcast::Sender<RoomEvent> {
-        self.sender(project_id, PROJECT_CONTROL_ROOM).await
+    pub async fn subscribe_project(&self, project_id: Uuid) -> RoomSubscription {
+        self.subscribe(project_id, PROJECT_CONTROL_ROOM).await
     }
 
     pub async fn remove_project_sender_if_idle(
@@ -237,8 +247,10 @@ mod tests {
         let project_id = Uuid::new_v4();
         let document_id = Uuid::new_v4();
         let stream_id = format!("{document_id}:3");
-        let sender = rooms.sender(project_id, &stream_id).await;
-        let mut receiver = sender.subscribe();
+        let RoomSubscription {
+            sender: _,
+            mut receiver,
+        } = rooms.subscribe(project_id, &stream_id).await;
 
         rooms.invalidate_project(project_id, 7).await;
 
@@ -257,10 +269,14 @@ mod tests {
     ) -> Result<(), broadcast::error::RecvError> {
         let rooms = CollaborationRooms::default();
         let project_id = Uuid::new_v4();
-        let document_sender = rooms.sender(project_id, "document-id").await;
-        let control_sender = rooms.project_sender(project_id).await;
-        let mut document_receiver = document_sender.subscribe();
-        let mut control_receiver = control_sender.subscribe();
+        let RoomSubscription {
+            sender: _,
+            receiver: mut document_receiver,
+        } = rooms.subscribe(project_id, "document-id").await;
+        let RoomSubscription {
+            sender: _,
+            receiver: mut control_receiver,
+        } = rooms.subscribe_project(project_id).await;
 
         rooms
             .workspace_changed(
@@ -285,6 +301,60 @@ mod tests {
             document_receiver.try_recv(),
             Err(broadcast::error::TryRecvError::Empty)
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concurrent_last_leave_and_join_keep_the_joined_channel_mapped(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let rooms = CollaborationRooms::default();
+        let project_id = Uuid::new_v4();
+        let stream_id = "document:0";
+        let RoomSubscription {
+            sender: previous_sender,
+            receiver: previous_receiver,
+        } = rooms.subscribe(project_id, stream_id).await;
+        drop(previous_receiver);
+
+        let start = Arc::new(tokio::sync::Barrier::new(3));
+        let cleanup = {
+            let rooms = rooms.clone();
+            let start = start.clone();
+            let previous_sender = previous_sender.clone();
+            tokio::spawn(async move {
+                start.wait().await;
+                rooms
+                    .remove_if_idle(project_id, stream_id, &previous_sender)
+                    .await;
+            })
+        };
+        let join = {
+            let rooms = rooms.clone();
+            let start = start.clone();
+            tokio::spawn(async move {
+                start.wait().await;
+                rooms.subscribe(project_id, stream_id).await
+            })
+        };
+
+        start.wait().await;
+        cleanup.await?;
+        let mut subscription = join.await?;
+        let mapped_sender = rooms
+            .channels
+            .read()
+            .await
+            .get(&RoomKey {
+                project_id,
+                doc_id: stream_id.to_string(),
+            })
+            .cloned()
+            .ok_or_else(|| std::io::Error::other("joined room was removed"))?;
+        assert!(mapped_sender.same_channel(&subscription.sender));
+
+        rooms.invalidate_project(project_id, 9).await;
+        let event = subscription.receiver.recv().await?;
+        assert_eq!(event.kind, RoomEventKind::ProjectReplaced);
         Ok(())
     }
 }

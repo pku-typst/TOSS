@@ -62,19 +62,20 @@ echo "[ci:integration] start backend monolith"
     TOSS_DEPLOYMENT_CONFIG="$TMP_DIR/deployment.toml" \
     DATABASE_URL="$DATABASE_URL" \
     CORE_API_PORT="$CORE_API_PORT" \
+    DATA_DIR="$TMP_DIR/data" \
     GIT_STORAGE_PATH="$TMP_DIR/git" \
     AUTH_DEV_HEADER_ENABLED=1 \
     WEB_STATIC_DIR="$WEB_STATIC_DIR" \
-    "$CORE_API_BIN" >"$CORE_LOG" 2>&1
+    exec "$CORE_API_BIN" >"$CORE_LOG" 2>&1
 ) &
 CORE_PID=$!
 for _ in $(seq 1 180); do
-  if curl -fsS "$CORE_API_URL/health" >/dev/null 2>&1; then
+  if curl -fsS "$CORE_API_URL/ready" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
-if ! curl -fsS "$CORE_API_URL/health" >/dev/null; then
+if ! curl -fsS "$CORE_API_URL/ready" >/dev/null; then
   cat "$CORE_LOG" >&2
   exit 1
 fi
@@ -93,5 +94,19 @@ WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headl
 WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-collab-git.mjs
 WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-revision-collab-regression.mjs
 WEB_BASE_URL="$CORE_API_URL" CORE_API_URL="$CORE_API_URL" node web/scripts/headless-sync-cache-regression.mjs
+
+echo "[ci:integration] run single-replica replacement checks"
+kill "$CORE_PID"
+wait "$CORE_PID" >/dev/null 2>&1 || true
+CORE_PID=""
+TOSS_CONFIG="$CI_ROOT_DIR/distributions/community/toss.json" \
+  TOSS_DEPLOYMENT_CONFIG="$TMP_DIR/deployment.toml" \
+  CORE_API_BIN="$CORE_API_BIN" \
+  CORE_API_PORT="$CORE_API_PORT" \
+  DATA_DIR="$TMP_DIR/data" \
+  GIT_STORAGE_PATH="$TMP_DIR/git" \
+  RELEASE_RESILIENCE_LOG_DIR="$TMP_DIR/release-resilience-logs" \
+  WEB_STATIC_DIR="$WEB_STATIC_DIR" \
+  npm --prefix web run test:release-resilience
 
 echo "[ci:integration] all integration checks passed"

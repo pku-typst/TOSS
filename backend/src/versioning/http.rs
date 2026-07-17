@@ -231,6 +231,7 @@ pub(crate) async fn git_http_backend(
         command,
         body,
         Duration::from_secs(git_http_backend_timeout_seconds()),
+        state.drain.clone(),
     )
     .await
     {
@@ -244,6 +245,10 @@ pub(crate) async fn git_http_backend(
             error!(%project_id, "git http-backend timed out");
             recover_failed_backend(push_session.as_ref(), project_id, "timeout").await;
             return (StatusCode::GATEWAY_TIMEOUT, "Git backend timed out").into_response();
+        }
+        Err(GitBackendExecutionError::Interrupted) => {
+            recover_failed_backend(push_session.as_ref(), project_id, "process drain").await;
+            return crate::process_lifecycle::unavailable_response();
         }
     };
     if !output.status.success() && output.stdout_is_empty() {

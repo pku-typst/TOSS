@@ -1,4 +1,4 @@
-//! Process-wide runtime composition passed to HTTP handlers and background workers.
+//! Process-wide runtime composition passed to HTTP transport handlers.
 
 use crate::access::OidcProviderDefaults;
 use crate::collaboration::CollaborationContext;
@@ -8,6 +8,7 @@ use crate::external_repositories::{
     ExternalGitGateway, ExternalGitProviderRegistry, ProviderInstanceId,
 };
 use crate::object_storage::ObjectStorage;
+use crate::process_lifecycle::DrainSignal;
 use crate::versioning::VersioningContext;
 use sqlx::PgPool;
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ pub(crate) struct AppState {
     pub oidc_defaults: OidcProviderDefaults,
     pub external_git_providers: ExternalGitProviderRegistry,
     pub data_dir: PathBuf,
+    pub git_storage_dir: PathBuf,
     pub typst_builtin_dir: PathBuf,
     pub storage: Option<ObjectStorage>,
     pub distribution: Arc<DistributionConfig>,
@@ -28,6 +30,7 @@ pub(crate) struct AppState {
     pub collaboration: CollaborationContext,
     pub versioning: VersioningContext,
     pub processing: DocumentProcessingContext,
+    pub drain: DrainSignal,
 }
 
 impl AppState {
@@ -35,6 +38,10 @@ impl AppState {
         &self,
         provider_id: &ProviderInstanceId,
     ) -> ExternalGitGateway<'_> {
-        ExternalGitGateway::new(&self.db, self.external_git_providers.get(provider_id))
+        ExternalGitGateway::new(
+            &self.db,
+            self.external_git_providers.get(provider_id),
+            self.drain.clone(),
+        )
     }
 }

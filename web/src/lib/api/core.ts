@@ -5,6 +5,10 @@ import {
 } from "@/lib/i18n";
 import { apiErrorCodes } from "@/lib/api/generated";
 import type { ApiErrorCode, ApiErrorPayload } from "@/lib/api/types";
+import {
+  observeProtocolResponse,
+  protocolEpochHeaders
+} from "@/lib/protocolCompatibility";
 
 const API_BASE = (import.meta.env.VITE_CORE_API_URL as string | undefined)?.trim() ?? "";
 
@@ -27,7 +31,7 @@ export function authCredentials(): RequestCredentials {
 }
 
 export function authHeaders(extra?: Record<string, string>) {
-  const headers: Record<string, string> = { ...(extra ?? {}) };
+  const headers = protocolEpochHeaders(extra);
   if (shareAccessToken) headers["x-share-token"] = shareAccessToken;
   if (guestShareSession) headers["x-guest-session"] = guestShareSession;
   return headers;
@@ -89,6 +93,7 @@ async function responseError(response: Response): Promise<ParsedApiError> {
 }
 
 export async function throwApiError(response: Response, operationKey: string): Promise<never> {
+  observeProtocolResponse(response);
   if (response.status === 401 && typeof window !== "undefined") {
     window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   }
@@ -108,6 +113,7 @@ export async function throwApiError(response: Response, operationKey: string): P
 }
 
 export async function parseJsonOrThrow<T>(response: Response, operationKey: string): Promise<T> {
+  observeProtocolResponse(response);
   if (!response.ok) await throwApiError(response, operationKey);
   return (await response.json()) as T;
 }

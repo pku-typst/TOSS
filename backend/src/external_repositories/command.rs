@@ -22,6 +22,12 @@ pub(crate) enum ExternalGitCommandFailure {
 }
 
 impl ExternalGitCommandFailure {
+    fn interrupted() -> Self {
+        Self::Command {
+            source: ExternalGitCommandError::Interrupted,
+        }
+    }
+
     pub(crate) const fn kind(&self) -> ExternalGitCommandFailureKind {
         match self {
             Self::Credential { source } => match source {
@@ -82,29 +88,38 @@ impl ExternalGitGateway<'_> {
         args: &[String],
         timeout_seconds: u64,
     ) -> Result<String, ExternalGitCommandFailure> {
-        let authorization = self
-            .git_http_authorization(user_id, false)
-            .await
-            .map_err(|source| ExternalGitCommandFailure::Credential { source })?;
+        let drain = self.drain_signal();
+        let authorization = tokio::select! {
+            biased;
+            _ = drain.triggered() => return Err(ExternalGitCommandFailure::interrupted()),
+            result = self.git_http_authorization(user_id, false) => {
+                result.map_err(|source| ExternalGitCommandFailure::Credential { source })?
+            }
+        };
         match run_authenticated_external_git_command(
             repo_path,
             &authorization,
             args,
             timeout_seconds,
+            drain.clone(),
         )
         .await
         .map_err(|source| ExternalGitCommandFailure::Command { source })
         {
             Err(error) if error.requires_reauthorization() => {
-                let refreshed = self
-                    .git_http_authorization(user_id, true)
-                    .await
-                    .map_err(|source| ExternalGitCommandFailure::Credential { source })?;
+                let refreshed = tokio::select! {
+                    biased;
+                    _ = drain.triggered() => return Err(ExternalGitCommandFailure::interrupted()),
+                    result = self.git_http_authorization(user_id, true) => {
+                        result.map_err(|source| ExternalGitCommandFailure::Credential { source })?
+                    }
+                };
                 let result = run_authenticated_external_git_command(
                     repo_path,
                     &refreshed,
                     args,
                     timeout_seconds,
+                    drain,
                 )
                 .await
                 .map_err(|source| ExternalGitCommandFailure::Command { source });

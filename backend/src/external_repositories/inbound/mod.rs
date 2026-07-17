@@ -21,4 +21,4 @@ pub(crate) use job::{
 };
 pub(super) use job_lifecycle::{active_job_exists, resume_reauthorized_jobs};
 pub(super) use job_queries::latest_inbound_job;
-pub(crate) use worker::spawn_external_git_inbound_worker;
+pub(super) use worker::spawn_external_git_inbound_worker;

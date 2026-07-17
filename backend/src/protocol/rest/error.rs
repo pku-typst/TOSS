@@ -26,6 +26,7 @@ pub enum ApiErrorCode {
     Forbidden,
     NotFound,
     Conflict,
+    ClientIncompatible,
     ExternalGitAuthorizationRequired,
     ExternalGitConnectionInUse,
     ExternalGitNotConfigured,

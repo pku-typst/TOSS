@@ -4,13 +4,16 @@ import {
   parseWorkspaceChangedPayload,
   type RealtimeStatus,
 } from "@/lib/realtime";
+import { reconnectDelayMs } from "@/lib/reconnectPolicy";
+import {
+  appendProtocolEpoch,
+  isProtocolIncompatibleClose,
+  requireProtocolReload,
+} from "@/lib/protocolCompatibility";
 
 export type ProjectRealtimeBinding = {
   close: () => void;
 };
-
-const DEFAULT_RECONNECT_DELAY_SECONDS = 5;
-const MILLISECONDS_PER_SECOND = 1_000;
 
 export function bindProjectRealtime(params: {
   projectId: string;
@@ -26,14 +29,12 @@ export function bindProjectRealtime(params: {
   onProjectReplaced?: () => void;
   onAccessChanged?: () => void;
 }): ProjectRealtimeBinding {
-  const reconnectDelayMs =
-    Math.max(
-      1,
-      Math.floor(
-        params.reconnectDelaySeconds ?? DEFAULT_RECONNECT_DELAY_SECONDS,
-      ),
-    ) * MILLISECONDS_PER_SECOND;
+  const reconnectOverrideSeconds =
+    params.reconnectDelaySeconds === undefined
+      ? undefined
+      : Math.max(1, Math.floor(params.reconnectDelaySeconds));
   const query = new URLSearchParams();
+  appendProtocolEpoch(query);
   if (params.userId?.trim()) query.set("user_id", params.userId.trim());
   if (params.sessionToken?.trim()) {
     query.set("session_token", params.sessionToken.trim());
@@ -49,20 +50,35 @@ export function bindProjectRealtime(params: {
   let socket: WebSocket | null = null;
   let closed = false;
   let reconnectTimer: number | null = null;
+  let reconnectAttempt = 0;
 
   const clearReconnect = () => {
-    if (reconnectTimer === null) return;
-    window.clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+    if (reconnectTimer !== null) {
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
   };
 
-  const scheduleReconnect = () => {
+  const scheduleReconnect = (closeCode?: number) => {
+    if (closeCode !== undefined && isProtocolIncompatibleClose(closeCode)) {
+      closed = true;
+      clearReconnect();
+      params.onStatusChange?.("disconnected");
+      requireProtocolReload();
+      return;
+    }
     if (closed || reconnectTimer !== null) return;
     params.onStatusChange?.("disconnected");
+    reconnectAttempt += 1;
+    const delayMs = reconnectDelayMs({
+      attempt: reconnectAttempt,
+      closeCode,
+      overrideSeconds: reconnectOverrideSeconds,
+    });
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       connect();
-    }, reconnectDelayMs);
+    }, delayMs);
   };
 
   const connect = () => {
@@ -81,6 +97,7 @@ export function bindProjectRealtime(params: {
         const parsed = parseRealtimeServerEvent(JSON.parse(String(event.data)));
         if (!parsed) return;
         if (parsed.kind === "bootstrap.done") {
+          reconnectAttempt = 0;
           params.onBootstrapDone?.();
           return;
         }
@@ -111,12 +128,17 @@ export function bindProjectRealtime(params: {
         // Ignore malformed events; the server will close streams that need resync.
       }
     });
-    const handleDisconnect = () => {
+    const handleDisconnect = (closeCode?: number) => {
       if (closed || socket !== nextSocket) return;
-      scheduleReconnect();
+      scheduleReconnect(closeCode);
     };
-    nextSocket.addEventListener("error", handleDisconnect);
-    nextSocket.addEventListener("close", handleDisconnect);
+    nextSocket.addEventListener("error", () => {
+      if (closed || socket !== nextSocket) return;
+      params.onStatusChange?.("disconnected");
+    });
+    nextSocket.addEventListener("close", (event) =>
+      handleDisconnect(event.code),
+    );
   };
 
   connect();
