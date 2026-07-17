@@ -68,6 +68,12 @@ protocol smoke tests check the SDK boundary.
 
 ## Compatibility policy
 
+The coupled first-party Web/Core image carries one internal `PROTOCOL_EPOCH`.
+Additive changes do not bump it; a change that makes an already loaded Web build
+unsafe does. REST mismatch uses HTTP `426` and realtime mismatch uses close code
+`4406`. The epoch is not a release counter, public API version, version range,
+or feature registry.
+
 The product has not reached its first public release, so `v1` may still receive
 intentional destructive cleanup. After `v1` is declared stable:
 

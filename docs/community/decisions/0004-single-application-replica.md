@@ -16,6 +16,7 @@ related:
   - docs/community/operations/deployment.md
   - docs/community/architecture/collaboration.md
   - docs/community/architecture/versioning.md
+  - docs/community/architecture/release-resilience.md
 code_paths:
   - backend/src/collaboration
   - backend/src/versioning
@@ -37,7 +38,9 @@ PostgreSQL, volumes, or sticky sessions.
 - a shared event bus alone is insufficient without distributed Git locking and
   reconnect/catch-up semantics;
 - deployment manifests must not raise replica count as an availability shortcut;
-- horizontal scaling requires a deliberate replacement architecture and
+- process replacement follows the explicit durability, drain, and reconnect
+  contract;
+- horizontal scaling requires a deliberate distributed-coordination design and
   failure-mode tests.
 
 ## Related
@@ -45,3 +48,4 @@ PostgreSQL, volumes, or sticky sessions.
 - [Deployment](../operations/deployment.md)
 - [Collaboration](../architecture/collaboration.md)
 - [Versioning](../architecture/versioning.md)
+- [Single-replica release resilience](../architecture/release-resilience.md)

@@ -1,6 +1,6 @@
 ---
 title: "Community documentation"
-summary: "Public-safe navigation for the extractable collaborative typesetting platform."
+summary: "Navigation for the public collaborative typesetting platform."
 status: current
 type: index
 scope: community
@@ -15,6 +15,7 @@ topics:
 related:
   - docs/community/product/overview.md
   - docs/community/architecture/overview.md
+  - docs/community/architecture/release-resilience.md
   - docs/community/architecture/browser-ai-assistant.md
   - docs/community/architecture/document-processing.md
   - docs/community/development/setup.md
@@ -59,7 +60,9 @@ versions of this Wiki.
 - [Frontend](./architecture/frontend.md) and [Backend](./architecture/backend.md)
 - [Browser AI assistant design draft](./architecture/browser-ai-assistant.md)
 - [Durable document processing](./architecture/document-processing.md)
-- [Collaboration](./architecture/collaboration.md) and [Versioning](./architecture/versioning.md)
+- [Collaboration](./architecture/collaboration.md),
+  [Versioning](./architecture/versioning.md), and
+  [single-replica release resilience](./architecture/release-resilience.md)
 - [External repositories](./architecture/external-repositories.md)
 - [Identity and access](./architecture/identity-and-access.md)
 - [Error model](./architecture/error-model.md)
@@ -102,14 +105,15 @@ migration diaries as reference documentation.
 
 Every managed page uses the same YAML fields: `title`, `summary`, `status`,
 `type`, `scope`, `audience`, `topics`, `related`, and `code_paths`. `scope` is
-part of the retrieval contract and the extraction boundary, not an informal
-label. The final prose section is always **Related** so renderers that ignore
-frontmatter can still traverse the Wiki.
+part of the retrieval and publication contract, not an informal label. The
+final prose section is always **Related** so renderers that ignore frontmatter
+can still traverse the Wiki.
 
 ## Related
 
 - [Product model](./product/overview.md)
 - [Architecture overview](./architecture/overview.md)
+- [Single-replica release resilience](./architecture/release-resilience.md)
 - [Browser AI assistant design draft](./architecture/browser-ai-assistant.md)
 - [Durable document processing](./architecture/document-processing.md)
 - [Development setup](./development/setup.md)

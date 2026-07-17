@@ -15,9 +15,11 @@ topics:
   - versioning
   - external-git
   - document-processing
+  - release-resilience
 related:
   - docs/community/product/overview.md
   - docs/community/architecture/overview.md
+  - docs/community/architecture/release-resilience.md
   - docs/community/architecture/document-processing.md
   - docs/community/architecture/external-repositories.md
   - docs/community/reference/worker-protocol.md
@@ -27,6 +29,8 @@ code_paths:
   - backend/src/external_repositories
   - backend/src/document_processing
   - backend/src/distribution
+  - backend/src/process_lifecycle.rs
+  - backend/src/protocol_compatibility.rs
   - web/src/pages/processing
   - workers/processing-sdk
 ---
@@ -59,6 +63,8 @@ Use these terms consistently in code, UI copy, and documentation.
 | Content epoch | A Workspace generation value used to reject writes from a client opened before destructive content replacement. |
 | Collaboration revision | The generation of one immutable document identity's Yjs state. It changes when authoritative replacement supersedes the stream. |
 | Access epoch | A project authorization generation used to invalidate realtime clients after grants change. |
+| Core drain | The monotonic process state that fences new work and gives admitted work one deadline to settle before exit. |
+| Protocol epoch | An internal first-party Web/Core incompatibility fence. It is not a public API version or release number. |
 | Browser compiler worker | A browser Web Worker that owns an interactive Typst or BusyTeX compiler session. It is part of live preview and local export, not durable server processing. |
 | Processing operation | A Core-known, versioned transformation contract such as `latex.compile.pdf/v1`, with typed input, options, result, permission, and finalization rules. |
 | Processing job | The requester-visible durable aggregate for one explicit processing operation. It owns immutable input, lifecycle, cancellation, failure, and published artifacts. |
@@ -78,6 +84,7 @@ worker**.
 
 - [Product model](./product/overview.md)
 - [Architecture overview](./architecture/overview.md)
+- [Single-replica release resilience](./architecture/release-resilience.md)
 - [Durable document processing](./architecture/document-processing.md)
 - [Worker protocol](./reference/worker-protocol.md)
 - [External repositories](./architecture/external-repositories.md)

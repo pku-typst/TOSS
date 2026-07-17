@@ -17,6 +17,7 @@ related:
   - docs/community/architecture/overview.md
   - docs/community/architecture/external-repositories.md
   - docs/community/product/overview.md
+  - docs/community/architecture/release-resilience.md
   - docs/community/operations/deployment.md
 code_paths:
   - backend/src/versioning
@@ -79,8 +80,9 @@ Policy around receive-pack is application-owned:
   worktree and restores the pre-push Workspace snapshot when it is safe.
 
 CGI headers and stderr are bounded. Output is spooled and streamed rather than
-retained as one unbounded response. The subprocess has an application deadline
-configured by `GIT_HTTP_BACKEND_TIMEOUT_SECONDS`.
+retained as one unbounded response. `GIT_HTTP_BACKEND_TIMEOUT_SECONDS` bounds
+the subprocess. Drain interrupts and reaps an admitted backend, then uses the
+normal receive-pack recovery path when required.
 
 ## Locking and storage
 
@@ -88,8 +90,10 @@ Git worktrees are mutable filesystem state. All project Git operations use the
 Versioning-owned process-local project lock. The repository volume must be
 persistent and backed up with PostgreSQL as one logical recovery point.
 
-This lock is one reason the application currently supports one replica. Shared
-storage does not turn a process-local mutex into distributed coordination.
+This lock is one reason the application supports one replica. Shared storage
+does not turn a process-local mutex into distributed coordination. See
+[Single-replica release resilience](./release-resilience.md) for interrupted
+Git recovery.
 
 ## Relationship to external repositories
 
@@ -103,5 +107,6 @@ automatically.
 
 - [External repositories](./external-repositories.md)
 - [Product model](../product/overview.md)
+- [Single-replica release resilience](./release-resilience.md)
 - [Deployment](../operations/deployment.md)
 - [Decision: Workspace and external Git](../decisions/0002-workspace-and-external-git.md)

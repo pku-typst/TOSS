@@ -41,9 +41,15 @@ correlates the response with server logs. Git smart HTTP retains its native
 protocol error bodies. Regeneration and compatibility rules are documented in
 [Application protocols](../../../protocol/README.md).
 
+The first-party API client sends `x-toss-protocol-epoch` on `/v1` requests, and
+Core echoes it. An explicit mismatch returns HTTP `426` with
+`code: "client_incompatible"` before route handling. Missing values remain
+valid for non-Web clients; this fence is not a public API version.
+
 ## Health
 
 - `GET /health`
+- `GET /ready`
 
 ## Authentication and public configuration
 
@@ -94,11 +100,13 @@ login enabled appear in `identity_providers`.
 ## Realtime collaboration
 
 - `GET /v1/realtime/auth/{project_id}`
-- `GET /v1/realtime/ws/{doc_id}?project_id={uuid}&collaboration_revision={revision}`
-- `GET /v1/realtime/projects/{project_id}`
+- `GET /v1/realtime/ws/{doc_id}?project_id={uuid}&collaboration_revision={revision}&protocol_epoch={epoch}`
+- `GET /v1/realtime/projects/{project_id}?protocol_epoch={epoch}`
 
-The WebSocket handshake accepts the current authenticated session, share token,
-or named guest session. The server re-evaluates project access before upgrade.
+The WebSocket handshake accepts an authenticated session, share token, or named
+guest. Core authorizes before upgrade, then revalidates after room subscription
+and before bootstrap. Epoch mismatch closes with code `4406`; service drain
+uses `1012`.
 
 Event kinds include:
 
