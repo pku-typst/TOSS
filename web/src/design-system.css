@@ -376,7 +376,40 @@
   gap: var(--toss-space-sm);
 }
 
+@media (max-width: 680px), (pointer: coarse) {
+  .page-content .ui-button,
+  .ui-dialog .ui-button {
+    --height: var(--toss-touch-target);
+  }
+
+  .page-content .ui-icon-button,
+  .ui-dialog .ui-icon-button {
+    --width: var(--toss-touch-target);
+    --height: var(--toss-touch-target);
+  }
+
+  .page-content .ui-input,
+  .page-content .ui-select,
+  .ui-dialog .ui-input,
+  .ui-dialog .ui-select {
+    --height: var(--toss-touch-target);
+  }
+}
+
 @media (max-width: 680px) {
+  .ui-dialog {
+    --max-width: calc(100vw - 16px);
+    --max-height: calc(100dvh - 16px);
+  }
+
+  .ui-dialog-body {
+    padding: var(--toss-space-md);
+  }
+
+  .ui-dialog-actions {
+    flex-wrap: wrap;
+  }
+
   .ui-page-heading.has-icon {
     grid-template-columns: auto minmax(0, 1fr);
   }

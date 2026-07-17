@@ -508,6 +508,12 @@ nve-icon-button.mini {
 
 @media (max-width: 1180px) {
   .topbar.workspace .workspace-meta {
+    display: flex;
+    flex: 0 0 auto;
+    margin-inline-start: var(--toss-space-xs);
+  }
+
+  .topbar.workspace .workspace-meta > :not(.processing-task-trigger, .processing-task-overlay) {
     display: none;
   }
 
@@ -563,13 +569,12 @@ nve-icon-button.mini {
     --margin-inline: 0;
   }
 
-  .topbar.workspace > .brand-mark {
+  .topbar.workspace .topbar-brand-link {
     display: none;
   }
 
   .topbar.workspace .topbar-back-btn {
-    --padding: 0 var(--toss-space-md);
-    min-width: 32px;
+    --padding: 0 var(--toss-space-sm);
     padding: 0;
   }
 
@@ -632,4 +637,40 @@ nve-icon-button.mini {
     display: none;
   }
 
+  .panel-header {
+    min-height: var(--toss-touch-target);
+  }
+
+  .panel-toolbar .ui-icon-button,
+  .panel-status-toolbar .ui-icon-button {
+    --width: 32px;
+    --height: 32px;
+  }
+}
+
+@media (max-width: 600px), (pointer: coarse) {
+  .topbar.workspace .topbar-back-btn {
+    --height: 40px;
+    min-width: 40px;
+  }
+
+  .topbar.workspace .workspace-project-title-button,
+  .topbar.workspace .workspace-project-title-static,
+  .topbar.workspace .workspace-project-title-input {
+    height: 40px;
+  }
+
+  nve-button.workspace-toolbar-toggle {
+    --height: 40px;
+    --padding: 0 var(--toss-space-sm);
+    min-width: 40px;
+  }
+
+  .workspace-view-menu {
+    --max-height: calc(100dvh - 72px);
+  }
+
+  .workspace-view-menu nve-menu-item {
+    --min-height: var(--toss-touch-target);
+  }
 }

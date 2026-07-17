@@ -580,6 +580,21 @@ async function assertMobileWorkspaceLayout(page) {
       if (rect.width <= 0 || rect.height <= 0) return false;
       return rect.left < -0.5 || rect.right > viewportWidth + 0.5;
     });
+    const settingsNavItems = Array.from(settings?.querySelectorAll(".settings-nav-item") ?? []);
+    const minSettingsNavHeight = settingsNavItems.length
+      ? Math.min(...settingsNavItems.map((node) => node.getBoundingClientRect().height))
+      : 0;
+    const backHeight = document.querySelector(".topbar-back-btn")?.getBoundingClientRect().height ?? 0;
+    const viewHeight = document
+      .querySelector(".workspace-view-menu-wrap .workspace-toolbar-toggle")
+      ?.getBoundingClientRect().height ?? 0;
+    const taskHeight = document
+      .querySelector(".topbar.workspace .processing-task-trigger nve-icon-button")
+      ?.getBoundingClientRect().height ?? 0;
+    const brandVisible = (() => {
+      const rect = document.querySelector(".topbar.workspace .topbar-brand-link")?.getBoundingClientRect();
+      return !!rect && rect.width > 0 && rect.height > 0;
+    })();
     return {
       viewportWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
@@ -593,7 +608,12 @@ async function assertMobileWorkspaceLayout(page) {
       clippedCardCount: clippedCards.length,
       copyButtonVisible: !!copyRect && copyRect.width > 0 && copyRect.height > 0,
       outOfBoundsControlCount: outOfBoundsControls.length,
-      topbarOutOfBoundsCount: topbarOutOfBounds.length
+      topbarOutOfBoundsCount: topbarOutOfBounds.length,
+      minSettingsNavHeight,
+      backHeight,
+      viewHeight,
+      taskHeight,
+      brandVisible
     };
   });
   if (
@@ -617,6 +637,105 @@ async function assertMobileWorkspaceLayout(page) {
     !metrics.copyButtonVisible
   ) {
     throw new Error(`Mobile settings content is clipped or missing: ${JSON.stringify(metrics)}`);
+  }
+  if (
+    metrics.minSettingsNavHeight < 43 ||
+    metrics.backHeight < 39 ||
+    metrics.viewHeight < 39 ||
+    metrics.taskHeight < 39 ||
+    metrics.brandVisible
+  ) {
+    throw new Error(`Mobile workspace chrome is not touch-ready: ${JSON.stringify(metrics)}`);
+  }
+}
+
+async function assertMobileHomeLayout(page) {
+  const metrics = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const rect = (selector) => {
+      const bounds = document.querySelector(selector)?.getBoundingClientRect();
+      return bounds
+        ? { left: bounds.left, right: bounds.right, width: bounds.width, height: bounds.height }
+        : null;
+    };
+    const hero = document.querySelector(".home-hero");
+    const actionRects = Array.from(document.querySelectorAll(".home-hero-actions nve-button")).map(
+      (node) => {
+        const bounds = node.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, width: bounds.width, height: bounds.height };
+      }
+    );
+    const menuItems = Array.from(document.querySelectorAll(".app-navigation-menu nve-menu-item"));
+    return {
+      viewportWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      contentScrollWidth: document.querySelector(".app-content")?.scrollWidth ?? 0,
+      heroColumns: hero ? getComputedStyle(hero).gridTemplateColumns.trim().split(/\s+/).length : 0,
+      hero: rect(".home-hero"),
+      copy: rect(".home-hero-copy"),
+      visual: rect(".home-product-visual"),
+      actionRects,
+      brandHeight: rect(".topbar-brand-link")?.height ?? 0,
+      menuHeight: rect(".topbar-nav-mobile > nve-button")?.height ?? 0,
+      minMenuItemHeight: menuItems.length
+        ? Math.min(...menuItems.map((node) => node.getBoundingClientRect().height))
+        : 0
+    };
+  });
+  const horizontalBounds = [metrics.hero, metrics.copy, metrics.visual, ...metrics.actionRects].filter(
+    Boolean
+  );
+  if (
+    metrics.heroColumns !== 1 ||
+    !metrics.hero ||
+    !metrics.copy ||
+    !metrics.visual ||
+    metrics.copy.width < metrics.hero.width - 1 ||
+    horizontalBounds.some(
+      (bounds) => bounds.left < -0.5 || bounds.right > metrics.viewportWidth + 0.5
+    ) ||
+    metrics.documentScrollWidth > metrics.viewportWidth + 1 ||
+    metrics.contentScrollWidth > metrics.viewportWidth + 1
+  ) {
+    throw new Error(`Mobile home layout is not contained: ${JSON.stringify(metrics)}`);
+  }
+  if (
+    metrics.actionRects.length < 2 ||
+    metrics.actionRects.some((bounds) => bounds.width < 1 || bounds.height < 43) ||
+    metrics.brandHeight < 43 ||
+    metrics.menuHeight < 43 ||
+    metrics.minMenuItemHeight < 43
+  ) {
+    throw new Error(`Mobile home actions are not touch-ready: ${JSON.stringify(metrics)}`);
+  }
+}
+
+async function assertMobileHelpLayout(page) {
+  const metrics = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const article = document.querySelector(".help-article")?.getBoundingClientRect();
+    const picker = document.querySelector(".help-topic-picker select")?.getBoundingClientRect();
+    return {
+      viewportWidth,
+      contentScrollWidth: document.querySelector(".app-content")?.scrollWidth ?? 0,
+      desktopTopicsDisplay: getComputedStyle(document.querySelector(".help-topic-nav")).display,
+      pickerDisplay: getComputedStyle(document.querySelector(".help-topic-picker")).display,
+      pickerHeight: picker?.height ?? 0,
+      articleLeft: article?.left ?? -1,
+      articleRight: article?.right ?? -1,
+      articleTop: article?.top ?? -1
+    };
+  });
+  if (
+    metrics.desktopTopicsDisplay !== "none" ||
+    metrics.pickerDisplay === "none" ||
+    metrics.pickerHeight < 43 ||
+    metrics.articleLeft < -0.5 ||
+    metrics.articleRight > metrics.viewportWidth + 0.5 ||
+    metrics.articleTop < 0 ||
+    metrics.contentScrollWidth > metrics.viewportWidth + 1
+  ) {
+    throw new Error(`Mobile help layout is not usable: ${JSON.stringify(metrics)}`);
   }
 }
 
@@ -910,6 +1029,32 @@ const artifacts = [];
 let currentStep = "init";
 
 try {
+  currentStep = "mobile-public-layout";
+  await pageA.setViewportSize({ width: 320, height: 568 });
+  await pageA.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await pageA.locator(".home-hero").waitFor({ timeout: 30000 });
+  await pageA.locator(".topbar-nav-mobile > nve-button").click();
+  await pageA.locator(".app-navigation-menu nve-menu-item").first().waitFor({ timeout: 10000 });
+  await assertMobileHomeLayout(pageA);
+  await pageA.evaluate(() => document.getElementById("app-navigation-menu")?.hidePopover());
+  await pageA.locator(".home-hero-actions nve-button").last().click({ trial: true });
+  const mobileHomeShot = path.join(outDir, "00-home-mobile.png");
+  await pageA.screenshot({ path: mobileHomeShot, fullPage: true });
+  artifacts.push(mobileHomeShot);
+
+  await pageA.goto(`${baseUrl}/help`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  const mobileTopicPicker = pageA.locator(".help-topic-picker select");
+  await mobileTopicPicker.waitFor({ timeout: 30000 });
+  await assertMobileHelpLayout(pageA);
+  if ((await mobileTopicPicker.locator("option").count()) > 1) {
+    await mobileTopicPicker.selectOption({ index: 1 });
+    await pageA.waitForFunction(() => new URLSearchParams(location.search).has("topic"));
+  }
+  const mobileHelpShot = path.join(outDir, "00-help-mobile.png");
+  await pageA.screenshot({ path: mobileHelpShot, fullPage: true });
+  artifacts.push(mobileHelpShot);
+  await pageA.setViewportSize({ width: 1620, height: 1020 });
+
   const owner = await registerOrLogin(ownerEmail, ownerPassword, "Owner");
   const collaborator = await registerOrLogin(collaboratorEmail, collaboratorPassword, "Collaborator");
   const project = await bearerApi("POST", "/v1/projects", owner.sessionToken, {
@@ -1012,6 +1157,41 @@ try {
   currentStep = "login-owner";
   await pageA.setViewportSize({ width: 390, height: 844 });
   await assertStandardPageLayout(pageA);
+  const mobileTaskTrigger = pageA.locator(".processing-task-trigger nve-icon-button");
+  await mobileTaskTrigger.waitFor({ timeout: 10000 });
+  await mobileTaskTrigger.click();
+  const mobileTaskCenter = pageA.locator(".processing-task-center");
+  await mobileTaskCenter.waitFor({ timeout: 10000 });
+  await mobileTaskCenter.evaluate((node) =>
+    Promise.all(node.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
+  );
+  const mobileTaskMetrics = await mobileTaskCenter.evaluate((node) => {
+    const bounds = node.getBoundingClientRect();
+    const close = node.querySelector(".processing-task-header nve-icon-button")?.getBoundingClientRect();
+    return {
+      left: bounds.left,
+      right: bounds.right,
+      viewportWidth: document.documentElement.clientWidth,
+      closeLeft: close?.left ?? -1,
+      closeRight: close?.right ?? -1,
+      closeWidth: close?.width ?? 0,
+      closeHeight: close?.height ?? 0
+    };
+  });
+  if (
+    mobileTaskMetrics.left < -0.5 ||
+    mobileTaskMetrics.right > mobileTaskMetrics.viewportWidth + 0.5 ||
+    mobileTaskMetrics.closeLeft < mobileTaskMetrics.left - 0.5 ||
+    mobileTaskMetrics.closeRight > mobileTaskMetrics.right + 0.5 ||
+    mobileTaskMetrics.closeWidth < 43 ||
+    mobileTaskMetrics.closeHeight < 43
+  ) {
+    throw new Error(`Mobile task center is not usable: ${JSON.stringify(mobileTaskMetrics)}`);
+  }
+  const mobileTaskShot = path.join(outDir, "00a-task-center-mobile.png");
+  await pageA.screenshot({ path: mobileTaskShot, fullPage: true });
+  artifacts.push(mobileTaskShot);
+  await pageA.locator(".processing-task-header nve-icon-button").click();
   const mobileProjectsShot = path.join(outDir, "00-projects-mobile.png");
   await pageA.screenshot({ path: mobileProjectsShot, fullPage: true });
   artifacts.push(mobileProjectsShot);

@@ -281,3 +281,34 @@
 .settings-user-source {
   grid-column: 2 / -1;
 }
+
+@media (max-width: 600px), (pointer: coarse) {
+  .settings-nav-item {
+    min-height: var(--toss-touch-target);
+  }
+
+  .panel-settings .ui-button,
+  .panel-settings .ui-input,
+  .panel-settings .ui-select {
+    --height: var(--toss-touch-target);
+  }
+
+  .panel-settings .ui-icon-button {
+    --width: var(--toss-touch-target);
+    --height: var(--toss-touch-target);
+  }
+}
+
+@media (max-width: 600px) {
+  .settings-nav {
+    padding: 6px;
+  }
+
+  .settings-nav-item {
+    padding-block: 8px;
+  }
+
+  .panel-settings .settings-panel-content {
+    padding: 10px 8px;
+  }
+}

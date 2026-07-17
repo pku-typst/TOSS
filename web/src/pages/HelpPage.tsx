@@ -7,7 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useSearchParams } from "react-router-dom";
 import { ExperienceResourceLink } from "@/components/ExperienceResourceLink";
-import { UiButton, UiEmptyState, UiInput, UiPageHeading } from "@/components/ui";
+import { UiButton, UiEmptyState, UiInput, UiPageHeading, UiSelect } from "@/components/ui";
 import { getHelpContent } from "@/lib/api";
 import { localizedText } from "@/lib/experience";
 import type { Translator, UiLocale } from "@/lib/i18n";
@@ -86,6 +86,24 @@ export function HelpPage({
               aria-label={t("help.search")}
             />
           </div>
+
+          <UiSelect
+            className="help-topic-picker"
+            label={t("help.topics")}
+            value={activeTopic?.id ?? ""}
+            disabled={filteredTopics.length === 0}
+            onChange={(event) => selectTopic(event.target.value)}
+          >
+            {filteredTopics.length === 0 ? (
+              <option value="">{t("help.noResults")}</option>
+            ) : (
+              filteredTopics.map((topic) => (
+                <option key={topic.id} value={topic.id}>
+                  {localizedText(topic.title, locale)}
+                </option>
+              ))
+            )}
+          </UiSelect>
 
           <div className="help-layout">
             <aside className="help-topic-nav" aria-label={t("help.topics")}>

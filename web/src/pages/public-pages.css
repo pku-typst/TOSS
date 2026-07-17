@@ -93,26 +93,10 @@
 }
 
 @media (max-width: 960px) {
-  .home-hero {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-
-  .home-hero-copy {
-    max-width: 760px;
-  }
-
-  .home-product-visual {
-    width: min(720px, 100%);
-    margin-inline: auto;
-  }
-
-  .home-highlights,
   .experience-resource-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .home-highlight:last-child,
   .experience-resource-link:last-child:nth-child(odd) {
     grid-column: 1 / -1;
   }
