@@ -17,10 +17,13 @@ related:
   - docs/community/configuration/README.md
   - docs/community/architecture/overview.md
   - docs/community/architecture/document-processing.md
+  - docs/community/architecture/release-resilience.md
   - docs/community/runtimes/typst.md
   - docs/community/runtimes/latex-worker.md
 code_paths:
   - backend/Dockerfile
+  - backend/src/process_lifecycle.rs
+  - backend/src/server/runtime.rs
   - docker-compose.yml
   - .env.example
   - backend/migrations
@@ -64,10 +67,9 @@ assets read while Core constructs a project bundle, but do not move processing
 blobs. Include processing retention in database capacity planning. Workers see
 only transfer tickets.
 
-An absent optional processor does not fail the application's `/health` or stop
+An absent optional processor does not fail the application's `/ready` or stop
 browser editing. Capability state exposes compatible capacity; worker process
-liveness and logs are deployment probes. Queue/session metrics and dedicated
-worker health endpoints are future observability work.
+liveness and logs are deployment probes.
 
 Where the platform permits it, `/internal/v1/processing/*` is reachable through
 a worker-only service or ingress rather than the public browser route. Network
@@ -184,9 +186,11 @@ planning; configuring S3 does not move them out of the database.
 Run one application replica. WebSocket fan-out and per-project Git worktree
 locks are process-local, so two replicas can accept collaborators that cannot
 see each other's live events and can race while mutating the same repository.
-A shared database, shared volume, or sticky sessions do not fully remove this
-constraint. Horizontal scaling first requires a shared realtime bus and
-distributed Git locking.
+A shared database, shared volume, or sticky sessions do not remove this
+constraint. Horizontal scaling requires a shared realtime bus and distributed
+Git locking. See
+[Single-replica release resilience](../architecture/release-resilience.md) for
+replacement behavior.
 
 The application volume must be mounted read-write and survive pod replacement.
 Losing it loses local Git revision history even when the live document rows in
@@ -295,15 +299,26 @@ clone, pull, or push without exceeding that application deadline. Direct-Git
 request bodies are currently buffered; subprocess output is spooled to a
 temporary file and streamed to the client. Memory capacity therefore remains
 part of request-limit review, while temporary-disk capacity bounds responses.
+Drain interrupts and reaps active Git subprocesses. External jobs persist their
+normal recovery state; receive-pack completes its repair before quiescence.
 
 ## Health, startup, and rollout
 
-- `GET /health` is the application health endpoint.
+- `GET /health` is liveness for the reached process.
+- `GET /ready` returns `200` only while Core is not draining, PostgreSQL
+  responds within one second, and the required data and Git paths are
+  directories. Drain changes it to `503`.
 - Startup validates the distribution schema and referenced catalog/templates,
-  connects to PostgreSQL, and runs migrations before listening.
+  connects to PostgreSQL, runs migrations, and binds the listener before
+  starting background owners.
 - A malformed capability set or a missing required artifact fails startup
   instead of silently falling back.
-- Roll out an immutable image, wait for health, and verify `/v1/auth/config`
+- On `SIGTERM`, Core fences new work, drains admitted work for at most
+  `CORE_DRAIN_TIMEOUT_SECONDS`, and closes Collaboration sockets with code
+  `1012`.
+- Set the platform termination grace period above the drain timeout. Compose
+  uses 35 seconds for the default 30-second drain; increase both together.
+- Roll out an immutable image, wait for readiness, and verify `/v1/auth/config`
   reports the expected `distribution_id` and `enabled_project_types`.
 - For processing, deploy Core with the new exact contract allowlist before the
   worker, verify the authenticated capability changes from `waiting` to
@@ -317,11 +332,10 @@ part of request-limit review, while temporary-disk capacity bounds responses.
 
 The first Community release starts at
 `backend/migrations/202607120001_baseline.sql`. It does not support an in-place
-upgrade from an earlier TOSS database or another pre-Community migration
-history. The first deployment on this line requires an empty PostgreSQL
-database and a new `DATA_DIR`/`GIT_STORAGE_PATH`; reusing an older Git volume
-with a fresh database leaves unowned repositories and is not a supported
-migration path.
+upgrade from an earlier or unrelated migration history. The first deployment
+on this line requires an empty PostgreSQL database and a new
+`DATA_DIR`/`GIT_STORAGE_PATH`; reusing an older Git volume with a fresh database
+leaves unowned repositories and is not a supported migration path.
 
 An earlier database can contain the same SQLx migration version with a
 different checksum. The resulting startup failure is intentional. Do not edit
@@ -348,6 +362,7 @@ in that repository and cluster rather than in the Community application Wiki.
 - [Configuration index](../configuration/README.md)
 - [Architecture overview](../architecture/overview.md)
 - [Durable document processing](../architecture/document-processing.md)
+- [Single-replica release resilience](../architecture/release-resilience.md)
 - [Typst runtime](../runtimes/typst.md)
 - [Native LaTeX worker](../runtimes/latex-worker.md)
 - [Decision: Community database baseline](../decisions/0007-community-database-baseline.md)

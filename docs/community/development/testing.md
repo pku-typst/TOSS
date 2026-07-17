@@ -14,9 +14,11 @@ topics:
 related:
   - docs/community/development/setup.md
   - docs/community/reference/api.md
+  - docs/community/architecture/release-resilience.md
   - protocol/README.md
 code_paths:
   - scripts/check-docs.mjs
+  - web/scripts/headless-release-resilience.mjs
   - scripts/ci-checks.sh
   - scripts/ci/preflight.sh
   - scripts/ci/backend.sh
@@ -127,9 +129,8 @@ TOSS_CONFIG=../distributions/community/toss.json npm test
 TOSS_CONFIG=../distributions/community/toss.json npm run build
 ```
 
-A Typst-only distribution must additionally verify that its build contains no
-`dist/busytex` directory. Those overlay checks belong to that distribution's
-internal documentation and CI configuration.
+A Typst-only distribution must also verify in its own CI that the build
+contains no `dist/busytex` directory.
 
 Community LaTeX changes additionally use the Playwright LaTeX scenario against
 a Community backend and compatible TeX Live source:
@@ -143,9 +144,24 @@ WEB_BASE_URL=http://127.0.0.1:8080 npx playwright test tests/e2e/latex.spec.ts
 
 Integration and browser scenarios must use a disposable PostgreSQL database.
 They cover collaboration, Git, workspace replacement, caching, and rendered
-browser behavior. A parent monorepo may provide an aggregate wrapper and add
-downstream distribution jobs, but those deployment-specific commands are not
-part of the Community contract.
+browser behavior. Downstream integrations may add distribution-specific jobs;
+those commands are outside the Community contract.
+
+### Release replacement
+
+`npm --prefix web run test:release-resilience` requires built Core and Web
+artifacts plus `DATABASE_URL` for disposable PostgreSQL. It replaces Core while
+two browser contexts edit one project, covering acknowledged and pending Yjs
+state, both realtime streams, Git recovery, graceful exit, drain timeout, and
+optional processing-claim recovery. `scripts/ci/integration.sh` supplies the
+normal test environment.
+
+Focused owner tests cover room-admission races, native-child reaping,
+receive-pack and durable-job recovery, compatibility fencing, and reconnect
+timing. Tests use protocol events, database state, and explicit barriers rather
+than user-facing copy. See
+[Single-replica release resilience](../architecture/release-resilience.md) for
+the contract.
 
 Repository CI starts Core against that disposable database and runs
 `scripts/processing-protocol-smoke.mjs` with a synthetic worker identity. The
@@ -210,8 +226,8 @@ Community baseline checksum and rejects migration versions at or below the
 baseline. Repository-wide CI then starts the application against an empty
 PostgreSQL database, which proves the baseline creates a usable current schema.
 
-Pre-Community database histories are deliberately outside the supported test
-matrix. After the first Community release adds a forward migration, migration
+Incompatible earlier database histories are outside the supported test matrix.
+After the first Community release adds a forward migration, migration
 changes must additionally test an upgrade from the latest released Community
 schema with representative data. Never make an unsupported historical database
 appear compatible by rewriting `_sqlx_migrations`.
@@ -221,4 +237,5 @@ appear compatible by rewriting `_sqlx_migrations`.
 - [Development setup](./setup.md)
 - [API reference](../reference/api.md)
 - [Protocol contract](../../../protocol/README.md)
+- [Single-replica release resilience](../architecture/release-resilience.md)
 - [Decision: Community database baseline](../decisions/0007-community-database-baseline.md)

@@ -29,8 +29,8 @@ code_paths:
 
 A versioned distribution file selects product identity, typed feature bounds,
 and content without product-specific branches in core application code. The
-Community distribution is the public baseline; downstream deployments may add
-their own distribution directories as overlays.
+Community distribution is the public baseline; other builds may add their own
+distribution directories.
 
 ## Layout
 

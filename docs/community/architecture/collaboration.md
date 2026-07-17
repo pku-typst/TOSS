@@ -18,10 +18,12 @@ related:
   - docs/community/architecture/frontend.md
   - docs/community/architecture/backend.md
   - docs/community/architecture/identity-and-access.md
+  - docs/community/architecture/release-resilience.md
   - docs/community/operations/deployment.md
 code_paths:
   - backend/src/collaboration
   - backend/src/protocol/realtime.rs
+  - web/src/lib/realtime.ts
   - web/src/pages/workspace
 ---
 
@@ -41,12 +43,15 @@ room.
 
 1. The backend authorizes the current session, share token, or named guest and
    validates the document identity.
-2. Under the document lock, it loads or creates the compacted Yjs snapshot and
+2. It atomically joins the process-local room, then revalidates the effective
+   principal, write capability, and project generations before sending content.
+   Revalidation covers earlier changes; the subscription carries later ones.
+3. Under the document lock, it loads or creates the compacted Yjs snapshot and
    every required update after its safe watermark.
-3. A new collaboration generation is seeded deterministically from the SQL
+4. A new collaboration generation is seeded deterministically from the SQL
    document. Browsers do not invent independent initial CRDT state.
-4. The server sends the state followed by `bootstrap.done`.
-5. Only after bootstrap may the client publish or render the active binding as
+5. The server sends the state followed by `bootstrap.done`.
+6. Only after bootstrap may the client publish or render the active binding as
    ready.
 
 ## Update durability
@@ -55,6 +60,12 @@ Writable clients send `yjs.update` and `yjs.sync`. Each update is authorized
 against the current access and content generations, persisted, and only then
 broadcast. A persistence failure emits `server.error` and closes the affected
 stream so reconnect starts from authoritative state.
+
+Writable bindings persist the Y.Doc in IndexedDB, scoped by principal, project,
+immutable document ID, and collaboration revision. The active Y.Doc remains
+mounted across reconnect and sends a full state after bootstrap, so Yjs
+idempotency resolves a lost acknowledgement. This is not a second
+acknowledgement ledger; without IndexedDB, only the active tab retains state.
 
 Compaction uses `yrs` to merge the current snapshot and all following updates
 before moving the safe watermark. `COLLAB_DOC_UPDATE_RETAIN` controls how much
@@ -117,13 +128,14 @@ fresh authorization rather than reconnecting with a stale `canWrite` decision.
 
 ## Replica constraint
 
-Rooms and fan-out are process-local. Production must use one application
-replica until a shared realtime bus is implemented. See
-[Deployment](../operations/deployment.md).
+Rooms and fan-out are process-local, so production uses one application
+replica. See [Deployment](../operations/deployment.md) and
+[Single-replica release resilience](./release-resilience.md).
 
 ## Related
 
 - [Frontend architecture](./frontend.md)
 - [Identity and access](./identity-and-access.md)
+- [Single-replica release resilience](./release-resilience.md)
 - [API guide](../reference/api.md)
 - [Deployment](../operations/deployment.md)

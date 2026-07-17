@@ -1018,12 +1018,12 @@ parameter.
 
 The bounded `requestOverrides` JSON object is merged into every generated
 Provider payload inside the isolated Runtime, after pi has built the canonical
-request. Nested objects are merged and arrays are replaced. Consequently users
-can enter the exact shape documented by their model, such as OpenAI Responses
-`reasoning`, OpenAI-compatible `reasoning_effort`, Anthropic `thinking`, or NIM
-`chat_template_kwargs`/`nvext`, without TOSS translating between them. `{}`
-leaves Provider defaults untouched. Invalid or unsupported fields surface as a
-Provider error; TOSS never removes fields or retries with guessed semantics.
+request. Nested objects are merged and arrays are replaced. Users can therefore
+enter the exact shape documented by their model, such as OpenAI Responses
+`reasoning`, OpenAI-compatible `reasoning_effort`, Anthropic `thinking`, or
+other provider-specific nested fields. TOSS does not translate between them;
+`{}` leaves Provider defaults untouched. Invalid or unsupported fields surface
+as a Provider error rather than triggering guessed fallback semantics.
 The selected protocol client may perform one bounded transport retry only
 before a response stream has produced semantic output. Once text, reasoning,
 or a tool call exists, a failure is surfaced. The host then offers **Retry**
@@ -1479,8 +1479,8 @@ substituting for the required cross-browser suite:
 Firefox and WebKit behavior, Local Network Access prompts, the remaining wire
 protocols, and production response-header composition remain implementation
 gates. Chromium streaming and retained multi-turn context have also been
-validated against a user-configured NVIDIA OpenAI-compatible inference
-endpoint; that smoke is compatibility evidence, not a shipped provider preset.
+validated against a user-configured OpenAI-compatible endpoint; that smoke is
+compatibility evidence, not a shipped provider preset.
 
 ### Why a second origin is not the baseline
 

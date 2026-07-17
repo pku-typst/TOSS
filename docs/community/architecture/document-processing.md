@@ -496,8 +496,8 @@ workers/processing-sdk/              protocol client and lease guard
 workers/latex/                       Community processor and image
 ```
 
-Domain behavior must not move into distribution overlays, build patches, or a
-generic command runner.
+Domain behavior remains in its owning context; distribution configuration and
+generic command runners must not replace it.
 
 ## Related
 

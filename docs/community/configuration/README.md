@@ -36,7 +36,7 @@ administrator policy.
 | --- | --- | --- |
 | Distribution JSON selected by `TOSS_CONFIG` | Product identity, project types, included frontend features, allowed processing operations, Gallery, Help, resources, Git naming, and runtime catalog | No |
 | Deployment TOML selected by `TOSS_DEPLOYMENT_CONFIG` | Enabled frontend features, external provider registry, worker identities/contract allowlists, and processing resource policy | No; it references secret files |
-| Environment / secret manager | Database, session, S3, OIDC, provider client secrets, grant encryption, paths, and worker token files | Yes |
+| Environment / secret manager | Database, session, S3, OIDC, provider client secrets, grant encryption, paths, process-runtime limits, and worker token files | Yes |
 | PostgreSQL administrator settings | Mutable site authentication and access policy when not deployment-managed | Yes |
 | Checked-in runtime manifests | Exact compiler, package, font, and BusyTeX provenance | No |
 
@@ -44,6 +44,9 @@ administrator policy.
 development placeholders, not production values. Dynamic provider secret names
 cannot all be enumerated there; they follow
 `EXTERNAL_GIT_<INSTANCE_ID>_CLIENT_SECRET`.
+
+`CORE_DRAIN_TIMEOUT_SECONDS` is environment-owned, accepts 1–300 seconds, and
+defaults to 30. The platform termination grace period must exceed it.
 
 ## Precedence
 

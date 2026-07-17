@@ -141,10 +141,10 @@ after successful authentication.
 
 Community TOSS starts from the single
 `backend/migrations/202607120001_baseline.sql` schema baseline. It does not
-support an in-place database upgrade from earlier TOSS releases or other
-pre-Community migration histories. Use an empty PostgreSQL database and a new
-Git data directory for the first Community deployment, and export any data
-that must be retained before replacing an older installation.
+support an in-place database upgrade from an earlier or unrelated migration
+history. Use an empty PostgreSQL database and a new Git data directory for the
+first Community deployment, and export any data that must be retained before
+replacing an older installation.
 
 The baseline and every migration published after the first Community release
 are immutable. Future Community releases evolve the baseline only through new,

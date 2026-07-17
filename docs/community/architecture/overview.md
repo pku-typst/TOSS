@@ -19,6 +19,7 @@ related:
   - docs/community/architecture/backend.md
   - docs/community/architecture/collaboration.md
   - docs/community/architecture/versioning.md
+  - docs/community/architecture/release-resilience.md
   - docs/community/architecture/external-repositories.md
   - docs/community/architecture/identity-and-access.md
   - docs/community/architecture/document-processing.md
@@ -145,7 +146,8 @@ unavailable.
 Run one application replica. Realtime fan-out and Git locks are process-local.
 Horizontal scaling requires both a shared event bus and distributed locking for
 project repositories; a shared database, volume, or sticky sessions alone is
-not sufficient.
+not sufficient. See [Single-replica release resilience](./release-resilience.md)
+for the process-replacement contract.
 
 ## Related
 
@@ -153,6 +155,7 @@ not sufficient.
 - [Frontend architecture](./frontend.md)
 - [Collaboration](./collaboration.md)
 - [Versioning](./versioning.md)
+- [Single-replica release resilience](./release-resilience.md)
 - [External repositories](./external-repositories.md)
 - [Durable document processing](./document-processing.md)
 - [Deployment](../operations/deployment.md)

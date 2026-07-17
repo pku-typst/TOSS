@@ -142,8 +142,8 @@ are handled correctly; it does not add any request field. **Provider request
 parameters (JSON)** is an exact object merged into every generated request.
 Leave it as `{}` to use Provider defaults, or enter the shape documented by the
 specific model—for example `reasoning`, `reasoning_effort`, `thinking`,
-`chat_template_kwargs`, or `nvext`. TOSS does not translate between these
-incompatible formats.
+`chat_template_kwargs`, or another provider-specific nested object. TOSS does
+not translate between incompatible formats.
 
 The JSON cannot replace model identity, messages, system instructions, tools,
 tool choice, streaming fields, token-limit fields, headers, or credentials. Do

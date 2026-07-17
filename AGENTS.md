@@ -2,16 +2,11 @@
 
 ## Scope
 
-This is the public Community TOSS repository. Every tracked source file,
-fixture, document, screenshot, log excerpt, and commit must be appropriate for
-a public open-source project. Use synthetic examples and public services only.
-Never add credentials, personal data, private hosts, proprietary packages or
-fonts, downstream deployment configuration, or material copied from a private
-repository without an explicit provenance and licensing review.
-
-Open-source dependencies authored by companies are allowed when their licenses
-permit the intended use and redistribution. Product identity, private assets,
-and downstream policy remain separate concerns.
+Everything tracked here must be public-safe. Use synthetic data and public
+services. Never add credentials, personal data, private hosts, proprietary
+assets, downstream deployment configuration, or private material without an
+explicit provenance and licensing review. Company-authored open-source
+dependencies are allowed when their licenses permit use and redistribution.
 
 ## Module ownership
 
@@ -28,11 +23,9 @@ and downstream policy remain separate concerns.
 | `docs/community/` | Public engineering Wiki and accepted architecture decisions |
 | `scripts/` | Public-safe build, validation, backup, bootstrap, and smoke-test orchestration |
 
-Generated directories such as `web/dist/`, `web/public/typst-runtime/`,
-`web/public/busytex/`, `backend/target/`, `workers/target/`, caches, and test
-results are not source modules. Regenerate them through their owning scripts.
-Package directories under `prebuilt/` are ignored caches hydrated from pinned
-public releases; never hand-edit or commit them.
+Generated outputs, caches, test results, and fetched `prebuilt/` packages are
+not source. Regenerate them through their owning scripts; never hand-edit or
+commit them.
 
 ## Architecture boundaries
 
@@ -52,61 +45,69 @@ The backend is a modular monolith organized as vertical bounded contexts:
 | `backend/src/latex_runtime/` | Optional BusyTeX requests, upstream resolution, and cache policy |
 | `backend/src/document_processing/` | Durable jobs, immutable inputs, attempts, leases, worker sessions, cancellation, quotas, and artifacts |
 
-Do not recreate horizontal `application/`, `repositories/`, `services/`, global
-`domain/`, or generic CRUD layers. Business values and lifecycle states belong
-to their owning context. Cross-context reuse uses an owner-named facade. Keep
-database queries and locking in the owning persistence adapter, and compose
-cross-context transactions through explicit transactional facades.
+Do not create horizontal `application/`, `repositories/`, `services/`, global
+`domain/`, or generic CRUD layers. Values and lifecycle states stay with their
+owner. Cross-context calls use owner-named facades; queries and locks stay in
+owner persistence; multi-context transactions use explicit transactional
+facades.
 
-Errors belong to the capability that produces them. HTTP status and public
-error-code mapping stay at transport edges. Context queries return owner-defined
-serializable read contracts that OpenAPI references directly; do not create
-field-for-field response duplicates.
+Errors belong to the producing capability; HTTP status and public-code mapping
+stay at transport edges. OpenAPI references owner-defined read contracts
+directly; do not add field-for-field response copies.
 
-External repository models remain provider-neutral. Provider REST DTOs, URL
-rules, pagination, OAuth refresh, and permission semantics stay under
+External repository models remain provider-neutral. Provider DTOs, URL rules,
+pagination, OAuth refresh, and permission semantics stay under
 `external_repositories/provider/<provider>/`.
 
-The root `protocol/` directory and `backend/src/protocol/` form integration
-boundaries, not a shared domain model. Regenerate `protocol/openapi.json` and
-the browser types together after a public API change. Regenerate
-`protocol/worker-openapi.json` separately after an internal worker-wire change;
-never feed worker credentials or lifecycle routes into the browser generator.
+`protocol/` and `backend/src/protocol/` are integration boundaries, not a shared
+domain model. Public API changes regenerate OpenAPI and browser types together;
+worker-wire changes regenerate worker OpenAPI separately. Worker credentials
+and lifecycle routes never enter the browser generator.
 
-Community TOSS begins with `202607120001_baseline.sql` and intentionally does
-not support in-place upgrades from earlier TOSS database histories. That
-baseline is checksum-compatible with the audited pre-extraction schema and is
-immutable. Add a forward migration for schema changes; never edit, renumber,
-delete, or consolidate the baseline or any published migration. Validate both
-a fresh database and an upgrade from the latest Community release when a
-migration transforms existing data.
+Community begins with immutable `202607120001_baseline.sql` and does not support
+in-place upgrades from earlier histories. Never edit, renumber, delete, or
+consolidate a published migration. Add forward migrations and validate fresh
+install plus upgrade from the latest Community release when a migration
+transforms existing data.
+
+## Process, realtime, and compatibility
+
+- Run one Core replica. Process-local rooms and Git locks make shared storage,
+  sticky sessions, or a shared database insufficient for horizontal scaling.
+- Keep `AppState` at server, HTTP, and WebSocket composition edges. Background
+  owners and reusable context workflows receive narrow facades and adapters.
+- Core replacement uses one monotonic drain signal and one deadline. Contexts
+  stop claims and own repair or retry; do not add independent lifecycle sources
+  or a generic activity registry.
+- Room APIs return sender and receiver as one atomic subscription. Revalidate
+  the effective principal, write capability, and access/content generations
+  after subscribing and before bootstrap. Persist accepted Yjs mutations before
+  acknowledgement.
+- Bump `PROTOCOL_EPOCH` only when an already loaded first-party Web build could
+  mutate unsafely. Additive changes and releases alone do not bump it.
 
 ## Distribution boundary
 
-Community is the default, self-contained distribution. Core modules must not
-assume a downstream product name, private package, one Git provider, or a
-deployment environment. Product identity, starter content, Help, public
-resources, and optional capabilities come from the validated distribution.
+Community is the self-contained default distribution. Core must not assume a
+downstream product, private package, one Git provider, or deployment
+environment. Identity, content, resources, and optional capabilities come from
+the validated distribution.
 
-Keep the interactive compilation and preview loop client-side. Explicit durable
-Document Processing operations are a separate user action and must never become
-a preferred compiler, live-preview hedge, or silent fallback. Preserve
-persistent compiler and renderer sessions and the incremental vector path when
-changing Typst preview behavior.
+Keep interactive compilation and preview client-side. Durable Document
+Processing is explicit user work, never a preferred compiler, preview hedge, or
+silent fallback. Preserve persistent compiler/renderer sessions and incremental
+vector rendering.
 
 ## Submodule and runtime artifacts
 
-The URL and pinned commit in `.gitmodules` and the parent gitlink are canonical.
-Do not configure a floating branch or use `git submodule update --remote` as an
-incidental step. Work on a named branch inside `third-party/typst.ts/`, follow
-its own `AGENTS.md`, commit and test there first, then update the parent gitlink
-separately.
+The `.gitmodules` URL and parent gitlink are canonical. Never configure a
+floating branch or use `git submodule update --remote` incidentally. Change
+`third-party/typst.ts/` on a named branch under its own `AGENTS.md`, commit and
+test there first, then update the parent gitlink.
 
-The prebuilt compiler manifest must match the exact submodule revision, build
-recipe, release artifact, file list, sizes, and hashes. BusyTeX artifacts must
-match their public source revision, release tag, and manifest. Do not commit
-generated browser-runtime binaries; hydrate them with
-`scripts/fetch-runtime-artifacts.mjs`.
+Runtime manifests must match their exact source revision, recipe, release,
+files, sizes, and hashes. Do not commit generated browser binaries; hydrate
+them with `scripts/fetch-runtime-artifacts.mjs`.
 
 ## Tests
 
@@ -115,8 +116,7 @@ Backend changes:
 ```bash
 cd backend
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets
-cargo check --locked
+cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
@@ -151,5 +151,9 @@ cargo test --locked
 ```
 
 Cross-module changes use `scripts/ci-checks.sh` with a disposable PostgreSQL
-database. Keep deterministic unit coverage in Rust tests or Vitest and browser
-workflows in Playwright; fixtures must be synthetic and public-safe.
+database. Lifecycle, realtime admission, native-process, or Web/Core
+compatibility changes must include
+`npm --prefix web run test:release-resilience`, normally through that workflow.
+Documentation changes run `node scripts/check-docs.mjs`. Keep deterministic
+logic in Rust tests or Vitest and browser workflows in Playwright; all fixtures
+remain synthetic and public-safe.
