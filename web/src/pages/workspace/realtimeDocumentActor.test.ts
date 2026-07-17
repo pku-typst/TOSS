@@ -129,7 +129,7 @@ describe("realtimeDocumentMachine", () => {
     session.close();
   });
 
-  it("does not synthesize client-side Yjs state at bootstrap", () => {
+  it("does not synthesize client-side Yjs state at bootstrap", async () => {
     vi.stubGlobal("window", {
       location: { origin: "http://localhost" },
       clearInterval: globalThis.clearInterval,
@@ -154,7 +154,7 @@ describe("realtimeDocumentMachine", () => {
     socket?.open();
     socket?.finishBootstrap();
 
-    expect(ready).toHaveBeenCalledWith("");
+    await vi.waitFor(() => expect(ready).toHaveBeenCalledWith(""));
     expect(session.ytext.toString()).toBe("");
     session.close();
   });
@@ -327,4 +327,5 @@ describe("realtimeDocumentMachine", () => {
     expect(onAccessChanged).toHaveBeenCalledOnce();
     actor.stop();
   });
+
 });

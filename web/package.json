@@ -19,6 +19,7 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:i18n": "playwright test tests/e2e/i18n.spec.ts",
+    "test:release-resilience": "node scripts/headless-release-resilience.mjs",
     "test:ai-agent-local": "node scripts/local-ai-agent-scenario.mjs",
     "sync:typst-docs": "node scripts/sync-typst-docs.mjs sync",
     "check:typst-docs": "node scripts/sync-typst-docs.mjs verify",

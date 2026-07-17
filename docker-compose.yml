@@ -57,6 +57,7 @@ services:
       args:
         TOSS_DISTRIBUTION: ${TOSS_DISTRIBUTION:-community}
     container_name: typst-core-api
+    stop_grace_period: 35s
     env_file:
       - ${TOSS_ENV_FILE:-.env}
     environment:

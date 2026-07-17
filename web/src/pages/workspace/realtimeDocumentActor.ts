@@ -96,12 +96,15 @@ export function openRealtimeDocumentSession(
     onProjectReplaced: events.onProjectReplaced,
     onAccessChanged: events.onAccessChanged,
   });
+  let closed = false;
 
   return {
     ydoc,
     ytext,
     commands: binding,
     close: () => {
+      if (closed) return;
+      closed = true;
       binding.close();
       ydoc.destroy();
     },

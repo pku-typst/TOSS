@@ -33,6 +33,7 @@ pub(crate) use git_persistence::{
     record_sync_failure, set_repository_sync_state, update_sync_state,
 };
 pub(crate) use http::{git_http_backend, git_repo_link, git_status, GitRepoLink};
+pub(crate) use local_repository::storage_root;
 pub(crate) use materialization::{
     sync_project_documents_to_repo, sync_repo_documents_to_project, MaterializeWorkspaceError,
     RepositoryImportError,

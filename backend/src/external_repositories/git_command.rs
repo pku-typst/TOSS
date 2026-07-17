@@ -2,10 +2,15 @@
 
 use super::provider::GitHttpAuthorization;
 use super::ExternalGitFailureCode;
+use crate::native_process::{isolate_process_group, terminate_process_group};
+use crate::process_lifecycle::DrainSignal;
 use std::env;
 use std::os::unix::fs::PermissionsExt;
+use std::process::{Output, Stdio};
 use std::time::Duration;
 use thiserror::Error;
+use tokio::io::AsyncReadExt;
+use tokio::process::{Child, Command};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ExternalGitCommandFailureKind {
@@ -44,6 +49,13 @@ pub(crate) enum ExternalGitCommandError {
         #[source]
         source: std::io::Error,
     },
+    #[error("external Git process execution failed")]
+    Execution {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("external Git command was interrupted by process drain")]
+    Interrupted,
     #[error("external Git command timed out after {timeout_seconds} seconds")]
     Timeout { timeout_seconds: u64 },
     #[error("external Git remote rejected the command with exit status {exit_status:?}")]
@@ -60,6 +72,8 @@ impl ExternalGitCommandError {
             Self::BranchMoved => ExternalGitCommandFailureKind::Conflict,
             Self::Setup { .. }
             | Self::Spawn { .. }
+            | Self::Execution { .. }
+            | Self::Interrupted
             | Self::Timeout { .. }
             | Self::RemoteRejected { .. } => ExternalGitCommandFailureKind::Retryable,
         }
@@ -71,7 +85,10 @@ impl ExternalGitCommandError {
             Self::PermissionDenied => ExternalGitFailureCode::GitPermissionDenied,
             Self::RepositoryNotFound => ExternalGitFailureCode::GitRepositoryNotFound,
             Self::BranchMoved => ExternalGitFailureCode::CheckpointBranchMoved,
-            Self::Setup { .. } | Self::Spawn { .. } => ExternalGitFailureCode::GitCommandFailed,
+            Self::Setup { .. }
+            | Self::Spawn { .. }
+            | Self::Execution { .. }
+            | Self::Interrupted => ExternalGitFailureCode::GitCommandFailed,
             Self::Timeout { .. } => ExternalGitFailureCode::GitCommandTimeout,
             Self::RemoteRejected { .. } => ExternalGitFailureCode::GitProviderUnavailable,
         }
@@ -120,6 +137,7 @@ pub(crate) async fn run_authenticated_external_git_command(
     authorization: &GitHttpAuthorization,
     args: &[String],
     timeout_seconds: u64,
+    drain: DrainSignal,
 ) -> Result<String, ExternalGitCommandError> {
     let askpass_dir = tempfile::tempdir().map_err(|source| ExternalGitCommandError::Setup {
         operation: GitCommandSetupOperation::CreateAskpassDirectory,
@@ -148,7 +166,7 @@ pub(crate) async fn run_authenticated_external_git_command(
         }
     })?;
 
-    let mut command = tokio::process::Command::new("git");
+    let mut command = Command::new("git");
     command
         .arg("-C")
         .arg(repo_path)
@@ -165,15 +183,86 @@ pub(crate) async fn run_authenticated_external_git_command(
         .env("EXTERNAL_GIT_USERNAME", &authorization.username)
         .env("EXTERNAL_GIT_TOKEN", &authorization.access_token)
         .kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(timeout_seconds), command.output())
-        .await
-        .map_err(|_| ExternalGitCommandError::Timeout { timeout_seconds })?
-        .map_err(|source| ExternalGitCommandError::Spawn { source })?;
+    let output =
+        execute_external_git_command(command, Duration::from_secs(timeout_seconds), drain).await?;
     if output.status.success() {
         return Ok(String::from_utf8_lossy(&output.stdout).to_string());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(classify_git_failure(&stderr, output.status.code()))
+}
+
+async fn execute_external_git_command(
+    mut command: Command,
+    timeout: Duration,
+    drain: DrainSignal,
+) -> Result<Output, ExternalGitCommandError> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    isolate_process_group(&mut command);
+    let mut child = command
+        .spawn()
+        .map_err(|source| ExternalGitCommandError::Spawn { source })?;
+    enum Execution<T> {
+        Complete(T),
+        Interrupted,
+    }
+    let execution = {
+        let child_execution = collect_child_output(&mut child);
+        tokio::pin!(child_execution);
+        tokio::select! {
+            biased;
+            _ = drain.triggered() => Execution::Interrupted,
+            result = tokio::time::timeout(timeout, &mut child_execution) => Execution::Complete(result),
+        }
+    };
+    match execution {
+        Execution::Complete(Ok(Ok(output))) => Ok(output),
+        Execution::Complete(Ok(Err(source))) => {
+            terminate_process_group(&mut child).await;
+            Err(ExternalGitCommandError::Execution { source })
+        }
+        Execution::Complete(Err(_)) => {
+            terminate_process_group(&mut child).await;
+            Err(ExternalGitCommandError::Timeout {
+                timeout_seconds: timeout.as_secs(),
+            })
+        }
+        Execution::Interrupted => {
+            terminate_process_group(&mut child).await;
+            Err(ExternalGitCommandError::Interrupted)
+        }
+    }
+}
+
+async fn collect_child_output(child: &mut Child) -> Result<Output, std::io::Error> {
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("external Git stdout pipe is unavailable"))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| std::io::Error::other("external Git stderr pipe is unavailable"))?;
+    let read_stdout = async move {
+        let mut output = Vec::new();
+        stdout.read_to_end(&mut output).await?;
+        Ok::<_, std::io::Error>(output)
+    };
+    let read_stderr = async move {
+        let mut output = Vec::new();
+        stderr.read_to_end(&mut output).await?;
+        Ok::<_, std::io::Error>(output)
+    };
+    let (stdout, stderr) = tokio::try_join!(read_stdout, read_stderr)?;
+    let status = child.wait().await?;
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 #[cfg(test)]
@@ -198,5 +287,29 @@ mod tests {
             classify_git_failure("connection timed out", Some(128)).kind(),
             ExternalGitCommandFailureKind::Retryable
         );
+        assert_eq!(
+            ExternalGitCommandError::Interrupted.kind(),
+            ExternalGitCommandFailureKind::Retryable
+        );
+        assert_eq!(
+            ExternalGitCommandError::Interrupted.code(),
+            ExternalGitFailureCode::GitCommandFailed
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_drain_interrupts_and_reaps_external_git_commands() {
+        let drain = DrainSignal::idle();
+        let trigger = drain.clone();
+        let mut command = Command::new("sh");
+        command.arg("-c").arg("exec sleep 10").kill_on_drop(true);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            trigger.trigger_for_test();
+        });
+
+        let result = execute_external_git_command(command, Duration::from_secs(5), drain).await;
+        assert!(matches!(result, Err(ExternalGitCommandError::Interrupted)));
     }
 }

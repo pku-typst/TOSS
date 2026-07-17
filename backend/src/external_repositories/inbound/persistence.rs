@@ -510,7 +510,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn applied_job_failure_keeps_revision_recovery_metadata(
+    async fn applied_job_retry_reclaims_only_the_revision_phase(
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let Some(pool) = migrated_test_pool().await? else {
             return Ok(());
@@ -519,6 +519,9 @@ mod tests {
         let project_id = Uuid::new_v4();
         let job_id = Uuid::new_v4();
         let now = Utc::now();
+        let provider_suffix = user_id.simple().to_string();
+        let provider =
+            format!("recovery-{}", &provider_suffix[..12]).parse::<ProviderInstanceId>()?;
         let mut transaction = pool.begin().await?;
         let username_suffix = user_id
             .simple()
@@ -540,11 +543,12 @@ mod tests {
             "insert into external_git_oauth_grants (
                  user_id, provider_instance_id, provider_account_id, provider_username,
                  encrypted_access_token, refresh_redirect_uri, scopes, status, created_at, updated_at
-             ) values ($1, 'gitlab', $2, 'owner', '\\x01',
-                       'https://collab.example.test/v1/external-git/providers/gitlab/callback',
-                       '{}', 'active', $3, $3)",
+             ) values ($1, $2, $3, 'owner', '\\x01',
+                       'https://collab.example.test/callback',
+                       '{}', 'active', $4, $4)",
         )
         .bind(user_id)
+        .bind(&provider)
         .bind(user_id.to_string())
         .bind(now)
         .execute(&mut *transaction)
@@ -564,12 +568,13 @@ mod tests {
                  project_id, provider_instance_id, provider_repository_id, full_path,
                  web_url, clone_url, default_branch, checkpoint_branch, status,
                  linked_by_user_id, created_at, updated_at
-             ) values ($1, 'gitlab', $2, 'tests/recovery',
+             ) values ($1, $2, $3, 'tests/recovery',
                        'https://git.example.test/tests/recovery',
                        'https://git.example.test/tests/recovery.git', 'main', 'checkpoint',
-                       'active', $3, $4, $4)",
+                       'active', $4, $5, $5)",
         )
         .bind(project_id)
+        .bind(&provider)
         .bind(Uuid::new_v4().to_string())
         .bind(user_id)
         .bind(now)
@@ -579,11 +584,12 @@ mod tests {
             "insert into external_git_inbound_jobs (
                  id, project_id, provider_instance_id, operation, source_branch, requested_by_user_id,
                  state, phase, attempt_count, next_attempt_at, locked_at, created_at, updated_at
-             ) values ($1, $2, 'gitlab', 'sync', 'main', $3,
-                       'processing', 'apply', 1, $4, $4, $4, $4)",
+             ) values ($1, $2, $3, 'sync', 'main', $4,
+                       'processing', 'apply', 1, $5, $5, $5, $5)",
         )
         .bind(job_id)
         .bind(project_id)
+        .bind(&provider)
         .bind(user_id)
         .bind(now)
         .execute(&mut *transaction)
@@ -613,7 +619,32 @@ mod tests {
         assert_eq!(phase, ExternalGitInboundPhase::Revision);
         assert_eq!(stored_sha.as_deref(), Some(remote_sha));
         assert_eq!(workspace_version, Some(17));
-        transaction.rollback().await?;
+        transaction.commit().await?;
+
+        let claimed = claim_due_job(
+            &pool,
+            &provider,
+            now + chrono::Duration::seconds(1),
+            now - chrono::Duration::minutes(15),
+        )
+        .await?
+        .ok_or_else(|| std::io::Error::other("revision retry was not reclaimed"))?;
+        assert_eq!(claimed.id, job_id);
+        assert_eq!(
+            claimed.applied_state(),
+            Some(AppliedInboundJob {
+                remote_sha: remote_sha.to_string(),
+                workspace_version: 17,
+            })
+        );
+        sqlx::query("delete from projects where id = $1")
+            .bind(project_id)
+            .execute(&pool)
+            .await?;
+        sqlx::query("delete from users where id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
         Ok(())
     }
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import wasm from "vite-plugin-wasm";
 import { computeAiRuntimeBuildId } from "./aiRuntimeBuildConfig";
 import { loadDistributionBuildConfig } from "./distributionBuildConfig";
+import { PROTOCOL_EPOCH } from "./src/lib/protocolCompatibility";
 
 const distribution = loadDistributionBuildConfig();
 const aiRuntimeIncluded = distribution.frontendFeatures.includes("ai_assistant");
@@ -29,6 +30,7 @@ const distributionAssetsPlugin = {
       `${JSON.stringify(
         {
           schema: 2,
+          protocol_epoch: PROTOCOL_EPOCH,
           project_types: distribution.projectTypes,
           frontend_features: distribution.frontendFeatures,
           ai_runtime: aiRuntimeIncluded

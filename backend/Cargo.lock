@@ -928,6 +928,7 @@ dependencies = [
  "git2",
  "hex",
  "http 1.4.2",
+ "libc",
  "mime",
  "mime_guess",
  "openidconnect",

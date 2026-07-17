@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,7 +23,7 @@ import {
 } from "@/applicationSession";
 import { BrandMark } from "@/components/BrandMark";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
-import { UiButton, UiIconButton } from "@/components/ui";
+import { UiButton, UiDialog, UiIconButton } from "@/components/ui";
 import {
   AUTH_REQUIRED_EVENT,
   clearProjectAssetContentCaches,
@@ -39,6 +40,10 @@ import {
 } from "@/lib/api";
 import { deploymentProjectTypes, type ProjectType } from "@/lib/deploymentCapabilities";
 import { safeReturnPath } from "@/lib/experience";
+import {
+  protocolCompatibilityState,
+  subscribeProtocolCompatibility
+} from "@/lib/protocolCompatibility";
 import {
   readStoredLocale,
   translate,
@@ -227,6 +232,12 @@ export function App() {
   const contentRef = useRef<HTMLElement | null>(null);
   const [locale, setLocale] = useState<UiLocale>(readStoredLocale);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const compatibilityState = useSyncExternalStore(
+    subscribeProtocolCompatibility,
+    protocolCompatibilityState,
+    protocolCompatibilityState
+  );
+  const reloadRequired = compatibilityState === "reload_required";
 
   const routeMatch = [...matches]
     .reverse()
@@ -451,6 +462,18 @@ export function App() {
     },
     [navigate, queryClient, shareToken, t]
   );
+
+  if (reloadRequired && (!authConfig || !experience)) {
+    return (
+      <StatusPage
+        kind="startup"
+        title={t("compatibility.reloadTitle")}
+        description={t("compatibility.reloadDescription")}
+        actionLabel={t("compatibility.reloadAction")}
+        onAction={() => window.location.reload()}
+      />
+    );
+  }
 
   if (bootstrapQuery.isPending) {
     return onWorkspaceRoute ? (
@@ -707,6 +730,18 @@ export function App() {
             </Suspense>
           </section>
       </nve-page>
+      <UiDialog
+        open={reloadRequired}
+        closable={false}
+        title={t("compatibility.reloadTitle")}
+        description={t("compatibility.reloadDescription")}
+        onClose={() => undefined}
+        actions={
+          <UiButton variant="primary" onClick={() => window.location.reload()}>
+            {t("compatibility.reloadAction")}
+          </UiButton>
+        }
+      />
     </AppContext.Provider>
   );
 }

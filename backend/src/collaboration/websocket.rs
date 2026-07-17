@@ -1,5 +1,5 @@
 use super::persistence::{BootstrapState, PersistedUpdateKind};
-use super::rooms::{RoomEvent, RoomEventKind, RoomEventOrigin};
+use super::rooms::{RoomEvent, RoomEventKind, RoomEventOrigin, RoomSubscription};
 use super::updates::{PersistUpdateOutcome, PersistedUpdateAck};
 use super::yjs_state::validate_update;
 use super::CollaborationDocument;
@@ -12,7 +12,8 @@ use crate::http_response::ApiError;
 use crate::protocol::{
     ApiErrorCode, RealtimeClientMessage, RealtimeServerEvent, RealtimeServerEventKind,
 };
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use crate::protocol_compatibility::{protocol_epoch_matches, PROTOCOL_INCOMPATIBLE_CLOSE_CODE};
+use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
@@ -27,11 +28,11 @@ use tracing::warn;
 use uuid::Uuid;
 
 const AUTHORIZATION_REVALIDATION_INTERVAL: Duration = Duration::from_secs(30);
-const OUTBOUND_CLOSE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 const SOCKET_EVENT_BUFFER: usize = 8;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct WsQuery {
+    pub protocol_epoch: Option<String>,
     pub project_id: Option<String>,
     pub user_id: Option<String>,
     pub user_name: Option<String>,
@@ -39,6 +40,18 @@ pub(crate) struct WsQuery {
     pub share_token: Option<String>,
     pub guest_session: Option<String>,
     pub collaboration_revision: Option<i64>,
+}
+
+fn incompatible_websocket_response(ws: WebSocketUpgrade) -> axum::response::Response {
+    ws.on_upgrade(|mut socket| async move {
+        let _ = socket
+            .send(Message::Close(Some(CloseFrame {
+                code: PROTOCOL_INCOMPATIBLE_CLOSE_CODE,
+                reason: "client reload required".into(),
+            })))
+            .await;
+    })
+    .into_response()
 }
 
 #[derive(serde::Serialize, utoipa::ToSchema)]
@@ -50,6 +63,7 @@ pub(crate) struct RealtimeAuthResponse {
 struct WsAuth {
     project_id: Uuid,
     user_id: Option<Uuid>,
+    guest_session_id: Option<Uuid>,
     guest_display_name: Option<String>,
     effective_id: Uuid,
     can_write: bool,
@@ -73,6 +87,11 @@ struct IncomingRoomEvent {
     payload: serde_json::Value,
     persisted_kind: Option<PersistedUpdateKind>,
     request_id: Option<String>,
+}
+
+enum SocketCommand {
+    Event(RoomEvent),
+    ServiceRestart,
 }
 
 enum PersistEventOutcome {
@@ -100,6 +119,9 @@ pub(crate) async fn ws_handler(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    if !protocol_epoch_matches(query.protocol_epoch.as_deref()) {
+        return incompatible_websocket_response(ws);
+    }
     let document_id = match Uuid::parse_str(&doc_id) {
         Ok(document_id) => document_id,
         Err(_) => {
@@ -136,7 +158,8 @@ pub(crate) async fn ws_handler(
     };
     let user_name = query.user_name.clone();
     let room_id = format!("{document_id}:{collaboration_revision}");
-    ws.on_upgrade(move |socket| handle_socket(socket, room_id, auth, user_name, state))
+    let connection = state.collaboration.track_connection();
+    ws.on_upgrade(move |socket| handle_socket(socket, room_id, auth, user_name, state, connection))
         .into_response()
 }
 
@@ -147,11 +170,15 @@ pub(crate) async fn project_ws_handler(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    if !protocol_epoch_matches(query.protocol_epoch.as_deref()) {
+        return incompatible_websocket_response(ws);
+    }
     let auth = match authorize_project_ws_user(&state, &headers, &query, project_id).await {
         Ok(auth) => auth,
         Err(failure) => return authorization_error_response(failure),
     };
-    ws.on_upgrade(move |socket| handle_project_socket(socket, auth, state))
+    let connection = state.collaboration.track_connection();
+    ws.on_upgrade(move |socket| handle_project_socket(socket, auth, state, connection))
         .into_response()
 }
 
@@ -282,6 +309,7 @@ async fn authorize_project_ws_user(
     Ok(WsAuth {
         project_id,
         user_id: principal.user_id,
+        guest_session_id: principal.guest_session_id,
         guest_display_name: principal.guest_display_name,
         effective_id,
         can_write: principal.can_write,
@@ -478,7 +506,7 @@ async fn send_server_error_and_close(
     stream_id: &str,
     message: &str,
 ) {
-    let _ = send_room_event(
+    send_terminal_event_and_close(
         ws_tx,
         RoomEvent::system(
             stream_id,
@@ -488,24 +516,36 @@ async fn send_server_error_and_close(
                 "resync_required": true
             }),
         ),
-        None,
     )
     .await;
+}
+
+async fn send_terminal_event_and_close(
+    ws_tx: &mut futures::stream::SplitSink<WebSocket, Message>,
+    event: RoomEvent,
+) {
+    let _ = send_room_event(ws_tx, event, None).await;
     let _ = ws_tx.send(Message::Close(None)).await;
 }
 
 async fn forward_room_events(
     mut receiver: tokio::sync::broadcast::Receiver<RoomEvent>,
-    mut socket_receiver: tokio::sync::mpsc::Receiver<RoomEvent>,
+    mut socket_receiver: tokio::sync::mpsc::Receiver<SocketCommand>,
     mut ws_tx: futures::stream::SplitSink<WebSocket, Message>,
     stream_id: String,
     connection_id: Option<Uuid>,
 ) {
     loop {
-        let event = tokio::select! {
+        let command = tokio::select! {
+            command = socket_receiver.recv() => {
+                match command {
+                    Some(command) => command,
+                    None => break,
+                }
+            }
             room_event = receiver.recv() => {
                 match room_event {
-                    Ok(event) => event,
+                    Ok(event) => SocketCommand::Event(event),
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         warn!(skipped, %stream_id, "realtime client lagged behind room events");
@@ -519,7 +559,15 @@ async fn forward_room_events(
                     }
                 }
             }
-            Some(event) = socket_receiver.recv() => event,
+        };
+        let SocketCommand::Event(event) = command else {
+            let _ = ws_tx
+                .send(Message::Close(Some(CloseFrame {
+                    code: close_code::RESTART,
+                    reason: "service restart".into(),
+                })))
+                .await;
+            break;
         };
         let closes_stream = matches!(
             event.kind,
@@ -546,19 +594,12 @@ async fn forward_room_events(
 }
 
 async fn finish_event_forwarder(
-    mut task: tokio::task::JoinHandle<()>,
+    task: tokio::task::JoinHandle<()>,
     drain_close_event: bool,
     stream_id: &str,
 ) {
     let join_result = if drain_close_event {
-        match tokio::time::timeout(OUTBOUND_CLOSE_DRAIN_TIMEOUT, &mut task).await {
-            Ok(result) => result,
-            Err(_) => {
-                warn!(%stream_id, "timed out draining realtime close event");
-                task.abort();
-                task.await
-            }
-        }
+        task.await
     } else {
         task.abort();
         task.await
@@ -644,16 +685,14 @@ enum RevalidationOutcome {
     Unavailable,
 }
 
-async fn revalidate_project(state: &AppState, auth: &WsAuth) -> RevalidationOutcome {
-    match ensure_project_access(
-        &state.db,
-        &auth.auth_headers,
-        auth.project_id,
-        AccessNeed::Read,
-    )
-    .await
-    {
-        Ok(_) => {}
+async fn revalidate_project(db: &sqlx::PgPool, auth: &WsAuth) -> RevalidationOutcome {
+    match ensure_project_access(db, &auth.auth_headers, auth.project_id, AccessNeed::Read).await {
+        Ok(principal)
+            if principal.user_id == auth.user_id
+                && principal.guest_session_id == auth.guest_session_id
+                && principal.guest_display_name == auth.guest_display_name
+                && principal.can_write == auth.can_write => {}
+        Ok(_) => return RevalidationOutcome::AccessChanged,
         Err(
             error @ (ProjectAuthorizationError::AuthenticationRequired
             | ProjectAuthorizationError::PermissionDenied),
@@ -666,7 +705,7 @@ async fn revalidate_project(state: &AppState, auth: &WsAuth) -> RevalidationOutc
             return RevalidationOutcome::Unavailable;
         }
     }
-    match crate::workspace::project_content_epoch(&state.db, auth.project_id).await {
+    match crate::workspace::project_content_epoch(db, auth.project_id).await {
         Ok(Some(content_epoch)) if content_epoch != auth.content_epoch => {
             return RevalidationOutcome::ProjectReplaced
         }
@@ -677,7 +716,7 @@ async fn revalidate_project(state: &AppState, auth: &WsAuth) -> RevalidationOutc
             return RevalidationOutcome::Unavailable;
         }
     }
-    match project_access_epoch(&state.db, auth.project_id).await {
+    match project_access_epoch(db, auth.project_id).await {
         Ok(Some(access_epoch)) if access_epoch != auth.access_epoch => {
             RevalidationOutcome::AccessChanged
         }
@@ -688,6 +727,26 @@ async fn revalidate_project(state: &AppState, auth: &WsAuth) -> RevalidationOutc
             RevalidationOutcome::Unavailable
         }
     }
+}
+
+struct RejectedRoomSubscription {
+    subscription: RoomSubscription,
+    event: RoomEvent,
+}
+
+async fn revalidate_new_subscription(
+    db: &sqlx::PgPool,
+    auth: &WsAuth,
+    stream_id: &str,
+    subscription: RoomSubscription,
+) -> Result<RoomSubscription, RejectedRoomSubscription> {
+    let Some(event) = revalidation_event(stream_id, revalidate_project(db, auth).await) else {
+        return Ok(subscription);
+    };
+    Err(RejectedRoomSubscription {
+        subscription,
+        event,
+    })
 }
 
 fn revalidation_event(stream_id: &str, outcome: RevalidationOutcome) -> Option<RoomEvent> {
@@ -714,7 +773,18 @@ async fn handle_socket(
     auth: WsAuth,
     user_name: Option<String>,
     state: AppState,
+    _connection: super::connection_lifecycle::ConnectionActivity,
 ) {
+    if state.collaboration.is_draining() {
+        let mut socket = socket;
+        let _ = socket
+            .send(Message::Close(Some(CloseFrame {
+                code: close_code::RESTART,
+                reason: "service restart".into(),
+            })))
+            .await;
+        return;
+    }
     let WsTarget::Document {
         id: document_id,
         collaboration_revision,
@@ -728,14 +798,29 @@ async fn handle_socket(
         collaboration_revision,
         content_epoch: auth.content_epoch,
     };
-    let sender = state
+    let subscription = state
         .collaboration
         .rooms
-        .sender(auth.project_id, &doc_id)
+        .subscribe(auth.project_id, &doc_id)
         .await;
-    let receiver = sender.subscribe();
-    let (socket_sender, socket_receiver) = tokio::sync::mpsc::channel(SOCKET_EVENT_BUFFER);
     let (mut ws_tx, mut ws_rx) = socket.split();
+    let subscription =
+        match revalidate_new_subscription(&state.db, &auth, &doc_id, subscription).await {
+            Ok(subscription) => subscription,
+            Err(rejected) => {
+                send_terminal_event_and_close(&mut ws_tx, rejected.event).await;
+                let RoomSubscription { sender, receiver } = rejected.subscription;
+                drop(receiver);
+                state
+                    .collaboration
+                    .rooms
+                    .remove_if_idle(auth.project_id, &doc_id, &sender)
+                    .await;
+                return;
+            }
+        };
+    let RoomSubscription { sender, receiver } = subscription;
+    let (socket_sender, socket_receiver) = tokio::sync::mpsc::channel(SOCKET_EVENT_BUFFER);
     let user_id = auth.effective_id.to_string();
     let connection_id = Uuid::new_v4();
 
@@ -803,16 +888,24 @@ async fn handle_socket(
         tokio::time::interval_at(start, AUTHORIZATION_REVALIDATION_INTERVAL);
     loop {
         let message = tokio::select! {
+            biased;
+            _ = state.collaboration.draining() => {
+                drain_close_event = socket_sender
+                    .send(SocketCommand::ServiceRestart)
+                    .await
+                    .is_ok();
+                break;
+            }
             message = ws_rx.next() => message,
             _ = authorization_interval.tick() => {
                 let Some(event) = revalidation_event(
                     &doc_id,
-                    revalidate_project(&state, &auth).await,
+                    revalidate_project(&state.db, &auth).await,
                 ) else {
                     continue;
                 };
                 drain_close_event = socket_sender
-                    .send(event)
+                    .send(SocketCommand::Event(event))
                     .await
                     .is_ok();
                 break;
@@ -853,7 +946,11 @@ async fn handle_socket(
                                     "projected": ack.projected,
                                 }),
                             );
-                            if socket_sender.send(acknowledgement).await.is_err() {
+                            if socket_sender
+                                .send(SocketCommand::Event(acknowledgement))
+                                .await
+                                .is_err()
+                            {
                                 break;
                             }
                             if let Some(change) = ack.workspace_change {
@@ -866,47 +963,47 @@ async fn handle_socket(
                         PersistEventOutcome::InvalidPayload => continue,
                         PersistEventOutcome::StaleGeneration => {
                             drain_close_event = socket_sender
-                                .send(RoomEvent::system(
+                                .send(SocketCommand::Event(RoomEvent::system(
                                     &doc_id,
                                     RoomEventKind::ProjectReplaced,
                                     serde_json::json!({}),
-                                ))
+                                )))
                                 .await
                                 .is_ok();
                             break;
                         }
                         PersistEventOutcome::AccessChanged => {
                             drain_close_event = socket_sender
-                                .send(RoomEvent::system(
+                                .send(SocketCommand::Event(RoomEvent::system(
                                     &doc_id,
                                     RoomEventKind::AccessChanged,
                                     serde_json::json!({}),
-                                ))
+                                )))
                                 .await
                                 .is_ok();
                             break;
                         }
                         PersistEventOutcome::DocumentChanged => {
                             drain_close_event = socket_sender
-                                .send(RoomEvent::system(
+                                .send(SocketCommand::Event(RoomEvent::system(
                                     &doc_id,
                                     RoomEventKind::DocumentChanged,
                                     serde_json::json!({}),
-                                ))
+                                )))
                                 .await
                                 .is_ok();
                             break;
                         }
                         PersistEventOutcome::Failed => {
                             drain_close_event = socket_sender
-                                .send(RoomEvent::system(
+                                .send(SocketCommand::Event(RoomEvent::system(
                                     &doc_id,
                                     RoomEventKind::ServerError,
                                     serde_json::json!({
                                         "message": "Failed to persist collaborative update",
                                         "resync_required": true
                                     }),
-                                ))
+                                )))
                                 .await
                                 .is_ok();
                             break;
@@ -946,16 +1043,46 @@ async fn handle_socket(
         .await;
 }
 
-async fn handle_project_socket(socket: WebSocket, auth: WsAuth, state: AppState) {
+async fn handle_project_socket(
+    socket: WebSocket,
+    auth: WsAuth,
+    state: AppState,
+    _connection: super::connection_lifecycle::ConnectionActivity,
+) {
+    if state.collaboration.is_draining() {
+        let mut socket = socket;
+        let _ = socket
+            .send(Message::Close(Some(CloseFrame {
+                code: close_code::RESTART,
+                reason: "service restart".into(),
+            })))
+            .await;
+        return;
+    }
     let stream_id = auth.project_id.to_string();
-    let sender = state
+    let subscription = state
         .collaboration
         .rooms
-        .project_sender(auth.project_id)
+        .subscribe_project(auth.project_id)
         .await;
-    let receiver = sender.subscribe();
-    let (socket_sender, socket_receiver) = tokio::sync::mpsc::channel(SOCKET_EVENT_BUFFER);
     let (mut ws_tx, mut ws_rx) = socket.split();
+    let subscription =
+        match revalidate_new_subscription(&state.db, &auth, &stream_id, subscription).await {
+            Ok(subscription) => subscription,
+            Err(rejected) => {
+                send_terminal_event_and_close(&mut ws_tx, rejected.event).await;
+                let RoomSubscription { sender, receiver } = rejected.subscription;
+                drop(receiver);
+                state
+                    .collaboration
+                    .rooms
+                    .remove_project_sender_if_idle(auth.project_id, &sender)
+                    .await;
+                return;
+            }
+        };
+    let RoomSubscription { sender, receiver } = subscription;
+    let (socket_sender, socket_receiver) = tokio::sync::mpsc::channel(SOCKET_EVENT_BUFFER);
     let ready = RoomEvent::system(
         &stream_id,
         RoomEventKind::BootstrapDone,
@@ -983,16 +1110,24 @@ async fn handle_project_socket(socket: WebSocket, auth: WsAuth, state: AppState)
         tokio::time::interval_at(start, AUTHORIZATION_REVALIDATION_INTERVAL);
     loop {
         let message = tokio::select! {
+            biased;
+            _ = state.collaboration.draining() => {
+                drain_close_event = socket_sender
+                    .send(SocketCommand::ServiceRestart)
+                    .await
+                    .is_ok();
+                break;
+            }
             message = ws_rx.next() => message,
             _ = authorization_interval.tick() => {
                 let Some(event) = revalidation_event(
                     &stream_id,
-                    revalidate_project(&state, &auth).await,
+                    revalidate_project(&state.db, &auth).await,
                 ) else {
                     continue;
                 };
                 drain_close_event = socket_sender
-                    .send(event)
+                    .send(SocketCommand::Event(event))
                     .await
                     .is_ok();
                 break;
@@ -1015,7 +1150,59 @@ async fn handle_project_socket(socket: WebSocket, auth: WsAuth, state: AppState)
 
 #[cfg(test)]
 mod tests {
+    use super::super::rooms::CollaborationRooms;
     use super::*;
+    use chrono::{Duration as ChronoDuration, Utc};
+    use sha2::{Digest, Sha256};
+
+    async fn migrated_test_pool(
+    ) -> Result<Option<sqlx::PgPool>, Box<dyn std::error::Error + Send + Sync>> {
+        let database_url =
+            std::env::var("TEST_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"));
+        let Ok(database_url) = database_url else {
+            return Ok(None);
+        };
+        let pool = sqlx::PgPool::connect(&database_url).await?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Some(pool))
+    }
+
+    async fn rejected_project_subscription(
+        rooms: &CollaborationRooms,
+        pool: &sqlx::PgPool,
+        auth: &WsAuth,
+    ) -> Result<RoomEventKind, Box<dyn std::error::Error + Send + Sync>> {
+        let subscription = rooms.subscribe_project(auth.project_id).await;
+        let rejected = match revalidate_new_subscription(
+            pool,
+            auth,
+            &auth.project_id.to_string(),
+            subscription,
+        )
+        .await
+        {
+            Ok(_) => return Err("stale realtime subscription was admitted".into()),
+            Err(rejected) => rejected,
+        };
+        let event_kind = rejected.event.kind;
+        let RoomSubscription { sender, receiver } = rejected.subscription;
+        drop(receiver);
+        rooms
+            .remove_project_sender_if_idle(auth.project_id, &sender)
+            .await;
+        Ok(event_kind)
+    }
+
+    #[test]
+    fn malformed_protocol_epoch_reaches_the_compatibility_fence(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let uri = "/v1/realtime/projects/project?protocol_epoch=invalid".parse()?;
+        let Query(query) = Query::<WsQuery>::try_from_uri(&uri)?;
+
+        assert_eq!(query.protocol_epoch.as_deref(), Some("invalid"));
+        assert!(!protocol_epoch_matches(query.protocol_epoch.as_deref()));
+        Ok(())
+    }
 
     #[test]
     fn realtime_events_identify_only_the_receiving_connection() {
@@ -1105,6 +1292,133 @@ mod tests {
                 .and_then(serde_json::Value::as_bool),
             Some(true)
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn subscription_revalidation_catches_access_change_broadcast_before_join(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(pool) = migrated_test_pool().await? else {
+            return Ok(());
+        };
+        let user_id = Uuid::new_v4();
+        let project_id = Uuid::new_v4();
+        let now = Utc::now();
+        let username = format!("realtime-{}", user_id.simple());
+        let session_token = format!("realtime-session-{}", Uuid::new_v4());
+        let session_fingerprint = Sha256::digest(session_token.as_bytes());
+        sqlx::query(
+            "insert into users (id, email, username, display_name, created_at)
+             values ($1, $2, $3, 'Realtime test user', $4)",
+        )
+        .bind(user_id)
+        .bind(format!("{username}@example.test"))
+        .bind(&username)
+        .bind(now)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "insert into projects (id, name, created_at, project_type)
+             values ($1, 'Realtime revocation test', $2, 'typst')",
+        )
+        .bind(project_id)
+        .bind(now)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "insert into project_roles (project_id, user_id, role, granted_at, source)
+             values ($1, $2, 'ReadWrite', $3, 'direct_role')",
+        )
+        .bind(project_id)
+        .bind(user_id)
+        .bind(now)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "insert into auth_sessions
+               (session_token_fingerprint, user_id, issued_at, expires_at, user_agent, ip_address)
+             values ($1, $2, $3, $4, 'test', '127.0.0.1')",
+        )
+        .bind(session_fingerprint.as_slice())
+        .bind(user_id)
+        .bind(now)
+        .bind(now + ChronoDuration::minutes(5))
+        .execute(&pool)
+        .await?;
+
+        let mut auth_headers = HeaderMap::new();
+        auth_headers.insert(
+            axum::http::header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {session_token}"))?,
+        );
+        let auth = WsAuth {
+            project_id,
+            user_id: Some(user_id),
+            guest_session_id: None,
+            guest_display_name: None,
+            effective_id: user_id,
+            can_write: true,
+            content_epoch: 0,
+            access_epoch: 0,
+            target: WsTarget::Project,
+            auth_headers,
+        };
+        let rooms = CollaborationRooms::default();
+
+        let mut downgrade = pool.begin().await?;
+        sqlx::query(
+            "update project_roles
+             set role = 'ReadOnly'
+             where project_id = $1 and user_id = $2",
+        )
+        .bind(project_id)
+        .bind(user_id)
+        .execute(&mut *downgrade)
+        .await?;
+        sqlx::query("update projects set access_epoch = access_epoch + 1 where id = $1")
+            .bind(project_id)
+            .execute(&mut *downgrade)
+            .await?;
+        downgrade.commit().await?;
+        rooms.access_changed(project_id).await;
+
+        let mut mixed_auth = auth.clone();
+        mixed_auth.access_epoch = 1;
+        assert_eq!(
+            rejected_project_subscription(&rooms, &pool, &mixed_auth).await?,
+            RoomEventKind::AccessChanged
+        );
+
+        let mut revocation = pool.begin().await?;
+        sqlx::query("delete from project_roles where project_id = $1 and user_id = $2")
+            .bind(project_id)
+            .bind(user_id)
+            .execute(&mut *revocation)
+            .await?;
+        sqlx::query("update projects set access_epoch = access_epoch + 1 where id = $1")
+            .bind(project_id)
+            .execute(&mut *revocation)
+            .await?;
+        revocation.commit().await?;
+        rooms.access_changed(project_id).await;
+
+        assert_eq!(
+            rejected_project_subscription(&rooms, &pool, &mixed_auth).await?,
+            RoomEventKind::AccessChanged
+        );
+
+        sqlx::query("delete from projects where id = $1")
+            .bind(project_id)
+            .execute(&pool)
+            .await?;
+        sqlx::query("delete from auth_sessions where user_id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
+        sqlx::query("delete from users where id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
         Ok(())
     }
 }

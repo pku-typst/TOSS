@@ -4,27 +4,31 @@ use crate::collaboration::CollaborationContext;
 use crate::deployment_config::DeploymentConfig;
 use crate::distribution::{DistributionConfig, FrontendFeature};
 use crate::document_processing::{spawn_processing_maintenance, DocumentProcessingContext};
-use crate::external_repositories::{
-    spawn_external_git_checkpoint_worker, spawn_external_git_inbound_worker,
-};
+use crate::external_repositories::spawn_external_git_workers;
 use crate::object_cleanup::spawn_object_cleanup_worker;
 use crate::object_storage::init_object_storage_from_env;
+use crate::process_lifecycle::{self, DrainTrigger};
+use crate::protocol_compatibility;
 use axum::extract::DefaultBodyLimit;
 use axum::http::header::{HeaderName, HeaderValue};
+use axum::middleware;
 use axum::routing::get_service;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
+use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::task::JoinHandle;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 mod ai_runtime;
 mod routes;
@@ -37,6 +41,92 @@ use web_build_manifest::WebBuildManifest;
 
 const APP_BOOT_SCRIPT_OPEN: &str = "<script>";
 const APP_BOOT_SCRIPT_CLOSE: &str = "</script>";
+const DEFAULT_DRAIN_TIMEOUT_SECONDS: u64 = 30;
+const MAX_DRAIN_TIMEOUT_SECONDS: u64 = 300;
+
+struct ContextTask {
+    owner: &'static str,
+    handle: JoinHandle<()>,
+}
+
+impl ContextTask {
+    fn new(owner: &'static str, handle: JoinHandle<()>) -> Self {
+        Self { owner, handle }
+    }
+}
+
+async fn wait_for_context_tasks(tasks: &mut [ContextTask]) {
+    for task in tasks {
+        if let Err(join_error) = (&mut task.handle).await {
+            if !join_error.is_cancelled() {
+                warn!(owner = task.owner, %join_error, "context background task failed while draining");
+            }
+        }
+    }
+}
+
+fn active_context_owners(tasks: &[ContextTask]) -> Vec<&'static str> {
+    let mut owners = tasks
+        .iter()
+        .filter(|task| !task.handle.is_finished())
+        .map(|task| task.owner)
+        .collect::<Vec<_>>();
+    owners.sort_unstable();
+    owners.dedup();
+    owners
+}
+
+fn parse_drain_timeout(raw: Option<&str>) -> Result<Duration, String> {
+    let seconds = match raw {
+        Some(raw) => raw
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "CORE_DRAIN_TIMEOUT_SECONDS must be an integer".to_string())?,
+        None => DEFAULT_DRAIN_TIMEOUT_SECONDS,
+    };
+    if !(1..=MAX_DRAIN_TIMEOUT_SECONDS).contains(&seconds) {
+        return Err(format!(
+            "CORE_DRAIN_TIMEOUT_SECONDS must be between 1 and {MAX_DRAIN_TIMEOUT_SECONDS}"
+        ));
+    }
+    Ok(Duration::from_secs(seconds))
+}
+
+fn drain_timeout_from_env() -> Result<Duration, std::io::Error> {
+    let raw = match env::var("CORE_DRAIN_TIMEOUT_SECONDS") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(env::VarError::NotUnicode(_)) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "CORE_DRAIN_TIMEOUT_SECONDS must be valid Unicode",
+            ))
+        }
+    };
+    parse_drain_timeout(raw.as_deref())
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))
+}
+
+#[cfg(unix)]
+async fn wait_for_shutdown_signal() -> Result<&'static str, std::io::Error> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            result?;
+            Ok("interrupt")
+        }
+        signal = terminate.recv() => {
+            signal.ok_or_else(|| std::io::Error::other("termination signal stream closed"))?;
+            Ok("terminate")
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal() -> Result<&'static str, std::io::Error> {
+    tokio::signal::ctrl_c().await?;
+    Ok("interrupt")
+}
 
 fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -164,6 +254,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|_| "core_api=info,tower_http=info".into()),
         )
         .init();
+    let drain_trigger = DrainTrigger::new();
+    let drain_timeout = drain_timeout_from_env()?;
 
     let distribution = Arc::new(
         DistributionConfig::load_from_env()
@@ -262,6 +354,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = env::var("DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("./tmp/data"));
+    let git_storage_dir = crate::versioning::storage_root();
     let typst_builtin_dir = env::var("TYPST_BUILTIN_DIR")
         .ok()
         .map(PathBuf::from)
@@ -275,7 +368,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     std::fs::create_dir_all(&data_dir)?;
-    std::fs::create_dir_all(data_dir.join("git"))?;
+    std::fs::create_dir_all(&git_storage_dir)?;
     std::fs::create_dir_all(data_dir.join("thumbnails"))?;
     let (spa_index_html, branded_index_path, application_csp) =
         render_spa_index(&static_dir, &data_dir, &distribution)
@@ -291,13 +384,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|v| *v >= 1024 * 1024)
         .unwrap_or(64 * 1024 * 1024);
-    let collaboration = CollaborationContext::new(db.clone());
+    let drain = drain_trigger.signal();
+    let collaboration = CollaborationContext::new(db.clone(), drain.clone());
+    let versioning = crate::versioning::VersioningContext::default();
     let processing = DocumentProcessingContext::new(db.clone(), deployment.processing);
     let state = AppState {
         db,
         oidc_defaults,
         external_git_providers,
         data_dir,
+        git_storage_dir,
         typst_builtin_dir,
         storage,
         distribution,
@@ -305,20 +401,59 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ai_assistant: Arc::new(enabled_ai_assistant),
         spa_index_html,
         collaboration,
-        versioning: crate::versioning::VersioningContext::default(),
+        versioning,
         processing,
+        drain: drain.clone(),
     };
-    crate::versioning::spawn_git_flush_worker(
-        state.db.clone(),
-        state.storage.clone(),
-        state.distribution.clone(),
-        state.versioning.clone(),
+    let port = env::var("CORE_API_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("core-api listening on {}", addr);
+    info!("max request body bytes: {}", max_request_body_bytes);
+    info!(
+        drain_timeout_seconds = drain_timeout.as_secs(),
+        "process drain timeout configured"
     );
-    spawn_object_cleanup_worker(state.db.clone(), state.storage.clone());
-    spawn_processing_maintenance(state.processing.clone());
-    crate::collaboration::spawn_collaboration_projection_worker(state.collaboration.clone());
-    spawn_external_git_checkpoint_worker(state.clone());
-    spawn_external_git_inbound_worker(state.clone());
+
+    let mut context_tasks = vec![ContextTask::new(
+        "versioning",
+        crate::versioning::spawn_git_flush_worker(
+            state.db.clone(),
+            state.storage.clone(),
+            state.distribution.clone(),
+            state.versioning.clone(),
+            drain.clone(),
+        ),
+    )];
+    if let Some(task) =
+        spawn_object_cleanup_worker(state.db.clone(), state.storage.clone(), drain.clone())
+    {
+        context_tasks.push(ContextTask::new("object_cleanup", task));
+    }
+    context_tasks.push(ContextTask::new(
+        "document_processing",
+        spawn_processing_maintenance(state.processing.clone(), drain.clone()),
+    ));
+    context_tasks.push(ContextTask::new(
+        "collaboration",
+        crate::collaboration::spawn_collaboration_projection_worker(state.collaboration.clone()),
+    ));
+    context_tasks.extend(
+        spawn_external_git_workers(
+            state.db.clone(),
+            state.external_git_providers.clone(),
+            state.storage.clone(),
+            state.distribution.clone(),
+            state.collaboration.clone(),
+            state.versioning.clone(),
+            state.drain.clone(),
+        )
+        .into_iter()
+        .map(|task| ContextTask::new("external_repositories", task)),
+    );
     let static_service = get_service(
         ServeDir::new(&static_dir)
             .precompressed_gzip()
@@ -326,9 +461,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .fallback(ServeFile::new(branded_index_path)),
     );
     let app = routes::build_router()
+        .layer(middleware::from_fn(
+            protocol_compatibility::protocol_epoch_fence,
+        ))
         .merge(ai_runtime::router(ai_runtime_assets))
         .layer(DefaultBodyLimit::max(max_request_body_bytes))
         .fallback_service(static_service)
+        .layer(middleware::from_fn_with_state(
+            drain.clone(),
+            process_lifecycle::admission_fence,
+        ))
         .layer(SetResponseHeaderLayer::if_not_present(
             HeaderName::from_static("permissions-policy"),
             HeaderValue::from_static(
@@ -350,24 +492,78 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(TraceLayer::new_for_http())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-        .with_state(state);
+        .with_state(state.clone());
 
-    let port = env::var("CORE_API_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(8080);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    info!("core-api listening on {}", addr);
-    info!("max request body bytes: {}", max_request_body_bytes);
+    let (stop_accepting, accept_shutdown) = tokio::sync::oneshot::channel::<()>();
+    let server = axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = accept_shutdown.await;
+        })
+        .into_future();
+    tokio::pin!(server);
+    let (shutdown_reason, mut completed_server_result, shutdown_signal_error) = tokio::select! {
+        result = &mut server => ("server stopped", Some(result), None),
+        signal = wait_for_shutdown_signal() => match signal {
+            Ok(reason) => (reason, None, None),
+            Err(error) => ("shutdown signal unavailable", None, Some(error)),
+        },
+    };
+    let drain_started = tokio::time::Instant::now();
+    let drain_deadline = drain_started + drain_timeout;
+    drain_trigger.trigger();
+    let _ = stop_accepting.send(());
+    info!(reason = shutdown_reason, "process entered draining state");
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
+    let drain_result = tokio::time::timeout_at(drain_deadline, async {
+        let server_and_realtime = async {
+            let server_result = match completed_server_result.take() {
+                Some(result) => result,
+                None => (&mut server).await,
+            };
+            state.collaboration.wait_for_connection_quiescence().await;
+            server_result
+        };
+        let ((), server_result) = tokio::join!(
+            wait_for_context_tasks(&mut context_tasks),
+            server_and_realtime,
+        );
+        server_result
+    })
+    .await;
+    let drain_elapsed = drain_started.elapsed();
+    if let Ok(server_result) = drain_result {
+        info!(
+            drain_duration_ms = drain_elapsed.as_millis(),
+            "process drain completed"
+        );
+        server_result?;
+        if let Some(error) = shutdown_signal_error {
+            return Err(error.into());
+        }
+        return Ok(());
+    }
+
+    let active_owners = active_context_owners(&context_tasks);
+    for task in &context_tasks {
+        if !task.handle.is_finished() {
+            task.handle.abort();
+        }
+    }
+    warn!(
+        drain_duration_ms = drain_elapsed.as_millis(),
+        ?active_owners,
+        "process drain deadline exhausted; cancelled remaining background work"
+    );
+    Err(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "process drain deadline exhausted",
+    )
+    .into())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::application_content_security_policy;
+    use super::{application_content_security_policy, parse_drain_timeout};
 
     #[test]
     fn application_csp_hashes_the_only_inline_boot_script() -> Result<(), String> {
@@ -382,5 +578,20 @@ mod tests {
         assert_ne!(first, second);
         assert!(application_content_security_policy("<html></html>").is_err());
         Ok(())
+    }
+
+    #[test]
+    fn drain_timeout_is_bounded_and_strict() {
+        assert_eq!(
+            parse_drain_timeout(None).map(|duration| duration.as_secs()),
+            Ok(30)
+        );
+        assert_eq!(
+            parse_drain_timeout(Some("45")).map(|duration| duration.as_secs()),
+            Ok(45)
+        );
+        assert!(parse_drain_timeout(Some("0")).is_err());
+        assert!(parse_drain_timeout(Some("301")).is_err());
+        assert!(parse_drain_timeout(Some("soon")).is_err());
     }
 }

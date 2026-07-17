@@ -3,6 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeServerEvent } from "@/lib/api/types";
 import { base64ToBytes } from "@/lib/base64";
 import { bindRealtimeYDoc, type PresenceSession } from "@/lib/realtime";
+import {
+  PROTOCOL_EPOCH,
+  PROTOCOL_INCOMPATIBLE_CLOSE_CODE,
+  protocolCompatibilityState,
+  resetProtocolCompatibilityForTest
+} from "@/lib/protocolCompatibility";
 
 function serverEvent(
   kind: RealtimeServerEvent["kind"],
@@ -47,9 +53,11 @@ class FakeWebSocket extends EventTarget {
     this.readyState = FakeWebSocket.CLOSED;
   }
 
-  disconnect() {
+  disconnect(code = 1006) {
     this.readyState = FakeWebSocket.CLOSED;
-    this.dispatchEvent(new Event("close"));
+    const event = new Event("close");
+    Object.defineProperty(event, "code", { value: code });
+    this.dispatchEvent(event);
   }
 
   open() {
@@ -67,9 +75,29 @@ class FakeWebSocket extends EventTarget {
 afterEach(() => {
   FakeWebSocket.instances = [];
   vi.unstubAllGlobals();
+  resetProtocolCompatibilityForTest();
 });
 
 describe("realtime presence", () => {
+  it("identifies its protocol epoch on every connection", () => {
+    vi.stubGlobal("window", globalThis);
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const ydoc = new Y.Doc();
+    const binding = bindRealtimeYDoc({
+      docId: "0198fd33-a782-7e62-b56c-cc894e583c4d",
+      collaborationRevision: 0,
+      projectId: "project",
+      wsBaseUrl: "http://localhost",
+      ydoc
+    });
+
+    expect(new URL(FakeWebSocket.instances[0]!.url).searchParams.get("protocol_epoch"))
+      .toBe(String(PROTOCOL_EPOCH));
+
+    binding.close();
+    ydoc.destroy();
+  });
+
   it("publishes the local participant before the socket connects", () => {
     vi.stubGlobal("window", globalThis);
     vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -129,6 +157,7 @@ describe("realtime presence", () => {
     expect(second).toBeDefined();
     second.open();
     second.receive(serverEvent("bootstrap.done", "system", {}));
+    await Promise.resolve();
 
     const syncMessage = second.sent
       .map(
@@ -147,6 +176,66 @@ describe("realtime presence", () => {
     binding.close();
     ydoc.destroy();
     vi.useRealTimers();
+  });
+
+  it("reconnects quickly after an explicit service restart", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.stubGlobal("window", globalThis);
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const ydoc = new Y.Doc();
+    const onReconnectChange = vi.fn();
+    const binding = bindRealtimeYDoc({
+      docId: "0198fd33-a782-7e62-b56c-cc894e583c4d",
+      collaborationRevision: 0,
+      projectId: "project",
+      wsBaseUrl: "http://localhost",
+      ydoc,
+      onReconnectChange,
+    });
+    const first = FakeWebSocket.instances[0];
+    first?.open();
+    first?.receive(serverEvent("bootstrap.done", "system", {}));
+    first?.disconnect(1012);
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const second = FakeWebSocket.instances[1];
+    second?.open();
+    second?.receive(serverEvent("bootstrap.done", "system", {}));
+    expect(onReconnectChange).toHaveBeenLastCalledWith({
+      active: false,
+      secondsRemaining: 0,
+      attempt: 0,
+    });
+
+    binding.close();
+    ydoc.destroy();
+    vi.useRealTimers();
+  });
+
+  it("stops reconnecting when Core rejects the browser protocol", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const ydoc = new Y.Doc();
+    const binding = bindRealtimeYDoc({
+      docId: "0198fd33-a782-7e62-b56c-cc894e583c4d",
+      collaborationRevision: 0,
+      projectId: "project",
+      wsBaseUrl: "http://localhost",
+      ydoc
+    });
+
+    FakeWebSocket.instances[0]?.disconnect(PROTOCOL_INCOMPATIBLE_CLOSE_CODE);
+    await vi.runAllTimersAsync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(protocolCompatibilityState()).toBe("reload_required");
+    binding.close();
+    ydoc.destroy();
   });
 
   it("keeps read-only participants and answers joins with local metadata", () => {

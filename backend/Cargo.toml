@@ -29,6 +29,7 @@ futures = "0.3"
 flate2 = "1"
 git2 = { version = "0.21", features = ["https", "ssh"] }
 hex = "0.4"
+libc = "0.2"
 openidconnect = "4"
 rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
@@ -43,7 +44,7 @@ subtle = "2"
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "migrate"] }
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "fs", "io-util", "process", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "fs", "io-util", "process", "signal", "time"] }
 toml = "1"
 tower-http = { version = "0.7", features = ["trace", "fs", "request-id", "set-header"] }
 tracing = "0.1"

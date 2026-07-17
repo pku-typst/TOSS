@@ -1,4 +1,5 @@
 mod bootstrap;
+mod connection_lifecycle;
 mod persistence;
 mod projection;
 mod rooms;
@@ -6,6 +7,8 @@ mod updates;
 mod websocket;
 mod yjs_state;
 
+use crate::process_lifecycle::DrainSignal;
+use connection_lifecycle::{ConnectionActivity, ConnectionTracker};
 use persistence::CollaborationPersistence;
 use rooms::CollaborationRooms;
 use sqlx::{PgConnection, PgPool};
@@ -43,17 +46,37 @@ struct CollaborationDocument {
 #[derive(Clone)]
 pub(crate) struct CollaborationContext {
     db: PgPool,
+    drain: DrainSignal,
     persistence: CollaborationPersistence,
     rooms: CollaborationRooms,
+    connections: ConnectionTracker,
 }
 
 impl CollaborationContext {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: PgPool, drain: DrainSignal) -> Self {
         Self {
             persistence: CollaborationPersistence::new(db.clone()),
             db,
+            drain,
             rooms: CollaborationRooms::default(),
+            connections: ConnectionTracker::default(),
         }
+    }
+
+    pub(in crate::collaboration) fn track_connection(&self) -> ConnectionActivity {
+        self.connections.track()
+    }
+
+    pub(in crate::collaboration) fn is_draining(&self) -> bool {
+        self.drain.is_triggered()
+    }
+
+    pub(in crate::collaboration) async fn draining(&self) {
+        self.drain.triggered().await;
+    }
+
+    pub(crate) async fn wait_for_connection_quiescence(&self) {
+        self.connections.wait_for_quiescence().await;
     }
 
     pub async fn invalidate_project(&self, project_id: Uuid, content_epoch: i64) {

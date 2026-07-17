@@ -288,7 +288,8 @@ mod tests {
         .bind(now)
         .execute(&pool)
         .await?;
-        let collaboration = CollaborationContext::new(pool.clone());
+        let collaboration =
+            CollaborationContext::new(pool.clone(), crate::process_lifecycle::DrainSignal::idle());
         let bootstrap = collaboration
             .prepare_document_bootstrap(collaboration_document(project_id, document_id, 0, 0))
             .await?;

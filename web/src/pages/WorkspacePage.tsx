@@ -1051,7 +1051,8 @@ function ResolvedWorkspacePage({
   const connectionOnline =
     !workspaceOffline &&
     (!realtimeRequired || realtimeStatus === "connected" || !reconnectNoticeActive);
-  const showConnectionWarning = realtimeRequired && reconnectNoticeActive && !connectionOnline;
+  const showConnectionWarning =
+    realtimeRequired && reconnectNoticeActive && !connectionOnline;
   const projectReadOnly = !canWrite;
   const reconnectCountdownText = t("workspace.connectionLostReconnecting", {
     seconds: Math.max(0, reconnectState.secondsRemaining)

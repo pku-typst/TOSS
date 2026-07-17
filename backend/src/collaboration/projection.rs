@@ -351,10 +351,15 @@ pub(crate) enum FlushProjectCollaborationError {
     },
 }
 
-pub(crate) fn spawn_collaboration_projection_worker(collaboration: CollaborationContext) {
+pub(crate) fn spawn_collaboration_projection_worker(
+    collaboration: CollaborationContext,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             for _ in 0..PROJECTION_BATCH_SIZE {
+                if collaboration.is_draining() {
+                    return;
+                }
                 let document = match collaboration.persistence.next_pending_document().await {
                     Ok(Some(document)) => document,
                     Ok(None) => break,
@@ -381,7 +386,10 @@ pub(crate) fn spawn_collaboration_projection_worker(collaboration: Collaboration
                     }
                 }
             }
-            tokio::time::sleep(PROJECTION_POLL_INTERVAL).await;
+            tokio::select! {
+                _ = collaboration.draining() => return,
+                _ = tokio::time::sleep(PROJECTION_POLL_INTERVAL) => {}
+            }
         }
-    });
+    })
 }

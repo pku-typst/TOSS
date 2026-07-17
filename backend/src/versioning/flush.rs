@@ -7,6 +7,7 @@ use super::sync_project_documents_to_repo;
 use crate::access::IdentityLookupError;
 use crate::distribution::DistributionConfig;
 use crate::object_storage::ObjectStorage;
+use crate::process_lifecycle::DrainSignal;
 use chrono::Utc;
 use sqlx::PgPool;
 use std::env;
@@ -240,16 +241,23 @@ pub(crate) fn spawn_git_flush_worker(
     storage: Option<ObjectStorage>,
     distribution: Arc<DistributionConfig>,
     versioning: super::VersioningContext,
-) {
+    drain: DrainSignal,
+) -> tokio::task::JoinHandle<()> {
     let interval = Duration::from_secs(git_flush_worker_interval_seconds());
     let batch_size = git_flush_worker_batch_size();
     tokio::spawn(async move {
         loop {
+            if drain.is_triggered() {
+                return;
+            }
             let due_before =
                 Utc::now() - chrono::Duration::seconds(git_autosave_interval_seconds());
             match super::list_due_projects(&db, batch_size, due_before).await {
                 Ok(projects) => {
                     for project_id in projects {
+                        if drain.is_triggered() {
+                            return;
+                        }
                         if let Err(database_error) =
                             super::mark_sync_attempt(&db, project_id, Utc::now()).await
                         {
@@ -282,7 +290,10 @@ pub(crate) fn spawn_git_flush_worker(
                     error!(%database_error, "git flush worker could not load pending projects");
                 }
             }
-            tokio::time::sleep(interval).await;
+            tokio::select! {
+                _ = drain.triggered() => return,
+                _ = tokio::time::sleep(interval) => {}
+            }
         }
-    });
+    })
 }

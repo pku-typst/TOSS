@@ -36,7 +36,7 @@ pub(super) enum RestoreRepositoryHeadError {
     },
 }
 
-pub(super) fn storage_root() -> PathBuf {
+pub(crate) fn storage_root() -> PathBuf {
     if let Ok(explicit) = env::var("GIT_STORAGE_PATH") {
         return PathBuf::from(explicit);
     }
@@ -209,6 +209,32 @@ mod tests {
         assert!(!temporary.path().join("main.typ").exists());
         let repository = Repository::open(&repository_path)?;
         assert_eq!(repository.index()?.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn restoring_a_previous_head_resets_the_ref_index_and_worktree() -> Result<(), Box<dyn Error>> {
+        let temporary = tempfile::tempdir()?;
+        let repository_path = temporary.path().to_string_lossy().to_string();
+        let author =
+            GitIdentity::account("Owner", "owner@example.com", "Owner", "owner@example.com");
+        let committer = GitIdentity::service("Workspace", "workspace.local");
+        ensure_initialized(&repository_path, "main")?;
+        let document_path = temporary.path().join("main.typ");
+        std::fs::write(&document_path, "accepted")?;
+        commit_staged_if_changed(&repository_path, "accepted", &author, &committer)?;
+        let accepted = head_oid(&repository_path)?
+            .ok_or_else(|| std::io::Error::other("accepted head is missing"))?;
+        std::fs::write(&document_path, "interrupted")?;
+        commit_staged_if_changed(&repository_path, "interrupted", &author, &committer)?;
+        assert_ne!(head_oid(&repository_path)?, Some(accepted));
+
+        restore_head(&repository_path, "main", Some(accepted))?;
+
+        assert_eq!(head_oid(&repository_path)?, Some(accepted));
+        assert_eq!(std::fs::read_to_string(document_path)?, "accepted");
+        let repository = Repository::open(&repository_path)?;
+        assert!(repository.statuses(None)?.is_empty());
         Ok(())
     }
 }

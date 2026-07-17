@@ -481,8 +481,11 @@ mod tests {
             preserved_account.get::<Vec<u8>, _>("encrypted_access_token"),
             b"must-not-replace-existing-token"
         );
-        let gateway =
-            crate::external_repositories::provider::ExternalGitGateway::new(&pool, Some(&provider));
+        let gateway = crate::external_repositories::provider::ExternalGitGateway::new(
+            &pool,
+            Some(&provider),
+            crate::process_lifecycle::DrainSignal::idle(),
+        );
         assert_eq!(
             gateway.access_token(user_id, true).await?,
             "github-user-access-token"

@@ -1,5 +1,7 @@
 //! Bounded-memory execution and response streaming for `git http-backend`.
 
+use crate::native_process::{isolate_process_group, terminate_process_group};
+use crate::process_lifecycle::DrainSignal;
 use axum::body::{Body, Bytes};
 use futures::stream;
 use std::fmt;
@@ -16,6 +18,7 @@ const STDERR_DIAGNOSTIC_BYTES: usize = 512;
 #[derive(Debug)]
 pub(super) enum GitBackendExecutionError {
     Io(std::io::Error),
+    Interrupted,
     TimedOut,
 }
 
@@ -23,6 +26,7 @@ impl fmt::Display for GitBackendExecutionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(formatter, "{error}"),
+            Self::Interrupted => formatter.write_str("execution interrupted by process drain"),
             Self::TimedOut => formatter.write_str("execution timed out"),
         }
     }
@@ -91,20 +95,37 @@ pub(super) async fn execute_git_http_backend(
     mut command: Command,
     request_body: Bytes,
     timeout: Duration,
+    drain: DrainSignal,
 ) -> Result<GitBackendOutput, GitBackendExecutionError> {
     let stdout_file = tempfile::tempfile()?;
+    isolate_process_group(&mut command);
     let mut child = command.spawn()?;
-    let execution = tokio::time::timeout(
-        timeout,
-        execute_child(&mut child, request_body, File::from_std(stdout_file)),
-    )
-    .await;
+    enum Execution<T> {
+        Complete(T),
+        Interrupted,
+    }
+    let execution = {
+        let child_execution = execute_child(&mut child, request_body, File::from_std(stdout_file));
+        tokio::pin!(child_execution);
+        tokio::select! {
+            biased;
+            _ = drain.triggered() => Execution::Interrupted,
+            result = tokio::time::timeout(timeout, &mut child_execution) => Execution::Complete(result),
+        }
+    };
     match execution {
-        Ok(result) => result.map_err(GitBackendExecutionError::Io),
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+        Execution::Complete(Ok(Ok(output))) => Ok(output),
+        Execution::Complete(Ok(Err(error))) => {
+            terminate_process_group(&mut child).await;
+            Err(GitBackendExecutionError::Io(error))
+        }
+        Execution::Complete(Err(_)) => {
+            terminate_process_group(&mut child).await;
             Err(GitBackendExecutionError::TimedOut)
+        }
+        Execution::Interrupted => {
+            terminate_process_group(&mut child).await;
+            Err(GitBackendExecutionError::Interrupted)
         }
     }
 }
@@ -130,9 +151,9 @@ async fn execute_child(
         Ok::<_, std::io::Error>((output, bytes_written))
     };
     let capture_stderr = retain_stderr_prefix(stderr);
-    let wait_for_exit = child.wait();
-    let ((), (stdout, stdout_len), stderr, status) =
-        tokio::try_join!(write_stdin, capture_stdout, capture_stderr, wait_for_exit)?;
+    let ((), (stdout, stdout_len), stderr) =
+        tokio::try_join!(write_stdin, capture_stdout, capture_stderr)?;
+    let status = child.wait().await?;
 
     Ok(GitBackendOutput {
         status,
@@ -199,6 +220,49 @@ mod tests {
 
         assert_eq!(bytes, payload.len());
         assert!(chunks >= 3);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_drain_interrupts_and_reaps_the_git_backend() {
+        let drain = DrainSignal::idle();
+        let trigger = drain.clone();
+        let mut command = Command::new("sh");
+        command.arg("-c").arg("exec sleep 10");
+        command.stdin(std::process::Stdio::piped());
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::piped());
+        command.kill_on_drop(true);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            trigger.trigger_for_test();
+        });
+
+        let result =
+            execute_git_http_backend(command, Bytes::new(), Duration::from_secs(5), drain).await;
+        assert!(matches!(result, Err(GitBackendExecutionError::Interrupted)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pipe_setup_failure_terminates_the_git_backend(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut command = Command::new("sh");
+        command.arg("-c").arg("exec sleep 10").kill_on_drop(true);
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            execute_git_http_backend(
+                command,
+                Bytes::new(),
+                Duration::from_secs(5),
+                DrainSignal::idle(),
+            ),
+        )
+        .await?;
+
+        assert!(matches!(result, Err(GitBackendExecutionError::Io(_))));
         Ok(())
     }
 

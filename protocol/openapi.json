@@ -39,6 +39,36 @@
         }
       }
     },
+    "/ready": {
+      "get": {
+        "tags": [
+          "runtime"
+        ],
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/experience": {
       "get": {
         "tags": [
@@ -4878,6 +4908,7 @@
           "forbidden",
           "not_found",
           "conflict",
+          "client_incompatible",
           "external_git_authorization_required",
           "external_git_connection_in_use",
           "external_git_not_configured",

@@ -1,6 +1,7 @@
 //! Compatibility fence between runtime configuration and the compiled SPA.
 
 use crate::distribution::{AiConnectionPolicyKind, DistributionConfig, FrontendFeature};
+use crate::protocol_compatibility::PROTOCOL_EPOCH;
 use crate::workspace::ProjectType;
 use serde::Deserialize;
 use std::path::Path;
@@ -19,6 +20,7 @@ pub(super) struct AiRuntimeBuildManifest {
 #[serde(deny_unknown_fields)]
 pub(super) struct WebBuildManifest {
     schema: u32,
+    protocol_epoch: u32,
     project_types: Vec<ProjectType>,
     frontend_features: Vec<FrontendFeature>,
     ai_runtime: Option<AiRuntimeBuildManifest>,
@@ -101,6 +103,12 @@ impl WebBuildManifest {
                 self.schema
             ));
         }
+        if self.protocol_epoch != PROTOCOL_EPOCH {
+            return Err(format!(
+                "web build protocol epoch {} does not match Core epoch {PROTOCOL_EPOCH}",
+                self.protocol_epoch
+            ));
+        }
         if !self.project_types.contains(&ProjectType::Typst) {
             return Err("web build manifest must include project type typst".to_string());
         }
@@ -165,7 +173,7 @@ mod tests {
     #[test]
     fn runtime_cannot_enable_code_omitted_from_web_build() -> Result<(), String> {
         let manifest: WebBuildManifest = serde_json::from_str(
-            r#"{"schema":2,"project_types":["typst"],"frontend_features":[],"ai_runtime":null}"#,
+            r#"{"schema":2,"protocol_epoch":1,"project_types":["typst"],"frontend_features":[],"ai_runtime":null}"#,
         )
         .map_err(|error| error.to_string())?;
         manifest.validate_shape()?;
@@ -177,6 +185,19 @@ mod tests {
         let error = manifest.validate_runtime(&distribution, &[]).err();
 
         assert!(error.is_some_and(|message| message.contains("omitted from the web build")));
+        Ok(())
+    }
+
+    #[test]
+    fn web_and_core_protocol_epochs_must_match() -> Result<(), String> {
+        let manifest: WebBuildManifest = serde_json::from_str(
+            r#"{"schema":2,"protocol_epoch":2,"project_types":["typst"],"frontend_features":[],"ai_runtime":null}"#,
+        )
+        .map_err(|error| error.to_string())?;
+
+        let error = manifest.validate_shape().err();
+
+        assert!(error.is_some_and(|message| message.contains("does not match Core epoch")));
         Ok(())
     }
 }
