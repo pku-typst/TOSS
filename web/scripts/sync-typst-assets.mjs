@@ -2,20 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webRoot = path.resolve(__dirname, "..");
-const repoRoot = path.resolve(webRoot, "..");
 const cacheRoot = path.join(webRoot, ".cache", "typst-assets");
 const publicFontsRoot = path.join(webRoot, "public", "vendor", "typst-assets", "fonts");
 const publicManifestPath = path.join(publicFontsRoot, ".manifest.json");
 const publicRuntimeRoot = path.join(webRoot, "public", "typst-runtime");
 const publicRuntimeManifestPath = path.join(publicRuntimeRoot, "manifest.json");
 const runtimeConfigPath = path.join(webRoot, "typst-runtime.config.json");
-const execFileAsync = promisify(execFile);
 
 const COMPILER_PACKAGE_NAME = "@pku-typst/typst-ts-web-compiler";
 const UPSTREAM_COMPILER_PACKAGE_NAME = "@myriaddreamin/typst-ts-web-compiler";
@@ -119,20 +115,7 @@ async function loadRuntimeConfig() {
   return config;
 }
 
-async function verifyCompilerSource(runtimeConfig, compiler) {
-  if (await fileExists(path.join(repoRoot, ".git"))) {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["-C", path.join(repoRoot, "third-party", "typst.ts"), "rev-parse", "HEAD"],
-      { encoding: "utf8" }
-    );
-    const revision = stdout.trim();
-    if (revision !== runtimeConfig.compiler.source_revision) {
-      throw new Error(
-        `Typst compiler submodule mismatch: expected ${runtimeConfig.compiler.source_revision}, received ${revision}`
-      );
-    }
-  }
+async function verifyCompilerPackageProvenance(runtimeConfig, compiler) {
   if (
     compiler.toss?.sourceRevision !== runtimeConfig.compiler.source_revision ||
     compiler.toss?.upstreamPackage !== runtimeConfig.compiler.upstream_package ||
@@ -182,7 +165,7 @@ async function syncRuntimeModules() {
   const runtimeConfig = await loadRuntimeConfig();
   const compiler = await packageMetadata(COMPILER_PACKAGE_NAME);
   const renderer = await packageMetadata(RENDERER_PACKAGE_NAME);
-  await verifyCompilerSource(runtimeConfig, compiler);
+  await verifyCompilerPackageProvenance(runtimeConfig, compiler);
   const compilerVersion = String(compiler.version || "").trim();
   const rendererVersion = String(renderer.version || "").trim();
   if (
