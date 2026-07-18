@@ -24,7 +24,7 @@ code_paths:
   - web/package.json
   - workers/Cargo.toml
   - workers/latex/Dockerfile
-  - docker-compose.yml
+  - compose.build.yaml
   - .env.example
 ---
 
@@ -83,7 +83,7 @@ verified release workflow; application builds never rebuild it implicitly.
 Copy `.env.example` to `.env`, then start the backing services:
 
 ```bash
-docker compose up -d postgres minio minio-init
+docker compose -f compose.build.yaml up -d postgres minio minio-init
 ```
 
 For a simple same-origin loop, build the SPA and let the Rust service serve it:

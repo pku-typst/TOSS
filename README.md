@@ -119,12 +119,14 @@ Prerequisites are Docker with Compose and Git.
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose -f compose.build.yaml up --build
 ```
 
-Open <http://localhost:8080>. Compose starts PostgreSQL, MinIO, and the
-Community application. Interactive Typst and LaTeX preview work without any
-native processor.
+Open <http://localhost:8080>. This source-build stack starts PostgreSQL, MinIO,
+and the Community application, with persistent state in project-scoped named
+volumes. It installs the published Typst compiler package during the image
+build; the typst.ts source submodule is not a runtime input. Interactive Typst
+and LaTeX preview work without any native processor.
 
 The native LaTeX worker is deliberately excluded from the default stack. To
 enable **Build PDF in background**, provision its token and exact processor

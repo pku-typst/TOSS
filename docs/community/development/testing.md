@@ -194,7 +194,7 @@ together:
 
 ```bash
 sudo apparmor_parser -r workers/latex/toss-latex-worker.apparmor
-docker compose --profile processing up --build -d
+docker compose -f compose.build.yaml --profile processing up --build -d
 CORE_API_URL=http://127.0.0.1:8080 \
   node scripts/processing-latex-worker-smoke.mjs
 cd web
