@@ -258,6 +258,153 @@ describe("usePreviewCanvas", () => {
     });
   });
 
+  it("invalidates mapping without rerendering a retained visual artifact", async () => {
+    vi.mocked(renderTypstVectorToCanvas).mockImplementationOnce(async (frame) => {
+      appendRenderedPage(frame);
+    });
+    const { frame, onTypstPreviewClick, result, rerender } =
+      renderPreviewHook();
+    const retainedVector = new Uint8Array([7]);
+
+    rerender({
+      mappingRevision: 7,
+      show: true,
+      vectorData: retainedVector,
+    });
+    await waitFor(() =>
+      expect(result.current.renderedTypstMappingRevision).toBe(7),
+    );
+    const settledRevision = result.current.previewRenderTick;
+    const page = frame.querySelector(".typst-page");
+
+    rerender({
+      mappingRevision: null,
+      show: true,
+      vectorData: retainedVector,
+    });
+    await waitFor(() =>
+      expect(result.current.renderedTypstMappingRevision).toBeNull(),
+    );
+
+    expect(renderTypstVectorToCanvas).toHaveBeenCalledOnce();
+    expect(result.current.previewRenderTick).toBe(settledRevision);
+    expect(result.current.previewReplacing).toBe(false);
+    expect(frame.querySelector(".typst-page")).toBe(page);
+    act(() => {
+      result.current.handlePreviewClick(previewClickEvent(frame, page));
+    });
+    expect(onTypstPreviewClick).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pageOffset: 0 }),
+      null,
+    );
+  });
+
+  it("keeps a source-navigation viewport chosen during an in-flight render", async () => {
+    const replacement = deferred();
+    vi.mocked(renderTypstVectorToCanvas)
+      .mockImplementationOnce(async (frame) => {
+        appendRenderedPage(frame);
+      })
+      .mockImplementationOnce(() => replacement.promise);
+    const { frame, result, rerender } = renderPreviewHook();
+    for (const [name, value] of Object.entries({
+      clientHeight: 100,
+      clientWidth: 100,
+      scrollHeight: 1000,
+      scrollWidth: 100,
+    })) {
+      Object.defineProperty(frame, name, { configurable: true, value });
+    }
+
+    rerender({
+      mappingRevision: 1,
+      show: true,
+      vectorData: new Uint8Array([1]),
+    });
+    await waitFor(() => expect(result.current.previewPageTotal).toBe(1));
+    const page = frame.querySelector<HTMLElement>(".typst-page");
+    expect(page).not.toBeNull();
+    page!.getBoundingClientRect = vi.fn(() => ({
+      bottom: 100 - frame.scrollTop,
+      height: 100,
+      left: 0,
+      right: 100,
+      top: -frame.scrollTop,
+      width: 100,
+      x: 0,
+      y: -frame.scrollTop,
+      toJSON: () => ({}),
+    }));
+    frame.scrollTop = 600;
+
+    rerender({
+      mappingRevision: 2,
+      show: true,
+      vectorData: new Uint8Array([2]),
+    });
+    await waitFor(() => expect(result.current.previewRendering).toBe(true));
+    expect(result.current.previewReplacing).toBe(true);
+    act(() => {
+      result.current.jumpToPreviewPosition({ pageOffset: 0, x: 50, y: 80 });
+    });
+    expect(frame.scrollTop).toBe(30);
+
+    await act(async () => {
+      replacement.resolve();
+      await replacement.promise;
+    });
+    await waitFor(() => expect(result.current.previewRendering).toBe(false));
+    expect(result.current.previewReplacing).toBe(false);
+    expect(frame.scrollTop).toBe(30);
+  });
+
+  it("keeps a viewport scrolled during an in-flight render", async () => {
+    const replacement = deferred();
+    vi.mocked(renderTypstVectorToCanvas)
+      .mockImplementationOnce(async (frame) => {
+        appendRenderedPage(frame);
+      })
+      .mockImplementationOnce(() => replacement.promise);
+    const { frame, result, rerender } = renderPreviewHook();
+    for (const [name, value] of Object.entries({
+      clientHeight: 100,
+      clientWidth: 100,
+      scrollHeight: 1000,
+      scrollWidth: 100,
+    })) {
+      Object.defineProperty(frame, name, { configurable: true, value });
+    }
+
+    rerender({
+      mappingRevision: 1,
+      show: true,
+      vectorData: new Uint8Array([1]),
+    });
+    await waitFor(() => expect(result.current.previewPageTotal).toBe(1));
+    act(() => {
+      frame.scrollTop = 100;
+      frame.dispatchEvent(new Event("scroll"));
+    });
+
+    rerender({
+      mappingRevision: 2,
+      show: true,
+      vectorData: new Uint8Array([2]),
+    });
+    await waitFor(() => expect(result.current.previewRendering).toBe(true));
+    act(() => {
+      frame.scrollTop = 600;
+      frame.dispatchEvent(new Event("scroll"));
+    });
+
+    await act(async () => {
+      replacement.resolve();
+      await replacement.promise;
+    });
+    await waitFor(() => expect(result.current.previewRendering).toBe(false));
+    expect(frame.scrollTop).toBe(600);
+  });
+
   it("removes rendered pages when the current session has no artifact", async () => {
     vi.mocked(renderTypstVectorToCanvas).mockImplementationOnce(async (frame) => {
       appendRenderedPage(frame);

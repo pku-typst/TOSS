@@ -70,6 +70,18 @@ describe("previewCanvasReducer", () => {
       renderedMappingRevision: null
     });
 
+    const mappingInvalidated = previewCanvasReducer(ready, {
+      type: "mapping.changed",
+      mappingRevision: null
+    });
+    expect(mappingInvalidated).toMatchObject({
+      renderRevision: ready.renderRevision,
+      renderStatus: "ready",
+      pageCurrent: 2,
+      pageTotal: 3,
+      renderedMappingRevision: null
+    });
+
     const failed = previewCanvasReducer(rendering, {
       type: "render.failed",
       pageCurrent: 2,

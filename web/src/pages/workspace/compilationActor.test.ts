@@ -2,6 +2,7 @@ import { createActor, waitFor } from "xstate";
 import { describe, expect, it, vi } from "vitest";
 import {
   pdfExportMachine,
+  selectCompilationArtifacts,
   sameCompileProduct,
   workspaceCompilationMachine,
   type WorkspaceCompileJob,
@@ -88,13 +89,13 @@ describe("workspaceCompilationMachine", () => {
 
     second.resolve(output(2));
     await waitFor(actor, (snapshot) => snapshot.matches("ready"));
-    expect(actor.getSnapshot().context.artifact.vectorData).toEqual(
+    expect(actor.getSnapshot().context.artifact.vector?.data).toEqual(
       new Uint8Array([2]),
     );
 
     first.resolve(output(1));
     await Promise.resolve();
-    expect(actor.getSnapshot().context.artifact.vectorData).toEqual(
+    expect(actor.getSnapshot().context.artifact.vector?.data).toEqual(
       new Uint8Array([2]),
     );
     actor.stop();
@@ -124,6 +125,104 @@ describe("workspaceCompilationMachine", () => {
 
     expect(actor.getSnapshot().matches("ready")).toBe(true);
     expect(compile).toHaveBeenCalledTimes(1);
+    actor.stop();
+    vi.useRealTimers();
+  });
+
+  it("retains the last successful preview while a newer World compiles or fails", async () => {
+    vi.useFakeTimers();
+    const replacement = deferred<WorkspaceCompileOutput>();
+    const firstJob = job(world("valid"));
+    const secondJob = job(world("invalid"));
+    const compile = vi
+      .fn<(next: WorkspaceCompileJob) => Promise<WorkspaceCompileOutput>>()
+      .mockResolvedValueOnce(output(1))
+      .mockImplementationOnce(() => replacement.promise);
+    const actor = createActor(workspaceCompilationMachine, {
+      input: {
+        initialSessionGeneration: "session-a",
+        initialDebounceMs: 0,
+        liveDebounceMs: 120,
+        compile,
+      },
+    }).start();
+
+    actor.send({ type: "compile", job: firstJob });
+    await vi.advanceTimersByTimeAsync(0);
+    await waitFor(actor, (snapshot) => snapshot.matches("ready"));
+    expect(
+      selectCompilationArtifacts(
+        actor.getSnapshot().context.artifact,
+        firstJob,
+      ).mapping,
+    ).toMatchObject({ revision: 1, world: firstJob.world });
+
+    actor.send({ type: "compile", job: secondJob });
+    const pending = selectCompilationArtifacts(
+      actor.getSnapshot().context.artifact,
+      secondJob,
+    );
+    expect(pending.current).toBeNull();
+    expect(pending.vector?.data).toEqual(new Uint8Array([1]));
+    expect(pending.vectorOutdated).toBe(true);
+    expect(pending.mapping).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(120);
+    await waitFor(actor, (snapshot) => snapshot.matches("compiling"));
+    replacement.resolve({
+      vectorData: null,
+      vectorMode: null,
+      pdfData: null,
+      errors: ["invalid source"],
+      diagnostics: [],
+      compiledAt: 2,
+      mappingRevision: null,
+    });
+    await waitFor(actor, (snapshot) => snapshot.matches("ready"));
+
+    const failed = selectCompilationArtifacts(
+      actor.getSnapshot().context.artifact,
+      secondJob,
+    );
+    expect(failed.current?.errors).toEqual(["invalid source"]);
+    expect(failed.vector?.data).toEqual(new Uint8Array([1]));
+    expect(failed.vectorOutdated).toBe(true);
+    expect(failed.mapping).toBeNull();
+    actor.stop();
+    vi.useRealTimers();
+  });
+
+  it("publishes a retained-preview render error for the current job", async () => {
+    vi.useFakeTimers();
+    const compile = vi.fn(async () => output(1));
+    const actor = createActor(workspaceCompilationMachine, {
+      input: {
+        initialSessionGeneration: "session-a",
+        initialDebounceMs: 0,
+        liveDebounceMs: 120,
+        compile,
+      },
+    }).start();
+    const firstJob = job(world("first"));
+    const secondJob = job(world("second"));
+
+    actor.send({ type: "compile", job: firstJob });
+    await vi.advanceTimersByTimeAsync(0);
+    await waitFor(actor, (snapshot) => snapshot.matches("ready"));
+    actor.send({ type: "compile", job: secondJob });
+    actor.send({
+      type: "preview.error",
+      job: secondJob,
+      message: "retained preview failed",
+    });
+
+    const selected = selectCompilationArtifacts(
+      actor.getSnapshot().context.artifact,
+      secondJob,
+    );
+    expect(selected.current?.errors).toEqual(["retained preview failed"]);
+    expect(selected.vector?.data).toEqual(new Uint8Array([1]));
+    expect(selected.vectorOutdated).toBe(true);
     actor.stop();
     vi.useRealTimers();
   });
@@ -299,7 +398,7 @@ describe("workspaceCompilationMachine", () => {
 
     stale.resolve(output(1));
     await Promise.resolve();
-    expect(actor.getSnapshot().context.artifact.vectorData).toBeNull();
+    expect(actor.getSnapshot().context.artifact.vector).toBeNull();
     actor.stop();
     vi.useRealTimers();
   });

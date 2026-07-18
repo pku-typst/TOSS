@@ -509,9 +509,11 @@ function ResolvedWorkspacePage({
   });
   const {
     vectorData,
+    vectorDataOutdated,
     mapping: typstMapping,
     mappingRef: typstMappingRef,
     pdfData,
+    pdfDataOutdated,
     errors: compileErrors,
     diagnostics: compileDiagnostics,
     active: compileActive,
@@ -578,11 +580,16 @@ function ResolvedWorkspacePage({
         : pdfData
           ? "pdf"
           : "typst-vector";
+  const previewOutdated =
+    previewArtifactKind === "typst-vector"
+      ? vectorDataOutdated
+      : pdfDataOutdated;
   const {
     canvasPreviewRef,
     previewRenderTick,
     previewIsPanning,
     previewRendering,
+    previewReplacing,
     hasPreviewPage,
     previewPageCurrent,
     previewPageTotal,
@@ -879,16 +886,21 @@ function ResolvedWorkspacePage({
     const warningCount = compileDiagnostics.filter(
       (diagnostic) => diagnostic.severity === "warning"
     ).length;
-    const compiling = compileActive || [
-      "downloading-compiler",
-      "downloading-package",
-      "compiling"
-    ].includes(compileRuntimeStatus.stage);
+    const compilationFailed = compileErrors.length > 0 || diagnosticErrors > 0;
+    const compiling =
+      !compilationFailed &&
+      (previewOutdated ||
+        compileActive ||
+        [
+          "downloading-compiler",
+          "downloading-package",
+          "compiling"
+        ].includes(compileRuntimeStatus.stage));
     const compilationState = !workspaceLoaded || workspaceSyncPending
       ? "unavailable" as const
       : compiling
         ? "running" as const
-        : compileErrors.length > 0 || diagnosticErrors > 0
+        : compilationFailed
           ? "failed" as const
           : vectorData || pdfData
             ? "succeeded" as const
@@ -942,6 +954,7 @@ function ResolvedWorkspacePage({
     isActiveTextDoc,
     isRevisionMode,
     pdfData,
+    previewOutdated,
     project.name,
     projectType,
     sourceEntryFilePath,
@@ -1347,9 +1360,10 @@ function ResolvedWorkspacePage({
               previewPageCurrent={previewPageCurrent}
               previewPageTotal={previewPageTotal}
               canDownloadPdf={
-                !!pdfData ||
+                (!!pdfData && !pdfDataOutdated) ||
                 (projectType === "typst" &&
                   !!vectorData &&
+                  !vectorDataOutdated &&
                   compileErrors.length === 0)
               }
               pdfExportActive={pdfExportActive}
@@ -1358,8 +1372,9 @@ function ResolvedWorkspacePage({
               workspaceSyncPending={workspaceSyncPending}
               compileActive={compileActive}
               previewRendering={previewRendering}
+              previewReplacing={previewReplacing}
+              previewOutdated={previewOutdated}
               assetHydrationProgress={assetHydrationProgress}
-              vectorData={vectorData}
               previewIsPanning={previewIsPanning}
               compileDiagnostics={compileDiagnostics}
               compileErrors={compileErrors}

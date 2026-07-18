@@ -19,6 +19,7 @@ export type PreviewCanvasState = {
 
 export type PreviewCanvasEvent =
   | { type: "render.started" }
+  | { type: "mapping.changed"; mappingRevision: number | null }
   | {
       type: "render.cleared";
       pageCurrent: number;
@@ -52,6 +53,12 @@ export function previewCanvasReducer(
   event: PreviewCanvasEvent
 ): PreviewCanvasState {
   switch (event.type) {
+    case "mapping.changed":
+      if (state.renderedMappingRevision === event.mappingRevision) return state;
+      return {
+        ...state,
+        renderedMappingRevision: event.mappingRevision
+      };
     case "render.started":
       return {
         ...state,

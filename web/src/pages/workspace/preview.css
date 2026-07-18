@@ -130,6 +130,24 @@ nve-button.preview-page-indicator {
   pointer-events: none;
 }
 
+.preview-refresh-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  opacity: 0;
+  background: color-mix(
+    in oklab,
+    var(--toss-surface-preview) 32%,
+    transparent
+  );
+  pointer-events: none;
+  transition: opacity 90ms ease-out;
+}
+
+.preview-refresh-overlay.active {
+  opacity: 1;
+}
+
 .preview-initial-loading {
   position: absolute;
   inset: 0;
@@ -294,6 +312,10 @@ nve-button.preview-page-indicator {
   .preview-loading-line::after,
   .preview-loading-spin {
     animation: none;
+  }
+
+  .preview-refresh-overlay {
+    transition: none;
   }
 }
 

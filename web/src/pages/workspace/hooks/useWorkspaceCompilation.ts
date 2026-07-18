@@ -28,6 +28,7 @@ import {
 } from "@/lib/typst";
 import {
   pdfExportMachine,
+  selectCompilationArtifacts,
   sameCompileProduct,
   sameCompileRequest,
   workspaceCompilationMachine,
@@ -240,15 +241,17 @@ export function useWorkspaceCompilation({
   const actorSessionIsCurrent =
     compilationSnapshot.context.sessionGeneration === sessionGeneration;
   const storedArtifact = compilationSnapshot.context.artifact;
-  const artifactIsCurrent =
-    actorSessionIsCurrent && sameCompileProduct(storedArtifact.job, compileJob);
-  const artifact = artifactIsCurrent ? storedArtifact : null;
-  const mapping =
-    artifact?.mapping?.world === world ? artifact.mapping : null;
-  const pdf =
-    artifact?.pdf && sameCompileProduct(artifact.pdf.job, compileJob)
-      ? artifact.pdf
-      : null;
+  const selectedArtifacts = actorSessionIsCurrent
+    ? selectCompilationArtifacts(storedArtifact, compileJob)
+    : {
+        current: null,
+        vector: null,
+        pdf: null,
+        mapping: null,
+        vectorOutdated: false,
+        pdfOutdated: false,
+      };
+  const { current: artifact, mapping } = selectedArtifacts;
   const mappingRef = useRef<TypstMappingState | null>(mapping);
   mappingRef.current = mapping;
   let errors = (artifact?.errors ?? []).map((message) =>
@@ -301,10 +304,12 @@ export function useWorkspaceCompilation({
   }, [compilationActor, compileJob, exportActor]);
 
   return {
-    vectorData: artifact?.vectorData ?? null,
+    vectorData: selectedArtifacts.vector?.data ?? null,
+    vectorDataOutdated: selectedArtifacts.vectorOutdated,
     mapping,
     mappingRef,
-    pdfData: pdf?.data ?? null,
+    pdfData: selectedArtifacts.pdf?.data ?? null,
+    pdfDataOutdated: selectedArtifacts.pdfOutdated,
     errors,
     diagnostics: artifact?.diagnostics ?? [],
     active:

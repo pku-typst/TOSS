@@ -21,6 +21,12 @@ export type TypstMappingState = {
   world: CompileWorld;
 };
 
+export type TypstVectorCompilationArtifact = {
+  job: WorkspaceCompileJob;
+  data: Uint8Array;
+  mapping: TypstMappingState | null;
+};
+
 export type PdfCompilationArtifact = {
   job: WorkspaceCompileJob;
   data: Uint8Array;
@@ -28,8 +34,7 @@ export type PdfCompilationArtifact = {
 
 export type CompilationArtifact = {
   job: WorkspaceCompileJob | null;
-  vectorData: Uint8Array | null;
-  mapping: TypstMappingState | null;
+  vector: TypstVectorCompilationArtifact | null;
   pdf: PdfCompilationArtifact | null;
   errors: string[];
   diagnostics: CompileDiagnostic[];
@@ -77,8 +82,7 @@ type CompilationEvent =
 
 const EMPTY_ARTIFACT: CompilationArtifact = {
   job: null,
-  vectorData: null,
-  mapping: null,
+  vector: null,
   pdf: null,
   errors: [],
   diagnostics: [],
@@ -107,6 +111,43 @@ export function sameCompileProduct(
   );
 }
 
+/** Allows the last successful preview to remain visible while its replacement runs. */
+export function samePreviewArtifactKind(
+  left: WorkspaceCompileJob | null | undefined,
+  right: WorkspaceCompileJob,
+) {
+  return (
+    left?.sessionGeneration === right.sessionGeneration &&
+    left.target.kind === right.target.kind
+  );
+}
+
+export function selectCompilationArtifacts(
+  artifact: CompilationArtifact,
+  job: WorkspaceCompileJob,
+) {
+  const current = sameCompileProduct(artifact.job, job) ? artifact : null;
+  const vector = samePreviewArtifactKind(artifact.vector?.job, job)
+    ? artifact.vector
+    : null;
+  const pdf = samePreviewArtifactKind(artifact.pdf?.job, job)
+    ? artifact.pdf
+    : null;
+  const vectorCurrent = !!vector && sameCompileProduct(vector.job, job);
+  const pdfCurrent = !!pdf && sameCompileProduct(pdf.job, job);
+  return {
+    current,
+    vector,
+    pdf,
+    mapping:
+      vectorCurrent && vector.mapping?.world === job.world
+        ? vector.mapping
+        : null,
+    vectorOutdated: !!vector && !vectorCurrent,
+    pdfOutdated: !!pdf && !pdfCurrent,
+  };
+}
+
 function artifactFromOutput(
   previous: CompilationArtifact,
   job: WorkspaceCompileJob,
@@ -121,12 +162,23 @@ function artifactFromOutput(
           world: job.world,
         }
       : null;
+  const failed = output.errors.length > 0;
+  const retainVector =
+    failed && samePreviewArtifactKind(previous.vector?.job, job);
   const hasPdf = !!output.pdfData;
-  const retainPdf = !hasPdf && sameCompileProduct(previous.pdf?.job, job);
+  const retainPdf =
+    !hasPdf &&
+    ((failed && samePreviewArtifactKind(previous.pdf?.job, job)) ||
+      (job.target.kind === "typst" &&
+        !job.target.emitPdf &&
+        sameCompileProduct(previous.pdf?.job, job)));
   return {
     job,
-    vectorData: output.vectorData,
-    mapping,
+    vector: output.vectorData
+      ? { job, data: output.vectorData, mapping }
+      : retainVector
+        ? previous.vector
+        : null,
     pdf:
       hasPdf && output.pdfData
         ? { job, data: output.pdfData }
@@ -242,6 +294,7 @@ export const workspaceCompilationMachine = setup({
       actions: assign(({ context, event }) => ({
         artifact: {
           ...context.artifact,
+          job: event.job,
           errors: [event.message],
           diagnostics: [],
         },
@@ -375,11 +428,20 @@ export const workspaceCompilationMachine = setup({
             artifact: {
               ...context.artifact,
               job: context.job,
-              vectorData: null,
-              mapping: null,
+              vector:
+                context.job &&
+                samePreviewArtifactKind(
+                  context.artifact.vector?.job,
+                  context.job,
+                )
+                  ? context.artifact.vector
+                  : null,
               pdf:
                 context.job &&
-                sameCompileProduct(context.artifact.pdf?.job, context.job)
+                samePreviewArtifactKind(
+                  context.artifact.pdf?.job,
+                  context.job,
+                )
                   ? context.artifact.pdf
                   : null,
               errors: [],
