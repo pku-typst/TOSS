@@ -23,6 +23,7 @@ code_paths:
   - web/scripts/headless-release-resilience.mjs
   - scripts/ci-checks.sh
   - scripts/ci/preflight.sh
+  - scripts/ci/changed-domains.mjs
   - scripts/ci/backend.sh
   - scripts/ci/workers.sh
   - scripts/ci/web.sh
@@ -242,6 +243,19 @@ GitHub Actions runs preflight, backend, and worker validation concurrently.
 Core Web and standalone Web run in parallel after preflight; integration starts
 only from the backend and Core Web artifacts produced by that exact commit. The
 final `checks` job is the stable aggregate branch gate.
+
+Pull requests use a conservative change classifier:
+
+| Change class | Selected validation |
+| --- | --- |
+| Documentation, metadata, or preflight-only inputs | Preflight |
+| Worker plus optional preflight-only inputs | Preflight, worker checks, and the path-scoped worker image build |
+| Application plus optional preflight-only inputs | Preflight and the complete application pipeline |
+| Cross-domain, CI orchestration, or unknown | Full workflow |
+
+Pushes to `main` always run the full workflow. Unknown paths fail safe to the
+full class, while the final `checks` job is always created and requires every
+selected domain to succeed. Do not put path filters on that required gate.
 
 Backend Clippy and tests remain in one job so they reuse one Cargo target.
 Integration scenarios likewise share one Core process, disposable database,
