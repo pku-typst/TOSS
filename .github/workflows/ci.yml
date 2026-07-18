@@ -14,6 +14,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      classification: ${{ steps.classify.outputs.classification }}
+      backend: ${{ steps.classify.outputs.backend }}
+      container: ${{ steps.classify.outputs.container }}
+      workers: ${{ steps.classify.outputs.workers }}
+      web: ${{ steps.classify.outputs.web }}
+      web_static: ${{ steps.classify.outputs.web_static }}
+      integration: ${{ steps.classify.outputs.integration }}
+    steps:
+      - name: Checkout change history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+
+      - name: Select CI domains
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            selection="$(node scripts/ci/changed-domains.mjs --all)"
+          else
+            selection="$(
+              git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" |
+                node scripts/ci/changed-domains.mjs
+            )"
+          fi
+
+          printf '%s\n' "$selection"
+          printf '%s\n' "$selection" >> "$GITHUB_OUTPUT"
+
   preflight:
     name: preflight
     runs-on: ubuntu-latest
@@ -42,6 +85,8 @@ jobs:
 
   backend:
     name: backend
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -95,7 +140,10 @@ jobs:
 
   container:
     name: container
-    needs: preflight
+    needs:
+      - changes
+      - preflight
+    if: ${{ needs.changes.outputs.container == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -143,6 +191,8 @@ jobs:
 
   workers:
     name: workers
+    needs: changes
+    if: ${{ needs.changes.outputs.workers == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -171,7 +221,10 @@ jobs:
 
   web:
     name: web
-    needs: preflight
+    needs:
+      - changes
+      - preflight
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -210,7 +263,10 @@ jobs:
 
   web_static:
     name: web-static
-    needs: preflight
+    needs:
+      - changes
+      - preflight
+    if: ${{ needs.changes.outputs.web_static == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -244,9 +300,11 @@ jobs:
   integration:
     name: integration
     needs:
+      - changes
       - preflight
       - backend
       - web
+    if: ${{ needs.changes.outputs.integration == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -310,6 +368,7 @@ jobs:
     name: checks
     if: ${{ always() }}
     needs:
+      - changes
       - preflight
       - backend
       - container
@@ -320,26 +379,54 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every CI domain
+      - name: Require selected CI domains
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          BACKEND_SELECTED: ${{ needs.changes.outputs.backend }}
           BACKEND_RESULT: ${{ needs.backend.result }}
+          CONTAINER_SELECTED: ${{ needs.changes.outputs.container }}
           CONTAINER_RESULT: ${{ needs.container.result }}
+          WORKERS_SELECTED: ${{ needs.changes.outputs.workers }}
           WORKERS_RESULT: ${{ needs.workers.result }}
+          WEB_SELECTED: ${{ needs.changes.outputs.web }}
           WEB_RESULT: ${{ needs.web.result }}
+          WEB_STATIC_SELECTED: ${{ needs.changes.outputs.web_static }}
           WEB_STATIC_RESULT: ${{ needs.web_static.result }}
+          INTEGRATION_SELECTED: ${{ needs.changes.outputs.integration }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
         run: |
-          for result in \
-            "$PREFLIGHT_RESULT" \
-            "$BACKEND_RESULT" \
-            "$CONTAINER_RESULT" \
-            "$WORKERS_RESULT" \
-            "$WEB_RESULT" \
-            "$WEB_STATIC_RESULT" \
-            "$INTEGRATION_RESULT"; do
-            if [[ "$result" != "success" ]]; then
-              echo "Required CI job did not succeed: $result" >&2
-              exit 1
-            fi
-          done
+          set -euo pipefail
+
+          if [[ "$CHANGES_RESULT" != "success" || "$PREFLIGHT_RESULT" != "success" ]]; then
+            echo "CI setup failed: changes=$CHANGES_RESULT preflight=$PREFLIGHT_RESULT" >&2
+            exit 1
+          fi
+
+          require_selected() {
+            local name="$1"
+            local selected="$2"
+            local result="$3"
+
+            case "$selected" in
+              true)
+                if [[ "$result" != "success" ]]; then
+                  echo "Selected CI job did not succeed: $name=$result" >&2
+                  return 1
+                fi
+                ;;
+              false)
+                ;;
+              *)
+                echo "Invalid CI selection for $name: $selected" >&2
+                return 1
+                ;;
+            esac
+          }
+
+          require_selected backend "$BACKEND_SELECTED" "$BACKEND_RESULT"
+          require_selected container "$CONTAINER_SELECTED" "$CONTAINER_RESULT"
+          require_selected workers "$WORKERS_SELECTED" "$WORKERS_RESULT"
+          require_selected web "$WEB_SELECTED" "$WEB_RESULT"
+          require_selected web-static "$WEB_STATIC_SELECTED" "$WEB_STATIC_RESULT"
+          require_selected integration "$INTEGRATION_SELECTED" "$INTEGRATION_RESULT"
