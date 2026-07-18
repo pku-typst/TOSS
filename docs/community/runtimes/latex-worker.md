@@ -22,7 +22,7 @@ related:
 code_paths:
   - workers/latex
   - workers/processing-sdk
-  - docker-compose.yml
+  - compose.build.yaml
   - scripts
 ---
 

@@ -24,7 +24,7 @@ code_paths:
   - backend/Dockerfile
   - backend/src/process_lifecycle.rs
   - backend/src/server/runtime.rs
-  - docker-compose.yml
+  - compose.build.yaml
   - .env.example
   - backend/migrations
   - workers/latex/toss-latex-worker.apparmor
@@ -82,7 +82,7 @@ Build the exact worker image first and print its production contract:
 
 ```bash
 sudo apparmor_parser -r workers/latex/toss-latex-worker.apparmor
-docker compose --profile processing build latex-worker
+docker compose -f compose.build.yaml --profile processing build latex-worker
 docker run --rm toss-latex-worker:local contract
 mkdir -p tmp/processing-config
 openssl rand -hex 32 > tmp/processing-config/worker.token
@@ -122,7 +122,7 @@ Then start the optional profile with the normal Community stack:
 
 ```bash
 export TOSS_DEPLOYMENT_CONFIG_DIR=./tmp/processing-config
-docker compose --profile processing up --build
+docker compose -f compose.build.yaml --profile processing up --build
 ```
 
 Compose mounts this directory read-only into both Core and the worker. Core
