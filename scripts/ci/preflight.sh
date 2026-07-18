@@ -12,4 +12,3 @@ node scripts/fetch-runtime-artifacts.mjs
 (cd protocol && npm ci)
 node scripts/check-docs.mjs
 node scripts/check-migration-baseline.mjs
-node scripts/prebuilt-typst-compiler.mjs verify

@@ -4,14 +4,6 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
 } from "react";
-import {
-  createProjectFile,
-  deleteProjectFile,
-  downloadProjectArchive,
-  moveProjectFile,
-  upsertDocumentByPath,
-  uploadProjectAsset,
-} from "@/lib/api";
 import { bytesToBase64 } from "@/lib/base64";
 import type { ProjectType } from "@/lib/deploymentCapabilities";
 import type { Translator } from "@/lib/i18n";
@@ -29,6 +21,7 @@ import {
   normalizePath,
   parentProjectPath,
 } from "@/pages/workspace/utils";
+import { useWorkspaceBackend } from "@/workspace/workspaceBackend";
 
 type UseWorkspaceFileActionsInput = {
   projectId: string;
@@ -51,6 +44,7 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export function useWorkspaceFileActions(input: UseWorkspaceFileActionsInput) {
+  const workspaceBackend = useWorkspaceBackend();
   const [filesDropActive, setFilesDropActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pathDialog, setPathDialog] = useState<PathDialogState | null>(null);
@@ -134,7 +128,7 @@ export function useWorkspaceFileActions(input: UseWorkspaceFileActionsInput) {
           normalized = joinProjectPath(operationDialog.parentPath, normalized);
         }
         if (!normalized) return;
-        await createProjectFile(operationProjectId, {
+        await workspaceBackend.createFile(operationProjectId, {
           path: normalized,
           kind: operationDialog.kind,
           content: operationDialog.kind === "file" ? "" : undefined,
@@ -150,16 +144,18 @@ export function useWorkspaceFileActions(input: UseWorkspaceFileActionsInput) {
           setPathDialog(null);
           return;
         }
-        await moveProjectFile(
-          operationProjectId,
-          operationDialog.path,
-          normalizedTo,
-        );
+        await workspaceBackend.movePath(operationProjectId, {
+          from_path: operationDialog.path,
+          to_path: normalizedTo,
+        });
         if (input.activePath === operationDialog.path) {
           nextActivePath = normalizedTo;
         }
       } else {
-        await deleteProjectFile(operationProjectId, operationDialog.path);
+        await workspaceBackend.deletePath(
+          operationProjectId,
+          operationDialog.path,
+        );
         if (input.activePath === operationDialog.path) {
           nextActivePath = input.entryFilePath;
         }
@@ -204,7 +200,7 @@ export function useWorkspaceFileActions(input: UseWorkspaceFileActionsInput) {
         if (!remainsCurrent()) return;
         if (isTextFile(path) || item.file.type.startsWith("text/")) {
           const text = new TextDecoder().decode(bytes);
-          await upsertDocumentByPath(
+          await workspaceBackend.upsertText(
             operationProjectId,
             path,
             text,
@@ -212,7 +208,7 @@ export function useWorkspaceFileActions(input: UseWorkspaceFileActionsInput) {
           );
           input.updateDocumentContent(path, text);
         } else {
-          await uploadProjectAsset(operationProjectId, {
+          await workspaceBackend.uploadAsset(operationProjectId, {
             path,
             content_base64: bytesToBase64(bytes),
             content_type: item.file.type || "application/octet-stream",
@@ -257,12 +253,12 @@ export function useWorkspaceFileActions(input: UseWorkspaceFileActionsInput) {
     const operationGeneration = input.sessionGeneration;
     setContextMenu(null);
     try {
-      const blob = await downloadProjectArchive(input.projectId);
+      const archive = await workspaceBackend.downloadArchive(input.projectId);
       if (sessionGenerationRef.current !== operationGeneration) return;
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(archive.blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `${input.projectName || "project"}.zip`;
+      anchor.download = `${input.projectName || "project"}.${archive.extension}`;
       anchor.click();
       URL.revokeObjectURL(url);
       setError(null);

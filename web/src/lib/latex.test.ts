@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestCompilationEnvironment } from "@/testSupport/applicationRuntime";
 import { LatexWorkerRuntime } from "./latex";
 
 type WorkerResponse =
@@ -47,8 +48,7 @@ const compileOptions = {
   entryFilePath: "main.tex",
   documents: [{ path: "main.tex", content: "\\documentclass{article}" }],
   assets: [],
-  coreApiUrl: "",
-  appOrigin: "https://example.test",
+  environment: createTestCompilationEnvironment().latex,
   engine: "pdftex" as const
 };
 

@@ -11,21 +11,20 @@ import {
   listProjectOrganizationAccess,
   listProjectShareLinks,
   revokeProjectShareLink,
-  updateProjectTemplate,
   upsertProjectOrganizationAccess,
   type ProjectPermission,
-  type ProjectShareLink,
 } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
+import { useTemplateCatalog } from "@/templates/templateCatalog";
 
 type UseWorkspaceAccessActionsInput = {
   projectId: string;
   sessionGeneration: string;
   projectIsTemplate: boolean;
   canManageProject: boolean;
+  projectAccessEnabled: boolean;
   settingsPanelVisible: boolean;
   presenceMembershipKey: string;
-  replaceShareLinks: (shareLinks: ProjectShareLink[]) => void;
   refreshProjects: () => Promise<void>;
   t: Translator;
 };
@@ -37,6 +36,7 @@ function errorMessage(error: unknown, fallback: string) {
 export function useWorkspaceAccessActions(
   input: UseWorkspaceAccessActionsInput,
 ) {
+  const templateCatalog = useTemplateCatalog();
   const {
     canManageProject,
     presenceMembershipKey,
@@ -56,13 +56,18 @@ export function useWorkspaceAccessActions(
       presenceMembershipKey,
     ],
     queryFn: async () => {
-      const [organizationAccess, accessUsers] = await Promise.all([
+      const [organizationAccess, accessUsers, shareLinks] = await Promise.all([
         listProjectOrganizationAccess(projectId),
         listProjectAccessUsers(projectId).then((response) => response.users),
+        listProjectShareLinks(projectId),
       ]);
-      return { organizationAccess, accessUsers };
+      return { organizationAccess, accessUsers, shareLinks };
     },
-    enabled: !!projectId && canManageProject && settingsPanelVisible,
+    enabled:
+      input.projectAccessEnabled &&
+      !!projectId &&
+      canManageProject &&
+      settingsPanelVisible,
   });
 
   useEffect(() => {
@@ -79,16 +84,15 @@ export function useWorkspaceAccessActions(
   );
 
   async function refreshProjectAccessData() {
-    if (!input.projectId || !input.canManageProject) return;
+    if (!input.projectAccessEnabled || !input.projectId || !input.canManageProject) return;
     await accessQuery.refetch();
   }
 
   async function createShare(permission: ProjectPermission) {
-    if (!input.projectId || !input.canManageProject) return;
+    if (!input.projectAccessEnabled || !input.projectId || !input.canManageProject) return;
     try {
       await createProjectShareLink(input.projectId, { permission });
-      const shareLinks = await listProjectShareLinks(input.projectId);
-      input.replaceShareLinks(shareLinks);
+      await refreshProjectAccessData();
       setError(null);
     } catch (error) {
       setError(
@@ -98,11 +102,10 @@ export function useWorkspaceAccessActions(
   }
 
   async function revokeShare(shareLinkId: string) {
-    if (!input.projectId || !input.canManageProject) return;
+    if (!input.projectAccessEnabled || !input.projectId || !input.canManageProject) return;
     try {
       await revokeProjectShareLink(input.projectId, shareLinkId);
-      const shareLinks = await listProjectShareLinks(input.projectId);
-      input.replaceShareLinks(shareLinks);
+      await refreshProjectAccessData();
       setError(null);
     } catch (error) {
       setError(
@@ -134,7 +137,7 @@ export function useWorkspaceAccessActions(
     organizationId: string,
     permission: ProjectPermission,
   ) {
-    if (!input.projectId || !input.canManageProject) return;
+    if (!input.projectAccessEnabled || !input.projectId || !input.canManageProject) return;
     try {
       await upsertProjectOrganizationAccess(
         input.projectId,
@@ -151,7 +154,7 @@ export function useWorkspaceAccessActions(
   }
 
   async function removeOrganizationAccess(organizationId: string) {
-    if (!input.projectId || !input.canManageProject) return;
+    if (!input.projectAccessEnabled || !input.projectId || !input.canManageProject) return;
     try {
       await deleteProjectOrganizationAccess(input.projectId, organizationId);
       await refreshProjectAccessData();
@@ -166,7 +169,7 @@ export function useWorkspaceAccessActions(
   async function setTemplateState(next: boolean) {
     if (!input.projectId || !input.canManageProject) return;
     try {
-      await updateProjectTemplate(input.projectId, next);
+      await templateCatalog.setProjectTemplate(input.projectId, next);
       setTemplateEnabled(next);
       await input.refreshProjects().catch(() => undefined);
       setError(null);
@@ -180,13 +183,14 @@ export function useWorkspaceAccessActions(
   return {
     error:
       error ??
-      (accessQuery.error
+      (input.projectAccessEnabled && accessQuery.error
         ? errorMessage(accessQuery.error, input.t("errors.loadAccess"))
         : null),
     copiedControl,
     templateEnabled,
     organizationAccess: accessQuery.data?.organizationAccess ?? [],
     accessUsers: accessQuery.data?.accessUsers ?? [],
+    shareLinks: accessQuery.data?.shareLinks ?? [],
     createShare,
     revokeShare,
     copyToClipboard,

@@ -30,6 +30,7 @@ export function WorkspaceToolbar({
   showPreviewPanel,
   showProjectSettingsPanel,
   showRevisionPanel,
+  revisionsAvailable,
   optionalAuxiliaryPanels,
   collapsePanelsIntoMenu,
   singlePanelMode,
@@ -39,6 +40,7 @@ export function WorkspaceToolbar({
   onTogglePanel,
   onSelectPanel,
   showAccountControlsInViewMenu,
+  accountControlsAvailable,
   accountDisplayName,
   onOpenProfile,
   onLogout,
@@ -53,6 +55,7 @@ export function WorkspaceToolbar({
   showPreviewPanel: boolean;
   showProjectSettingsPanel: boolean;
   showRevisionPanel: boolean;
+  revisionsAvailable: boolean;
   optionalAuxiliaryPanels: readonly WorkspaceOptionalPanelDescriptor[];
   collapsePanelsIntoMenu: boolean;
   singlePanelMode: boolean;
@@ -62,6 +65,7 @@ export function WorkspaceToolbar({
   onTogglePanel: (panel: Exclude<WorkspacePanelView, "editor">) => void;
   onSelectPanel: (panel: WorkspacePanelView) => void;
   showAccountControlsInViewMenu: boolean;
+  accountControlsAvailable: boolean;
   accountDisplayName: string | null;
   onOpenProfile: () => void;
   onLogout: () => void;
@@ -266,18 +270,20 @@ export function WorkspaceToolbar({
                   <Settings size={14} aria-hidden />
                   <span>{t("workspace.settings")}</span>
                 </nve-menu-item>
-                <nve-menu-item
-                  role="menuitem"
-                  data-panel-toggle="revisions"
-                  current={showRevisionPanel ? "page" : undefined}
-                  onClick={() => {
-                    closePopover(viewMenuId);
-                    onTogglePanel("revisions");
-                  }}
-                >
-                  <History size={14} aria-hidden />
-                  <span>{t("workspace.revisions")}</span>
-                </nve-menu-item>
+                {revisionsAvailable && (
+                  <nve-menu-item
+                    role="menuitem"
+                    data-panel-toggle="revisions"
+                    current={showRevisionPanel ? "page" : undefined}
+                    onClick={() => {
+                      closePopover(viewMenuId);
+                      onTogglePanel("revisions");
+                    }}
+                  >
+                    <History size={14} aria-hidden />
+                    <span>{t("workspace.revisions")}</span>
+                  </nve-menu-item>
+                )}
                 <nve-divider />
                 <nve-menu-item
                   role="menuitemradio"
@@ -299,7 +305,7 @@ export function WorkspaceToolbar({
                 >
                   <span>{t("language.chineseSimplified")}</span>
                 </nve-menu-item>
-                {showAccountControlsInViewMenu && (
+                {accountControlsAvailable && showAccountControlsInViewMenu && (
                   <>
                     <nve-divider />
                     <nve-menu-item
@@ -377,17 +383,19 @@ export function WorkspaceToolbar({
               <Settings size={14} aria-hidden />
               <span>{t("workspace.settings")}</span>
             </UiButton>
-            <UiButton
-              className={`workspace-toolbar-toggle ${showRevisionPanel ? "active" : ""}`}
-              data-panel-toggle="revisions"
-              aria-label={t("workspace.revisions")}
-              aria-pressed={showRevisionPanel}
-              title={t("workspace.revisions")}
-              onClick={() => onTogglePanel("revisions")}
-            >
-              <History size={14} aria-hidden />
-              <span>{t("workspace.revisions")}</span>
-            </UiButton>
+            {revisionsAvailable && (
+              <UiButton
+                className={`workspace-toolbar-toggle ${showRevisionPanel ? "active" : ""}`}
+                data-panel-toggle="revisions"
+                aria-label={t("workspace.revisions")}
+                aria-pressed={showRevisionPanel}
+                title={t("workspace.revisions")}
+                onClick={() => onTogglePanel("revisions")}
+              >
+                <History size={14} aria-hidden />
+                <span>{t("workspace.revisions")}</span>
+              </UiButton>
+            )}
           </>
         )}
       </div>

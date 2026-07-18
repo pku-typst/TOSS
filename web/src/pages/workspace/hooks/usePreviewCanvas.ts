@@ -35,6 +35,7 @@ import {
 } from "@/pages/workspace/previewCanvasModel";
 
 type UsePreviewCanvasParams = {
+  typstRuntimeBaseUrl: string;
   showPreviewPanel: boolean;
   previewArtifactKind: "typst-vector" | "pdf";
   vectorData: Uint8Array | null;
@@ -57,6 +58,7 @@ type UsePreviewCanvasParams = {
 };
 
 export function usePreviewCanvas({
+  typstRuntimeBaseUrl,
   showPreviewPanel,
   previewArtifactKind,
   vectorData,
@@ -191,7 +193,10 @@ export function usePreviewCanvas({
     dispatchCanvas({ type: "render.started" });
     const renderPromise =
       previewArtifactKind === "typst-vector"
-        ? renderTypstVectorToCanvas(frame, artifactBytes, { pixelPerPt: previewPixelPerPt })
+        ? renderTypstVectorToCanvas(frame, artifactBytes, {
+            pixelPerPt: previewPixelPerPt,
+            runtimeBaseUrl: typstRuntimeBaseUrl,
+          })
         : renderPdfBytesToCanvas(frame, artifactBytes, { pixelPerPt: previewPixelPerPt });
     renderPromise
       .then(() => {
@@ -244,6 +249,7 @@ export function usePreviewCanvas({
       cancelled = true;
     };
   }, [
+    typstRuntimeBaseUrl,
     previewArtifactKind,
     previewPixelPerPt,
     renderErrorFallback,

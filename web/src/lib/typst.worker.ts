@@ -30,6 +30,7 @@ import {
   type TypstMappingResponse
 } from "@/lib/typstSync";
 import { loadBrowserFonts } from "@/lib/typstFontLoader";
+import type { CompilationEnvironment } from "@/compilation/compilationEnvironment";
 
 type CompileRequest = {
   kind: "compile";
@@ -41,22 +42,20 @@ type CompileRequest = {
   documentDeletes: string[];
   assetUpserts: Array<{ path: string; content_base64: string }>;
   assetDeletes: string[];
-  coreApiUrl: string;
+  environment: CompilationEnvironment["typst"];
   fontData?: Uint8Array[];
   fontSignature?: string;
   emitPdf?: boolean;
   pdfOnly?: boolean;
   diagnosticsOnly?: boolean;
   forceFullVector?: boolean;
-  appOrigin?: string;
 };
 
 type PrewarmRequest = {
   kind: "prewarm";
   id: number;
-  coreApiUrl: string;
+  environment: CompilationEnvironment["typst"];
   fontProfile: BuiltinFontProfile;
-  appOrigin?: string;
 };
 
 type CompileQueueRequest = CompileRequest | PrewarmRequest;
@@ -103,7 +102,7 @@ let accessModel: NormalizedFetchAccessModel | null = null;
 let configKey = "";
 let compileCount = 0;
 let builtinPromise: Promise<LoadedBuiltinTypst> | null = null;
-let builtinBaseUrl = "";
+let builtinKey = "";
 const shadowFiles = new Map<string, { kind: "source" | "asset"; value: string }>();
 const workspaceDocuments = new Map<string, string>();
 const workspaceAssets = new Map<string, string>();
@@ -172,14 +171,6 @@ async function getIncrementalCompilerSession(compiler: TypstCompiler) {
   } finally {
     incrementalCompilerSessionPromise = null;
   }
-}
-
-function coreBaseUrl(coreApiUrl: string, appOrigin: string) {
-  return new URL(coreApiUrl.trim() || appOrigin, appOrigin).toString().replace(/\/$/, "");
-}
-
-function localTypstFontAssetBase(appOrigin: string) {
-  return `${appOrigin.replace(/\/$/, "")}/vendor/typst-assets/fonts/`;
 }
 
 function normalizeWorkspacePath(path: string) {
@@ -332,10 +323,16 @@ async function fetchArrayBufferWithContext(url: string, label: string, module: T
   return merged.buffer;
 }
 
-async function getBuiltinTypst(baseUrl: string) {
-  if (!builtinPromise || builtinBaseUrl !== baseUrl) {
-    builtinBaseUrl = baseUrl;
-    builtinPromise = loadBuiltinTypst(baseUrl).catch((error) => {
+async function getBuiltinTypst(
+  environment: CompilationEnvironment["typst"],
+) {
+  const nextKey = `${environment.builtinBaseUrl}:${environment.builtinCredentials}`;
+  if (!builtinPromise || builtinKey !== nextKey) {
+    builtinKey = nextKey;
+    builtinPromise = loadBuiltinTypst({
+      baseUrl: environment.builtinBaseUrl,
+      credentials: environment.builtinCredentials,
+    }).catch((error) => {
       builtinPromise = null;
       throw error;
     });
@@ -344,20 +341,17 @@ async function getBuiltinTypst(baseUrl: string) {
 }
 
 async function getTypst(
-  coreApiUrl: string,
+  environment: CompilationEnvironment["typst"],
   fontData: Uint8Array[],
   fontSignature: string,
   fontProfile: BuiltinFontProfile,
-  appOrigin: string
 ) {
-  const baseUrl = coreBaseUrl(coreApiUrl, appOrigin);
   const [builtin, runtimeManifest] = await Promise.all([
-    getBuiltinTypst(baseUrl),
-    loadTypstRuntimeManifest(appOrigin)
+    getBuiltinTypst(environment),
+    loadTypstRuntimeManifest(environment.runtimeBaseUrl),
   ]);
   const nextKey = JSON.stringify({
-    baseUrl,
-    appOrigin,
+    environment,
     runtimeVersion: runtimeManifest.typst_ts_version,
     builtin: builtin.cacheKey,
     fontProfile,
@@ -372,13 +366,15 @@ async function getTypst(
     configKey = nextKey;
     compileCount = 0;
     shadowFiles.clear();
-    accessModel = new NormalizedFetchAccessModel(baseUrl, { fullyCached: true });
+    accessModel = new NormalizedFetchAccessModel(environment.builtinBaseUrl, {
+      fullyCached: true,
+    });
     typstPromise = (async () => {
       const typst = new TypstSnippet();
       const packageRegistry = createHybridPackageRegistry({
         local: builtin.createLocalPackageRegistry(accessModel!),
         accessModel: accessModel!,
-        baseUrl,
+        source: environment.packageSource,
         onStatus: ({ phase, packageSpec }) => {
           self.postMessage({
             kind: "runtime.status",
@@ -396,10 +392,11 @@ async function getTypst(
           // then layer the versioned NV font bundle and project fonts on top.
           loadBrowserFonts([...builtin.fontUrlsForProfile(fontProfile), ...fontData], {
             assets: ["text"],
-            assetUrlPrefix: localTypstFontAssetBase(appOrigin),
+            assetUrlPrefix: environment.fontAssetsBaseUrl,
             fetcher: builtin.fontFetcher
           })
         ],
+        getWrapper: () => import("@pku-typst/typst-ts-web-compiler"),
         getModule: () => {
           self.postMessage({
             kind: "runtime.status",
@@ -409,7 +406,10 @@ async function getTypst(
             // typst.ts rc3 forwards this value to wasm-bindgen, whose current
             // initialization API requires the module promise inside an options object.
             module_or_path: (async () => {
-              const compilerUrl = absoluteRuntimeModuleUrl(runtimeManifest.compiler, appOrigin);
+              const compilerUrl = absoluteRuntimeModuleUrl(
+                runtimeManifest.compiler,
+                environment.runtimeBaseUrl,
+              );
               const buffer = await fetchArrayBufferWithContext(
                 compilerUrl,
                 "compiler wasm",
@@ -609,7 +609,6 @@ async function drainCompileQueue() {
 }
 
 async function handlePrewarm(request: PrewarmRequest) {
-  const appOrigin = request.appOrigin ?? self.location.origin;
   try {
     // Prewarming must never replace an already configured workspace compiler
     // (notably one with project fonts or the CJK profile).
@@ -622,7 +621,12 @@ async function handlePrewarm(request: PrewarmRequest) {
       } satisfies CompileResponse);
       return;
     }
-    const typst = await getTypst(request.coreApiUrl, [], "", request.fontProfile, appOrigin);
+    const typst = await getTypst(
+      request.environment,
+      [],
+      "",
+      request.fontProfile,
+    );
     const compiler = await typst.getCompiler();
     await getIncrementalCompilerSession(compiler);
     self.postMessage({
@@ -648,13 +652,12 @@ async function handlePrewarm(request: PrewarmRequest) {
 async function handleCompile(eventData: CompileRequest) {
   const {
     id,
-    coreApiUrl,
+    environment,
     emitPdf = false,
     pdfOnly = false,
     diagnosticsOnly = false,
     forceFullVector = false
   } = eventData;
-  const appOrigin = eventData.appOrigin ?? self.location.origin;
   const entryFilePath = normalizeWorkspacePath(eventData.entryFilePath || "main.typ");
   let workspaceApplied = false;
   try {
@@ -666,11 +669,10 @@ async function handleCompile(eventData: CompileRequest) {
     workspaceApplied = true;
     self.postMessage({ kind: "workspace.ack", id });
     const typst = await getTypst(
-      coreApiUrl,
+      environment,
       workspaceFontData,
       workspaceFontSignature,
       workspaceFontProfile,
-      appOrigin
     );
     if (!accessModel) throw new Error("Compiler access model missing");
     await syncShadowFiles(typst, documents, assets);

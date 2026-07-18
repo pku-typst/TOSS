@@ -47,7 +47,6 @@ import {
   type AiConversation
 } from "@/features/ai/conversationStore";
 import {
-  AI_RUNTIME_ENTRY_PATH,
   type AiRuntimeManagedModelSelection,
   type AiRuntimeTokenUsage
 } from "@/features/ai/protocol";
@@ -78,6 +77,13 @@ import {
   managedCustomProfilesForConfig,
   requestedManagedSelection
 } from "@/features/ai/managedCustomProfiles";
+
+export function aiRuntimeEntryPath(baseUrl: string) {
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return `${normalizedBase}_ai-runtime/bootstrap.html`;
+}
+
+const AI_RUNTIME_ENTRY_PATH = aiRuntimeEntryPath(import.meta.env.BASE_URL);
 
 type AiAssistantClientConfig = NonNullable<AuthConfig["ai_assistant"]>;
 type ManagedAiAssistantClientConfig = Extract<

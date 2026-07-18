@@ -20,6 +20,7 @@ related:
 code_paths:
   - web/src/lib/typst.worker.ts
   - web/src/lib/typst.ts
+  - web/scripts/sync-typst-assets.mjs
   - web/typst-runtime.config.json
   - distributions/community/typst/catalog.json
   - third-party/typst.ts
@@ -27,9 +28,10 @@ code_paths:
 
 # Typst browser runtime
 
-Typst compilation and rendering run in browser workers. The backend serves
-authenticated package and font resources, but it is not a second Typst
-compiler. Persistent compiler and renderer sessions retain WASM state between
+Typst compilation and rendering run in browser workers. In a Core deployment,
+the backend serves authenticated package and font resources, but it is not a
+second Typst compiler. A static deployment loads public runtime resources
+directly. Persistent compiler and renderer sessions retain WASM state between
 edits and use incremental vector updates for previews.
 
 The React boundary supplies each compile from one immutable Workspace snapshot.
@@ -46,7 +48,7 @@ The active distribution selects a versioned catalog. The Community catalog is
 seeded Typst Universe archives, and fonts with source, path, byte length, and
 SHA-256 metadata.
 
-For `@preview/<name>:<version>` imports, resolution proceeds through:
+In a Core deployment, `@preview/<name>:<version>` resolution proceeds through:
 
 1. the immutable catalog seed in the application image;
 2. a validated entry in the persistent package cache;
@@ -57,13 +59,18 @@ the exact package must be listed in the active catalog's `local_packages`
 collection. A missing local package returns `404` and never falls through to
 Typst Universe.
 
-All local, seeded, and dynamic archives reach the browser through
-`/v1/typst/packages/<namespace>/<name>/<version>`. The browser does not contact
-the upstream registry directly. Existing local, seeded, and cached entries
-remain usable while the upstream is unavailable. The same generic runtime
-asset endpoint supports browser compilation and optional read-only package
-inspection; package archive parsing and search remain browser-side rather than
-forming an AI backend.
+All local, seeded, and dynamic archives in that topology reach the browser
+through `/v1/typst/packages/<namespace>/<name>/<version>`. Existing local,
+seeded, and cached entries remain usable while the upstream is unavailable.
+The same generic runtime asset endpoint supports browser compilation and
+optional read-only package inspection; archive parsing and search remain
+browser-side rather than forming an AI backend.
+
+The static target has no private catalog or cache proxy. It resolves
+`@preview` packages from the official public Typst package source and does not
+advertise `@local` packages. The compiler and package-inspection tools share
+the same package-source abstraction, so they cannot silently disagree about
+where a package came from.
 
 Package and font endpoints require a signed-in account. A named guest session
 alone cannot fetch catalog resources. Supporting protected packages for
@@ -90,26 +97,23 @@ file count, paths, manifest consistency, structure, and digest.
 
 ## Compiler and renderer contract
 
-The public compiler/renderer source fork is pinned as the
-`third-party/typst.ts` submodule. `web/typst-runtime.config.json` binds the
-compiler source revision, wrapper and renderer versions, and browser cache
-version. The web application consumes a versioned compiler package produced
-from that revision rather than rebuilding Rust/WASM during every application
-image build.
+The public compiler source fork is pinned as `third-party/typst.ts`.
+`web/typst-runtime.config.json` binds that source revision, the exact fork npm
+package, its upstream ABI version, the renderer, and the browser cache version.
+The package carries source and upstream provenance and is installed through
+the npm lockfile; an application build never recompiles Rust/WASM implicitly.
 
-The Community compiler is built from the public `typst.ts` fork at the exact
-commit pinned by the submodule. It is not the official native Typst CLI and is
-not substituted with an upstream npm package. The resulting deterministic
-archive is published as a versioned release asset from that fork so builds do
-not require Git LFS or a local Rust/WASM toolchain.
+Core builds copy the compiler WASM from the installed package into the
+same-origin static runtime. Standalone builds put its exact-version jsDelivr
+URL in the runtime manifest and omit the 30 MiB compiler from the Pages
+artifact. In both cases the manifest records the raw byte length and SHA-256,
+and the worker verifies both before instantiation. CDN gzip or Brotli is only a
+transport encoding and does not change the verified bytes.
 
-The checked-in manifests bind the source revision, builder images, tool
-versions, features, archive digest, and every extracted file's size and digest.
-The release is only a distribution channel: a web build rejects any archive or
-file that does not match those manifests. Updating only the submodule gitlink
-does not update the compiler used by the application. A runtime upgrade must
-build and publish the matching fork artifact, then update the submodule,
-runtime configuration, and manifests together.
+Updating only the submodule does not update the compiler used by the
+application. A runtime upgrade publishes the new immutable fork package first,
+then updates the submodule, npm dependency and lockfile, runtime configuration,
+and renderer ABI pin together.
 
 The wasm-bindgen JavaScript glue is part of the hashed application bundle, so
 its ABI must stay coupled to the fetched WASM. The browser derives a runtime

@@ -11,5 +11,6 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CORE_API_BIN="$ROOT_DIR/backend/target/debug/core-api" \
   WEB_STATIC_DIR="$ROOT_DIR/web/dist" \
   "$ROOT_DIR/scripts/ci/integration.sh"
+"$ROOT_DIR/scripts/ci/web-static.sh"
 
 echo "[ci] all checks passed"

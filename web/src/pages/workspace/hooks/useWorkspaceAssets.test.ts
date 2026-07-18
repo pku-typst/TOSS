@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getProjectAssetContentCached,
@@ -8,10 +9,27 @@ import {
 } from "@/lib/api";
 import { useWorkspaceAssets } from "@/pages/workspace/hooks/useWorkspaceAssets";
 import type { AssetMeta } from "@/pages/workspace/types";
+import { coreWorkspaceBackend } from "@/workspace/coreWorkspaceBackend";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
-vi.mock("@/lib/api", () => ({
-  getProjectAssetContentCached: vi.fn()
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    getProjectAssetContentCached: vi.fn(),
+  };
+});
+
+function wrapper({ children }: PropsWithChildren) {
+  return createElement(
+    ApplicationRuntimeProvider,
+    {
+      runtime: createTestApplicationRuntime({ workspace: coreWorkspaceBackend }),
+      children,
+    },
+  );
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -67,7 +85,7 @@ describe("useWorkspaceAssets", () => {
           sessionGeneration: `user:${projectId}`,
           assetMeta,
         }),
-      { initialProps: { projectId: "project-a" } }
+      { initialProps: { projectId: "project-a" }, wrapper }
     );
 
     act(() => result.current.reconcileAssetCatalog(assetMeta));
@@ -78,17 +96,17 @@ describe("useWorkspaceAssets", () => {
     const currentLoad = result.current.ensureLiveAssetLoaded("image.png");
 
     await act(async () => {
-      projectA.resolve(assetResponse("project-a", "old-project"));
+      projectA.resolve(assetResponse("project-a", "b2xkLXByb2plY3Q="));
       await oldLoad;
     });
     expect(result.current.assetBase64).toEqual({});
 
     await act(async () => {
-      projectB.resolve(assetResponse("project-b", "current-project"));
+      projectB.resolve(assetResponse("project-b", "Y3VycmVudC1wcm9qZWN0"));
       await currentLoad;
     });
     expect(result.current.assetBase64).toEqual({
-      "image.png": "current-project"
+      "image.png": "Y3VycmVudC1wcm9qZWN0"
     });
   });
 
@@ -106,7 +124,7 @@ describe("useWorkspaceAssets", () => {
           sessionGeneration,
           assetMeta,
         }),
-      { initialProps: { sessionGeneration: "access-a" } },
+      { initialProps: { sessionGeneration: "access-a" }, wrapper },
     );
 
     act(() => result.current.reconcileAssetCatalog(assetMeta));
@@ -116,17 +134,17 @@ describe("useWorkspaceAssets", () => {
     const currentLoad = result.current.ensureLiveAssetLoaded("image.png");
 
     await act(async () => {
-      stale.resolve(assetResponse("project-a", "stale-access"));
+      stale.resolve(assetResponse("project-a", "c3RhbGUtYWNjZXNz"));
       await staleLoad;
     });
     expect(result.current.assetBase64).toEqual({});
 
     await act(async () => {
-      current.resolve(assetResponse("project-a", "current-access"));
+      current.resolve(assetResponse("project-a", "Y3VycmVudC1hY2Nlc3M="));
       await currentLoad;
     });
     expect(result.current.assetBase64).toEqual({
-      "image.png": "current-access",
+      "image.png": "Y3VycmVudC1hY2Nlc3M=",
     });
   });
 });

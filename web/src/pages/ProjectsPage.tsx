@@ -15,20 +15,16 @@ import {
   UiSectionHeading,
   UiSelect
 } from "@/components/ui";
-import {
-  copyProject,
-  createProject,
-  projectThumbnailUrl,
-  renameProject,
-  setProjectArchived,
-  type OrganizationMembership,
-  type Project,
-  type ExternalGitProvider
+import type {
+  ExternalGitProvider,
+  OrganizationMembership,
+  Project,
 } from "@/lib/api";
 import { formatDateTime, type Translator, type UiLocale } from "@/lib/i18n";
 import type { ProjectType } from "@/lib/deploymentCapabilities";
 import type { ProjectCopyDialogState, ProjectRenameDialogState } from "@/types/project-ui";
 import { ExternalGitImportDialog } from "@/pages/projects/ExternalGitImportDialog";
+import { useProjectCatalog } from "@/projects/projectCatalog";
 
 function ProjectThumbnail({
   project,
@@ -37,6 +33,7 @@ function ProjectThumbnail({
   project: Project;
   t: Translator;
 }) {
+  const projectCatalog = useProjectCatalog();
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,13 +43,9 @@ function ProjectThumbnail({
       setSrc(null);
       return () => undefined;
     }
-    const url = projectThumbnailUrl(project.id, project.last_edited_at);
-    fetch(url, { credentials: "include", cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-      })
+    projectCatalog
+      .loadThumbnail(project)
+      .then((blob) => (blob ? URL.createObjectURL(blob) : null))
       .then((next) => {
         if (cancelled) {
           if (next) URL.revokeObjectURL(next);
@@ -68,7 +61,7 @@ function ProjectThumbnail({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [project.has_thumbnail, project.id, project.last_edited_at]);
+  }, [project, projectCatalog]);
 
   if (!src) {
     return (
@@ -106,7 +99,13 @@ function ProjectRow({
 }: ProjectRowProps) {
   return (
     <div className="projects-row" key={project.id}>
-      <nve-button className="project-title-cell" role="button" container="flat" onClick={() => onOpenProject(project)}>
+      <nve-button
+        className="project-title-cell"
+        role="button"
+        container="flat"
+        data-action="open-project"
+        onClick={() => onOpenProject(project)}
+      >
         <div className="project-title-content">
           <ProjectThumbnail project={project} t={t} />
           <div className="project-main">
@@ -271,6 +270,7 @@ export function ProjectsPage({
   locale: UiLocale;
   t: Translator;
 }) {
+  const projectCatalog = useProjectCatalog();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [nameValidationRequested, setNameValidationRequested] = useState(false);
@@ -315,7 +315,7 @@ export function ProjectsPage({
     try {
       setCopyBusy(true);
       setError(null);
-      const created = await copyProject(copyDialog.projectId, { name: copyDialog.suggestedName.trim() });
+      const created = await projectCatalog.copy(copyDialog.projectId, { name: copyDialog.suggestedName.trim() });
       setCopyDialog(null);
       await refreshProjects();
       navigate(`/project/${created.id}`);
@@ -331,7 +331,7 @@ export function ProjectsPage({
     try {
       setRenameBusy(true);
       setError(null);
-      await renameProject(renameDialog.projectId, renameDialog.nextName.trim());
+      await projectCatalog.rename(renameDialog.projectId, renameDialog.nextName.trim());
       setRenameDialog(null);
       await refreshProjects();
     } catch (err) {
@@ -365,7 +365,7 @@ export function ProjectsPage({
     try {
       setError(null);
       setBusyProjectId(project.id);
-      await setProjectArchived(project.id, !project.archived);
+      await projectCatalog.setArchived(project.id, !project.archived);
       await refreshProjects();
     } catch (err) {
       const message =
@@ -390,7 +390,7 @@ export function ProjectsPage({
     }
     try {
       setError(null);
-      await createProject({
+      await projectCatalog.create({
         name: normalizedName,
         project_type: newProjectType,
         latex_engine: newProjectType === "latex" ? newLatexEngine : undefined
@@ -456,6 +456,7 @@ export function ProjectsPage({
           >
             <UiInput
               ref={projectNameInputRef}
+              name="project-name"
               label={t("projects.namePlaceholder")}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -497,7 +498,11 @@ export function ProjectsPage({
             </div>
           )}
           <div nve-layout="span:12 @md|span:2 column align:right align:bottom">
-            <UiButton variant="primary" onClick={createNamedProject}>
+            <UiButton
+              variant="primary"
+              data-action="create-project"
+              onClick={createNamedProject}
+            >
               <Plus size={16} />
               <span>{t("projects.createAction")}</span>
             </UiButton>

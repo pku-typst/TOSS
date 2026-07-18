@@ -3,9 +3,12 @@
   "typst_language_version": "0.15.0",
   "runtime_version": "0.8.0-rc3-source-map.b9c354f",
   "compiler": {
-    "package": "@myriaddreamin/typst-ts-web-compiler",
-    "package_version": "0.8.0-rc3",
-    "source_revision": "b9c354ffda394880e7942888c832412fd4fa9156"
+    "package": "@pku-typst/typst-ts-web-compiler",
+    "package_version": "0.8.0-rc3-toss.1",
+    "upstream_package": "@myriaddreamin/typst-ts-web-compiler",
+    "upstream_package_version": "0.8.0-rc3",
+    "source_revision": "b9c354ffda394880e7942888c832412fd4fa9156",
+    "browser_url": "https://cdn.jsdelivr.net/npm/@pku-typst/typst-ts-web-compiler@0.8.0-rc3-toss.1/pkg/typst_ts_web_compiler_bg.wasm"
   },
   "renderer": {
     "package": "@myriaddreamin/typst-ts-renderer",

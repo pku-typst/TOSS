@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
-import { uploadProjectThumbnail } from "@/lib/api";
 import { buildTopPreviewThumbnail } from "@/pages/workspace/utils";
+import { useProjectCatalog } from "@/projects/projectCatalog";
 
 type UseWorkspacePreviewThumbnailInput = {
   projectId: string;
@@ -27,6 +27,7 @@ export function useWorkspacePreviewThumbnail({
   compileDiagnosticCount,
   previewContainerRef
 }: UseWorkspacePreviewThumbnailInput) {
+  const projectCatalog = useProjectCatalog();
   const uploadTimerRef = useRef<number | null>(null);
   const lastUploadedThumbnailRef = useRef("");
 
@@ -62,7 +63,7 @@ export function useWorkspacePreviewThumbnail({
       if (!base64) return;
       const digest = `${projectId}:${base64.length}:${base64.slice(0, 128)}`;
       if (digest === lastUploadedThumbnailRef.current) return;
-      void uploadProjectThumbnail(projectId, {
+      void projectCatalog.saveThumbnail(projectId, {
         content_base64: base64,
         content_type: "image/png"
       })
@@ -87,6 +88,7 @@ export function useWorkspacePreviewThumbnail({
     previewRenderTick,
     previewVisible,
     projectId,
+    projectCatalog,
     revisionMode,
     workspaceLoaded
   ]);

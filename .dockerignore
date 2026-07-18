@@ -13,7 +13,6 @@ web/test-results
 web/public/typst-runtime
 web/public/busytex
 web/public/vendor/typst-assets/fonts
-prebuilt/typst-compiler/package
 prebuilt/busytex/package
 
 third-party/typst.ts/target

@@ -1,4 +1,5 @@
 import type { CompileDiagnostic } from "@/lib/typst";
+import type { CompilationEnvironment } from "@/compilation/compilationEnvironment";
 
 export type LatexCompileOutput = {
   vectorData: Uint8Array | null;
@@ -19,8 +20,7 @@ type CompileOptions = {
   entryFilePath: string;
   documents: Array<{ path: string; content: string }>;
   assets: Array<{ path: string; contentBase64: string }>;
-  coreApiUrl: string;
-  appOrigin?: string;
+  environment: CompilationEnvironment["latex"];
   engine: "pdftex" | "xetex";
 };
 

@@ -62,7 +62,11 @@ describe("Typst package inspection", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const pkg = await fetchTypstPackage(
-      "https://toss.example/base",
+      {
+        kind: "toss",
+        baseUrl: "https://toss.example/base/v1/typst/packages/",
+        withCredentials: true
+      },
       "@local/fixture:1.2.3"
     );
     expect(pkg.digest).toBe(`sha256:${hash}`);
@@ -70,6 +74,39 @@ describe("Typst package inspection", () => {
       new URL("https://toss.example/base/v1/typst/packages/local/fixture/1.2.3"),
       expect.objectContaining({ credentials: "include", cache: "force-cache" })
     );
+  });
+
+  it("loads preview packages directly from the official registry", async () => {
+    const archive = await createTarGzip([
+      { name: "typst.toml", data: '[package]\nname = "fixture"\nversion = "1.2.3"\n' },
+      { name: "lib.typ", data: "#let answer = 42\n" }
+    ]);
+    const ownedArchive = new Uint8Array(archive.byteLength);
+    ownedArchive.set(archive);
+    const fetchMock = vi.fn(async () => new Response(ownedArchive.buffer));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pkg = await fetchTypstPackage(
+      { kind: "preview", baseUrl: "https://packages.typst.org" },
+      "@preview/fixture:1.2.3"
+    );
+
+    expect(pkg.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://packages.typst.org/preview/fixture-1.2.3.tar.gz"),
+      expect.objectContaining({ credentials: "omit", cache: "force-cache" })
+    );
+  });
+
+  it("does not route local packages to the preview registry", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchTypstPackage(
+      { kind: "preview", baseUrl: "https://packages.typst.org" },
+      "@local/fixture:1.2.3"
+    )).rejects.toMatchObject({ code: "typst_package_not_found" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("lists a bounded tree with text and asset classification", async () => {

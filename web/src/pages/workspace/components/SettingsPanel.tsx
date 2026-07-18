@@ -134,6 +134,8 @@ export function SettingsPanel({
   typEntryOptions,
   canManageProject,
   canViewWriteShareLink,
+  projectAccessEnabled,
+  externalRepositoriesEnabled,
   externalGitProviders,
   gitRepoUrl,
   copiedControl,
@@ -172,6 +174,8 @@ export function SettingsPanel({
   typEntryOptions: string[];
   canManageProject: boolean;
   canViewWriteShareLink: boolean;
+  projectAccessEnabled: boolean;
+  externalRepositoriesEnabled: boolean;
   externalGitProviders: ExternalGitProvider[];
   gitRepoUrl: string;
   copiedControl: string | null;
@@ -207,14 +211,18 @@ export function SettingsPanel({
     icon: ReactNode;
   }>>(() => [
     { id: "project", label: t("settings.sectionProject"), icon: <Settings2 size={15} aria-hidden /> },
-    { id: "storage", label: t("settings.sectionStorage"), icon: <Database size={15} aria-hidden /> },
-    { id: "access", label: t("settings.sectionAccess"), icon: <UsersRound size={15} aria-hidden /> },
+    ...(externalRepositoriesEnabled
+      ? [{ id: "storage" as const, label: t("settings.sectionStorage"), icon: <Database size={15} aria-hidden /> }]
+      : []),
+    ...(projectAccessEnabled
+      ? [{ id: "access" as const, label: t("settings.sectionAccess"), icon: <UsersRound size={15} aria-hidden /> }]
+      : []),
     ...optionalSections.map((section) => ({
       id: section.section,
       label: section.label,
       icon: section.icon
     }))
-  ], [optionalSections, t]);
+  ], [externalRepositoriesEnabled, optionalSections, projectAccessEnabled, t]);
   const availableSections = useMemo(
     () => new Set(sections.map((section) => section.id)),
     [sections]
@@ -361,7 +369,7 @@ export function SettingsPanel({
           </div>
         )}
 
-        {activeSection === "storage" && (
+        {externalRepositoriesEnabled && activeSection === "storage" && (
           <div
             className="settings-tab-panel"
             id="settings-panel-storage"
@@ -401,7 +409,7 @@ export function SettingsPanel({
           </div>
         )}
 
-        {activeSection === "access" && (
+        {projectAccessEnabled && activeSection === "access" && (
           <div
             className="settings-tab-panel"
             id="settings-panel-access"

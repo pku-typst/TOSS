@@ -1,8 +1,7 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
-  updateProjectEntryFile,
-  updateProjectLatexEngine,
+  getGitRepoLink,
   type AuthConfig,
   type OrganizationMembership,
   type Project,
@@ -24,6 +23,7 @@ import type {
   WorkspaceOptionalSettingsSectionDescriptor,
   WorkspaceSettingsSectionId,
 } from "@/pages/workspace/types";
+import { useWorkspaceBackend } from "@/workspace/workspaceBackend";
 
 type WorkspaceSettingsContainerProps = {
   width: number;
@@ -34,6 +34,8 @@ type WorkspaceSettingsContainerProps = {
     canManageProject: boolean;
     canViewWriteShareLink: boolean;
   };
+  projectAccessEnabled: boolean;
+  externalRepositoriesEnabled: boolean;
   preview: {
     renderer: "pdf" | "canvas";
     setRenderer: (renderer: "pdf" | "canvas") => void;
@@ -57,6 +59,8 @@ export function WorkspaceSettingsContainer({
   organizations,
   authConfig,
   permissions,
+  projectAccessEnabled,
+  externalRepositoriesEnabled,
   preview,
   presenceMembershipKey,
   projection,
@@ -66,21 +70,14 @@ export function WorkspaceSettingsContainer({
   preferredSection,
   t,
 }: WorkspaceSettingsContainerProps) {
-  const replaceShareLinks = (
-    shareLinks: typeof projection.shareLinks,
-  ) => {
-    sessionActor.send({
-      type: "share-links.replaced",
-      generation: projection.scope.generation,
-      shareLinks,
-    });
-  };
+  const workspaceBackend = useWorkspaceBackend();
   const {
     error: accessError,
     copiedControl,
     templateEnabled,
     organizationAccess: projectOrgAccess,
     accessUsers: projectAccessUsers,
+    shareLinks: projectShareLinks,
     createShare,
     revokeShare,
     copyToClipboard,
@@ -92,18 +89,25 @@ export function WorkspaceSettingsContainer({
     sessionGeneration: projection.scope.generation,
     projectIsTemplate: project.is_template,
     canManageProject: permissions.canManageProject,
+    projectAccessEnabled,
     settingsPanelVisible: true,
     presenceMembershipKey,
-    replaceShareLinks,
     refreshProjects,
     t,
+  });
+  const gitRepoQuery = useQuery({
+    queryKey: ["project-git-access", projection.scope.generation],
+    queryFn: () => getGitRepoLink(project.id),
+    enabled:
+      externalRepositoriesEnabled && permissions.canManageProject,
+    retry: false,
   });
   const entryFileMutation = useMutation({
     mutationFn: (operation: {
       generation: string;
       entryFilePath: string;
     }) =>
-      updateProjectEntryFile(project.id, {
+      workspaceBackend.updateEntryFile(project.id, {
         entry_file_path: operation.entryFilePath,
       }),
     onSuccess: (updated, operation) => {
@@ -122,7 +126,7 @@ export function WorkspaceSettingsContainer({
       generation: string;
       latexEngine: "pdftex" | "xetex";
     }) =>
-      updateProjectLatexEngine(project.id, {
+      workspaceBackend.updateLatexEngine(project.id, {
         latex_engine: operation.latexEngine,
       }),
     onSuccess: (updated, operation) => {
@@ -159,11 +163,11 @@ export function WorkspaceSettingsContainer({
     projection.projectType,
   ]);
   const activeReadShare =
-    projection.shareLinks.find(
+    projectShareLinks.find(
       (link) => link.permission === "read" && !link.revoked_at,
     ) ?? null;
   const activeWriteShare =
-    projection.shareLinks.find(
+    projectShareLinks.find(
       (link) => link.permission === "write" && !link.revoked_at,
     ) ?? null;
 
@@ -196,8 +200,10 @@ export function WorkspaceSettingsContainer({
       typEntryOptions={typEntryOptions}
       canManageProject={permissions.canManageProject}
       canViewWriteShareLink={permissions.canViewWriteShareLink}
+      projectAccessEnabled={projectAccessEnabled}
+      externalRepositoriesEnabled={externalRepositoriesEnabled}
       externalGitProviders={authConfig?.external_git_providers ?? []}
-      gitRepoUrl={projection.gitRepoUrl}
+      gitRepoUrl={gitRepoQuery.data?.repo_url ?? ""}
       copiedControl={copiedControl}
       templateEnabled={templateEnabled}
       myOrganizations={organizations}

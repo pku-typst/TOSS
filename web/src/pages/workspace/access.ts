@@ -22,7 +22,6 @@ type WorkspacePermissions = {
   canWrite: boolean;
   canManageProject: boolean;
   canViewWriteShareLink: boolean;
-  canViewShareLinks: boolean;
 };
 
 export function deriveWorkspacePermissions(input: DeriveWorkspacePermissionsInput): WorkspacePermissions {
@@ -50,13 +49,11 @@ export function deriveWorkspacePermissions(input: DeriveWorkspacePermissionsInpu
   const canViewWriteShareLink = hasAuthUser
     ? project?.my_role === "Owner" || project?.my_role === "ReadWrite"
     : false;
-  const canViewShareLinks = hasAuthUser && !isAnonymousShare;
   return {
     canRequestGuestWrite,
     canWrite: !!canWrite,
     canManageProject: !!canManageProject,
-    canViewWriteShareLink: !!canViewWriteShareLink,
-    canViewShareLinks
+    canViewWriteShareLink: !!canViewWriteShareLink
   };
 }
 

@@ -7,13 +7,9 @@ import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const compilerRoot = path.join(root, "prebuilt", "typst-compiler");
 const busytexRoot = path.join(root, "prebuilt", "busytex");
 
 function fail(message) {
@@ -135,56 +131,6 @@ async function replaceDirectory(source, destination) {
   await fs.rename(source, destination);
 }
 
-async function fetchCompiler() {
-  const [buildManifest, artifactManifest] = await Promise.all([
-    readJson(path.join(compilerRoot, "build-manifest.json")),
-    readJson(path.join(compilerRoot, "artifact.json")),
-  ]);
-  const releaseUrl =
-    typeof artifactManifest.source_repository === "string" &&
-    typeof artifactManifest.release_tag === "string" &&
-    typeof artifactManifest.asset_name === "string"
-      ? `${artifactManifest.source_repository.replace(/\/$/, "")}/releases/download/${encodeURIComponent(artifactManifest.release_tag)}/${encodeURIComponent(artifactManifest.asset_name)}`
-      : "";
-  if (
-    buildManifest.schema !== 1 ||
-    artifactManifest.schema !== 1 ||
-    artifactManifest.source_revision !== buildManifest.source_revision ||
-    !artifactManifest.source_repository?.startsWith("https://github.com/") ||
-    artifactManifest.url !== releaseUrl ||
-    artifactManifest.archive_root !== "package"
-  ) {
-    fail("Typst compiler artifact provenance is invalid");
-  }
-  const packageRoot = path.join(compilerRoot, "package");
-  if (await verifyDirectory(packageRoot, buildManifest.files, "typst-compiler")) {
-    process.stdout.write("[runtime-artifacts] Typst compiler already verified\n");
-    return;
-  }
-
-  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "toss-compiler-fetch-"));
-  try {
-    const archive = path.join(temporaryRoot, "compiler.tar.gz");
-    await download(
-      artifactManifest.url,
-      archive,
-      artifactManifest.archive,
-      "Typst compiler archive",
-    );
-    const extracted = path.join(temporaryRoot, "extracted");
-    await fs.mkdir(extracted);
-    await execFileAsync("tar", ["-xzf", archive, "-C", extracted, "--no-same-owner"]);
-    const extractedPackage = path.join(extracted, artifactManifest.archive_root);
-    if (!(await verifyDirectory(extractedPackage, buildManifest.files, "typst-compiler"))) {
-      fail("Extracted Typst compiler package does not match its build manifest");
-    }
-    await replaceDirectory(extractedPackage, packageRoot);
-    process.stdout.write("[runtime-artifacts] hydrated fork-built Typst compiler\n");
-  } finally {
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
-  }
-}
-
 function githubReleaseBase(source) {
   if (
     typeof source?.repository !== "string" ||
@@ -249,17 +195,15 @@ async function selectedDistributionEnablesLatex() {
 const command = process.argv[2] ?? "all";
 try {
   if (command === "all") {
-    await fetchCompiler();
     if (await selectedDistributionEnablesLatex()) {
       await fetchBusytex();
     } else {
       process.stdout.write("[runtime-artifacts] BusyTeX skipped for Typst-only distribution\n");
     }
   }
-  if (command === "typst") await fetchCompiler();
   if (command === "busytex") await fetchBusytex();
-  if (!new Set(["all", "typst", "busytex"]).has(command)) {
-    fail("Usage: node scripts/fetch-runtime-artifacts.mjs [all|typst|busytex]");
+  if (!new Set(["all", "busytex"]).has(command)) {
+    fail("Usage: node scripts/fetch-runtime-artifacts.mjs [all|busytex]");
   }
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

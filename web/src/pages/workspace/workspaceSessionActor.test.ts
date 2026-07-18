@@ -44,8 +44,6 @@ function bootstrap(content: string, settingsRevision = 0): WorkspaceBootstrap {
       { path: "notes.typ", kind: "file" },
     ],
     contentEpoch: 4,
-    gitRepoUrl: "",
-    shareLinks: [],
     documents: {
       "main.typ": content,
       "notes.typ": "notes",

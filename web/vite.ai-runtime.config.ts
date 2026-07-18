@@ -1,18 +1,20 @@
 import path from "node:path";
 import { defineConfig } from "vite";
 import { computeAiRuntimeBuildId } from "./aiRuntimeBuildConfig";
-import { decorateAiRuntimeEntry } from "./aiRuntimeHtml";
 import { loadDistributionBuildConfig } from "./distributionBuildConfig";
 
 const buildId = computeAiRuntimeBuildId();
 const distribution = loadDistributionBuildConfig();
+const applicationBase = process.env.TOSS_BASE_URL?.trim() || "/";
+const runtimeBase = `${applicationBase.endsWith("/") ? applicationBase : `${applicationBase}/`}_ai-runtime/`;
+const browserTarget = process.env.TOSS_WEB_TARGET?.trim() === "browser";
 if (!distribution.aiConnectionPolicy) {
   throw new Error("Cannot build the AI Runtime for a distribution without ai_assistant");
 }
 
 export default defineConfig({
   root: path.resolve(__dirname, "ai-runtime"),
-  base: "/_ai-runtime/",
+  base: runtimeBase,
   publicDir: false,
   define: {
     __TOSS_AI_RUNTIME_BUILD_ID__: JSON.stringify(buildId),
@@ -31,13 +33,6 @@ export default defineConfig({
     ]
   },
   plugins: [
-    {
-      name: "toss-ai-runtime-entry-contract",
-      transformIndexHtml: {
-        order: "post",
-        handler: decorateAiRuntimeEntry
-      }
-    },
     {
       name: "toss-ai-runtime-build-descriptor",
       apply: "build",
@@ -58,10 +53,12 @@ export default defineConfig({
     target: "es2022",
     outDir: path.resolve(__dirname, "dist/_ai-runtime"),
     emptyOutDir: true,
+    manifest: "runtime-vite-manifest.json",
     modulePreload: false,
     rolldownOptions: {
-      input: path.resolve(__dirname, "ai-runtime/bootstrap.html"),
+      input: path.resolve(__dirname, "src/ai-runtime/bootstrap.ts"),
       output: {
+        codeSplitting: browserTarget ? false : undefined,
         entryFileNames: "assets/[name]-[hash].js",
         chunkFileNames: "assets/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]"

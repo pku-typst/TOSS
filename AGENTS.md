@@ -105,9 +105,10 @@ floating branch or use `git submodule update --remote` incidentally. Change
 `third-party/typst.ts/` on a named branch under its own `AGENTS.md`, commit and
 test there first, then update the parent gitlink.
 
-Runtime manifests must match their exact source revision, recipe, release,
-files, sizes, and hashes. Do not commit generated browser binaries; hydrate
-them with `scripts/fetch-runtime-artifacts.mjs`.
+Runtime manifests must match their exact source revision, package versions,
+files, sizes, and hashes. The lockfile installs the fork compiler package;
+`scripts/fetch-runtime-artifacts.mjs` hydrates only release-backed BusyTeX
+assets when enabled. Do not commit generated browser binaries.
 
 ## Tests
 

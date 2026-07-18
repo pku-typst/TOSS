@@ -21,11 +21,15 @@ type DistributionBuildConfig = {
 
 export type AiConnectionPolicyKind = "user_defined" | "managed_catalog";
 
-export function loadDistributionBuildConfig() {
+export function resolveDistributionConfigPath() {
   const configuredPath = process.env.TOSS_CONFIG?.trim();
-  const configPath = configuredPath
+  return configuredPath
     ? path.resolve(process.cwd(), configuredPath)
     : path.resolve(__dirname, "../distributions/community/toss.json");
+}
+
+export function loadDistributionBuildConfig() {
+  const configPath = resolveDistributionConfigPath();
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as DistributionBuildConfig;
   const configuredProjectTypeKeys = Object.keys(config.project_types ?? {});
   const latexConfig = config.project_types?.latex;

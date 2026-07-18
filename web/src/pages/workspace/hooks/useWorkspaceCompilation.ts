@@ -7,7 +7,10 @@ import {
   useState,
   type MutableRefObject,
 } from "react";
-import { coreApiBaseUrl } from "@/lib/api";
+import {
+  useCompilationEnvironment,
+  type CompilationEnvironment,
+} from "@/compilation/compilationEnvironment";
 import {
   localizeClientError,
   type Translator,
@@ -61,7 +64,10 @@ type UseWorkspaceCompilationInput = {
   t: Translator;
 };
 
-async function compileWorkspace(job: WorkspaceCompileJob) {
+async function compileWorkspace(
+  environment: CompilationEnvironment,
+  job: WorkspaceCompileJob,
+) {
   const documents = job.world.documents.slice();
   const assets = job.world.assets.slice();
   if (job.target.kind === "latex") {
@@ -70,9 +76,8 @@ async function compileWorkspace(job: WorkspaceCompileJob) {
       entryFilePath: job.world.entryFilePath,
       documents,
       assets,
-      coreApiUrl: coreApiBaseUrl(),
+      environment: environment.latex,
       engine: job.target.engine,
-      appOrigin: window.location.origin,
     });
   }
   return compileTypstClientSide({
@@ -80,14 +85,16 @@ async function compileWorkspace(job: WorkspaceCompileJob) {
     entryFilePath: job.world.entryFilePath,
     documents,
     assets,
-    coreApiUrl: coreApiBaseUrl(),
+    environment: environment.typst,
     fontData: compileWorldFontData(job.world).slice(),
     emitPdf: job.target.emitPdf,
-    appOrigin: window.location.origin,
   });
 }
 
-async function generateTypstPdf(job: WorkspaceCompileJob) {
+async function generateTypstPdf(
+  environment: CompilationEnvironment,
+  job: WorkspaceCompileJob,
+) {
   if (job.target.kind !== "typst") {
     throw new Error("Only Typst compilation jobs support browser PDF export");
   }
@@ -96,11 +103,10 @@ async function generateTypstPdf(job: WorkspaceCompileJob) {
     entryFilePath: job.world.entryFilePath,
     documents: job.world.documents.slice(),
     assets: job.world.assets.slice(),
-    coreApiUrl: coreApiBaseUrl(),
+    environment: environment.typst,
     fontData: compileWorldFontData(job.world).slice(),
     emitPdf: true,
     pdfOnly: true,
-    appOrigin: window.location.origin,
   });
 }
 
@@ -133,6 +139,7 @@ export function useWorkspaceCompilation({
   locale,
   t,
 }: UseWorkspaceCompilationInput) {
+  const compilationEnvironment = useCompilationEnvironment();
   const [runtimeStatus, setRuntimeStatus] = useState<CompileRuntimeStatus>({
     stage: "idle",
   });
@@ -151,7 +158,7 @@ export function useWorkspaceCompilation({
       initialSessionGeneration: sessionGeneration,
       initialDebounceMs: INITIAL_COMPILE_DEBOUNCE_MS,
       liveDebounceMs: LIVE_COMPILE_DEBOUNCE_MS,
-      compile: compileWorkspace,
+      compile: (job) => compileWorkspace(compilationEnvironment, job),
     },
   });
   const exportActor = useActorRef(pdfExportMachine, {
@@ -159,7 +166,7 @@ export function useWorkspaceCompilation({
       initialSessionGeneration: sessionGeneration,
       isCurrent: (job: WorkspaceCompileJob) =>
         sameCompileProduct(currentCompileJobRef.current, job),
-      generate: generateTypstPdf,
+      generate: (job) => generateTypstPdf(compilationEnvironment, job),
       onOutput: (job: WorkspaceCompileJob, output: WorkspaceCompileOutput) => {
         compilationActor.send({ type: "export.output", job, output });
       },

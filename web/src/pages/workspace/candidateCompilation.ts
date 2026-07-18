@@ -1,4 +1,4 @@
-import { coreApiBaseUrl } from "@/lib/api";
+import type { CompilationEnvironment } from "@/compilation/compilationEnvironment";
 import { compileLatexCandidateClientSide } from "@/lib/latex";
 import {
   compileTypstCandidateClientSide,
@@ -25,6 +25,7 @@ function checkAbort(signal?: AbortSignal) {
  * preview compilation. The caller still owns source/revision validation.
  */
 export async function compileWorkspaceCandidate(
+  environment: CompilationEnvironment,
   world: CompileWorld,
   target: CompileTarget,
   candidatePath: string,
@@ -53,16 +54,16 @@ export async function compileWorkspaceCandidate(
     entryFilePath: world.entryFilePath,
     documents: world.documents.slice(),
     assets: world.assets.slice(),
-    coreApiUrl: coreApiBaseUrl(),
-    appOrigin: window.location.origin,
   };
   const output = target.kind === "latex"
       ? await compileLatexCandidateClientSide({
           ...common,
+          environment: environment.latex,
           engine: target.engine,
         }, signal)
       : await compileTypstCandidateClientSide({
           ...common,
+          environment: environment.typst,
           fontData: compileWorldFontData(world).slice(),
         }, signal);
   checkAbort(signal);

@@ -8,6 +8,7 @@ import type {
   TypstPackageInspectorExecute,
   TypstPackageInspectorResponse
 } from "@/features/ai/typstPackageInspectorProtocol";
+import type { TypstPackageSource } from "@/lib/typstUniverse";
 
 type PendingInspection = {
   tool: AiTypstPackageToolRequest["tool"];
@@ -50,7 +51,7 @@ export class BrowserTypstPackageInspector implements AiTypstPackageInspector {
   private readonly pending = new Map<number, PendingInspection>();
   private disposed = false;
 
-  constructor(private readonly baseUrl: string) {}
+  constructor(private readonly source: TypstPackageSource) {}
 
   execute(request: AiTypstPackageToolRequest, signal?: AbortSignal) {
     if (this.disposed) return Promise.resolve(unavailable());
@@ -76,7 +77,7 @@ export class BrowserTypstPackageInspector implements AiTypstPackageInspector {
       const message: TypstPackageInspectorExecute = {
         kind: "execute",
         id,
-        baseUrl: this.baseUrl,
+        source: this.source,
         request
       };
       worker.postMessage(message);

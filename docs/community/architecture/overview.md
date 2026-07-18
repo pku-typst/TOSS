@@ -34,9 +34,9 @@ code_paths:
 
 # Architecture overview
 
-The product is a same-origin browser application backed by a Rust modular
-monolith. Browser compilation is part of the product architecture, not an
-optimization layered over a server compiler.
+The primary deployment is a same-origin browser application backed by a Rust
+modular monolith. Browser compilation is part of the product architecture, not
+an optimization layered over a server compiler.
 
 ```text
 Browser
@@ -56,6 +56,13 @@ Rust / Axum application
 
 Optional native processor ---- authenticated pull/leases ---- document processing
 ```
+
+A static build replaces the Core-facing frontend ports with BrowserBackend
+adapters. Projects, Workspace files, templates, and Yjs state then live in
+IndexedDB, while Typst still compiles in the same browser worker. Server-owned
+access, Git history, external repositories, remote collaboration, and durable
+processing are unavailable. Route components do not branch on deployment
+topology.
 
 The Core production image contains the backend, precompressed SPA, migrations,
 one selected distribution, and its allowed built-in runtime assets. Optional

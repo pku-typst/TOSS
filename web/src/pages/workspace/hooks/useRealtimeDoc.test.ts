@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
+import { coreCollaborationBackend } from "@/collaboration/coreCollaborationBackend";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 import { useRealtimeDoc } from "@/pages/workspace/hooks/useRealtimeDoc";
 import {
   openRealtimeDocumentSession,
@@ -29,6 +33,18 @@ type OpenedSession = {
 };
 
 const opened: OpenedSession[] = [];
+
+function wrapper({ children }: PropsWithChildren) {
+  return createElement(
+    ApplicationRuntimeProvider,
+    {
+      runtime: createTestApplicationRuntime({
+        collaboration: coreCollaborationBackend,
+      }),
+      children,
+    },
+  );
+}
 
 beforeEach(() => {
   opened.length = 0;
@@ -80,6 +96,7 @@ describe("useRealtimeDoc", () => {
           effectiveUserName: "Ada"
         }),
       {
+        wrapper,
         initialProps: {
           activePath: "one.typ",
           docs: { "one.typ": "one", "two.typ": "two" }
@@ -161,6 +178,7 @@ describe("useRealtimeDoc", () => {
           effectiveUserName: "Ada"
         }),
       {
+        wrapper,
         initialProps: { collaborationRevision: 0, content: "before" }
       }
     );

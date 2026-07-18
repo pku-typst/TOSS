@@ -18,6 +18,9 @@ import {
   loadWorkspaceBootstrap,
   type WorkspaceBootstrap,
 } from "@/pages/workspace/loaders";
+import { coreWorkspaceBackend } from "@/workspace/coreWorkspaceBackend";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
 vi.mock("@/pages/workspace/loaders", async (importOriginal) => {
   const original =
@@ -78,8 +81,6 @@ function bootstrap(
     settingsRevision: 0,
     nodes: [{ path: "main.typ", kind: "file" }],
     contentEpoch: 3,
-    gitRepoUrl: "",
-    shareLinks: [],
     documents: { "main.typ": content },
     documentIdentities: {
       "main.typ": {
@@ -127,7 +128,11 @@ function createWrapper() {
   });
   return function QueryWrapper({ children }: PropsWithChildren) {
     return (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <ApplicationRuntimeProvider
+        runtime={createTestApplicationRuntime({ workspace: coreWorkspaceBackend })}
+      >
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      </ApplicationRuntimeProvider>
     );
   };
 }
@@ -156,7 +161,6 @@ function renderWorkspaceSession(options?: {
         offlineCacheIdentity,
         accessSessionKey,
         canWrite: true,
-        canViewShareLinks: true,
         cachedOfflineMessage: "cached-offline",
         loadErrorMessage: "load-failed",
       }),

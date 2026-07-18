@@ -23,6 +23,8 @@ related:
   - web/DESIGN.md
 code_paths:
   - web/src/App.tsx
+  - web/src/composition/applicationRuntime.tsx
+  - web/src/browserBackend
   - web/src/router.tsx
   - web/src/pages/workspace
   - web/src/pages/processing
@@ -48,6 +50,23 @@ owns its invariants.
 XState is used when a process has invalid transitions, supersession,
 cancellation, reconnect, or stale-result rules. It must not wrap a single
 promise or mirror a boolean.
+
+## Application runtime boundary
+
+Pages depend on bounded frontend ports owned by Projects, Templates,
+Workspace, Collaboration, and Compilation. The composition root selects Core
+or browser adapters once and exposes only the narrow owner hooks. It does not
+expose a generic backend object or make components branch on a backend kind.
+
+`ApplicationRuntimeProvider` groups stable application-lifetime dependencies;
+it is not a global state store. A provider should split out only when it gains
+an independent update or subscription lifecycle. This keeps the component tree
+shallow without merging the bounded contexts behind the ports.
+
+The Core adapters call the versioned HTTP and WebSocket contracts. The browser
+adapters retain projects, templates, Workspace files, and Yjs updates in
+IndexedDB and coordinate tabs through browser primitives. Route and feature
+components use the same ports in both targets.
 
 ## Workspace session
 
@@ -177,6 +196,20 @@ form controls, and feedback components come from the UI primitive layer; broad
 classes such as `.error`, `.loading`, or `.muted` are not cross-page contracts.
 
 ## Browser persistence
+
+The Core target treats PostgreSQL, project storage, and server-side Yjs
+persistence as authoritative. IndexedDB contains bounded client projections and
+caches.
+
+The static browser target has no server authority. Its BrowserBackend owns the
+project catalog, Workspace snapshots, assets, thumbnails, and Yjs persistence
+in IndexedDB. A `BroadcastChannel` invalidates sibling tabs. Mutations use
+transactions and generation checks so a stale load or concurrent Yjs update
+cannot overwrite newer state.
+
+Static builds currently expose Typst projects only. Server-owned access,
+versioning, external repositories, durable processing, account administration,
+and remote collaboration are absent rather than emulated by no-op adapters.
 
 - Yjs IndexedDB persistence is keyed by member, project, immutable document ID,
   and collaboration revision.

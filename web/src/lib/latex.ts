@@ -1,6 +1,7 @@
 import type { CompileDiagnostic } from "./typst";
 import { CandidateRuntimeScheduler } from "./candidateRuntime";
 import { validateLatexCompileInput } from "./latexRuntimeUtils";
+import type { CompilationEnvironment } from "@/compilation/compilationEnvironment";
 
 export type LatexCompileOutput = {
   vectorData: Uint8Array | null;
@@ -39,8 +40,7 @@ type CompileOptions = {
   entryFilePath: string;
   documents: Array<{ path: string; content: string }>;
   assets: Array<{ path: string; contentBase64: string }>;
-  coreApiUrl: string;
-  appOrigin?: string;
+  environment: CompilationEnvironment["latex"];
   engine: "pdftex" | "xetex";
 };
 
@@ -137,6 +137,13 @@ export class LatexWorkerRuntime {
   }
 
   compile(options: CompileOptions): Promise<WorkerCompileResponse> {
+    if (!options.environment) {
+      return Promise.resolve({
+        id: -1,
+        ok: false,
+        errors: ["LaTeX browser runtime is not available in this build"],
+      });
+    }
     try {
       validateLatexCompileInput(options);
     } catch (error) {
@@ -168,8 +175,7 @@ export class LatexWorkerRuntime {
             path: asset.path,
             content_base64: asset.contentBase64
           })),
-          coreApiUrl: options.coreApiUrl,
-          appOrigin: options.appOrigin,
+          environment: options.environment,
           engine: options.engine
         }
       };

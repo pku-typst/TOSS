@@ -1,8 +1,5 @@
 import { assign, setup, type ActorRefFrom } from "xstate";
-import type {
-  LatexEngine,
-  ProjectShareLink,
-} from "@/lib/api";
+import type { LatexEngine } from "@/lib/api";
 import type { CachedProjectSnapshot } from "@/lib/projectCache";
 import type { ProjectType } from "@/lib/deploymentCapabilities";
 import { sameProjectNodeList } from "@/pages/workspace/equality";
@@ -41,8 +38,6 @@ export type WorkspaceSessionContext = {
   documentIdentities: Record<string, DocumentIdentity>;
   documentsChangeSequence: number | null;
   assetMeta: Record<string, AssetMeta>;
-  gitRepoUrl: string;
-  shareLinks: ProjectShareLink[];
   offlineMessage: string | null;
 };
 
@@ -90,11 +85,6 @@ type WorkspaceSessionEvent =
       latexEngine: LatexEngine;
       entryFilePath: string;
       settingsRevision: number;
-    }
-  | {
-      type: "share-links.replaced";
-      generation: string;
-      shareLinks: ProjectShareLink[];
     };
 
 export function createEmptyWorkspaceSession(
@@ -113,8 +103,6 @@ export function createEmptyWorkspaceSession(
     documentIdentities: {},
     documentsChangeSequence: null,
     assetMeta: {},
-    gitRepoUrl: "",
-    shareLinks: [],
     offlineMessage: null,
   };
 }
@@ -170,8 +158,6 @@ function applyBootstrap(
     documentIdentities: bootstrap.documentIdentities,
     documentsChangeSequence: bootstrap.documentsChangeSequence,
     assetMeta: bootstrap.assetMeta,
-    gitRepoUrl: bootstrap.gitRepoUrl,
-    shareLinks: bootstrap.shareLinks,
     offlineMessage: null,
   };
 }
@@ -316,11 +302,6 @@ export const workspaceSessionMachine = setup({
           }
         : {},
     ),
-    replaceShareLinks: assign(({ event }) =>
-      event.type === "share-links.replaced"
-        ? { shareLinks: event.shareLinks }
-        : {},
-    ),
   },
 }).createMachine({
   id: "workspaceSession",
@@ -398,10 +379,6 @@ export const workspaceSessionMachine = setup({
         "settings.synchronized": {
           guard: "eventTargetsCurrentSession",
           actions: "synchronizeSettings",
-        },
-        "share-links.replaced": {
-          guard: "eventTargetsCurrentSession",
-          actions: "replaceShareLinks",
         },
       },
       states: {

@@ -3,9 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 const FIXED_AI_RUNTIME_BUILD_INPUTS = [
-  "ai-runtime/bootstrap.html",
+  "ai-runtime/bootstrap.template.html",
   "aiRuntimeBuildConfig.ts",
   "aiRuntimeHtml.ts",
+  "scripts/build-ai-runtime.mjs",
   "package-lock.json",
   "package.json",
   "tsconfig.json",

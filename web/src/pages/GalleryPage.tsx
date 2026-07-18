@@ -1,4 +1,10 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import "@/pages/gallery.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -27,16 +33,10 @@ import {
   UiSelect,
   UiTooltip
 } from "@/components/ui";
-import {
-  builtinTemplateThumbnailUrl,
-  copyProject,
-  createProjectFromBuiltinTemplate,
-  listTemplateGallery,
-  projectThumbnailUrl,
-  updateProjectTemplate,
-  type Project,
-  type TemplateGalleryItem,
-  type TemplateSource
+import type {
+  Project,
+  TemplateGalleryItem,
+  TemplateSource,
 } from "@/lib/api";
 import {
   filterGalleryTemplates,
@@ -44,6 +44,7 @@ import {
   type GallerySourceFilter
 } from "@/lib/galleryUtils";
 import type { Translator, UiLocale } from "@/lib/i18n";
+import { useTemplateCatalog } from "@/templates/templateCatalog";
 
 type GalleryAccentStyle = CSSProperties & { "--toss-card-accent": string };
 
@@ -72,7 +73,36 @@ function TemplateThumbnail({
   name: string;
   t: Translator;
 }) {
+  const templateCatalog = useTemplateCatalog();
   const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+    setFailed(false);
+    if (!template.has_thumbnail) {
+      setSrc(null);
+      return () => undefined;
+    }
+    templateCatalog
+      .loadThumbnail(template)
+      .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+      .then((next) => {
+        if (cancelled) {
+          if (next) URL.revokeObjectURL(next);
+          return;
+        }
+        objectUrl = next ?? "";
+        setSrc(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [template, templateCatalog]);
   if (!template.has_thumbnail || failed) {
     return (
       <div className="gallery-thumbnail gallery-thumbnail-placeholder" aria-label={t("gallery.previewAlt")}>
@@ -81,10 +111,13 @@ function TemplateThumbnail({
     );
   }
 
-  const src =
-    template.source === "builtin"
-      ? builtinTemplateThumbnailUrl(template.id)
-      : projectThumbnailUrl(template.project_id ?? template.id, template.updated_at ?? undefined);
+  if (!src) {
+    return (
+      <div className="gallery-thumbnail gallery-thumbnail-placeholder" aria-label={t("gallery.previewAlt")}>
+        <FileText size={42} aria-hidden />
+      </div>
+    );
+  }
   return (
     <img
       className="gallery-thumbnail"
@@ -207,12 +240,13 @@ export function GalleryPage({
   t: Translator;
   refreshProjects: () => Promise<void>;
 }) {
+  const templateCatalog = useTemplateCatalog();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const galleryQueryKey = ["template-gallery", cacheIdentity] as const;
   const galleryQuery = useQuery({
     queryKey: galleryQueryKey,
-    queryFn: listTemplateGallery,
+    queryFn: () => templateCatalog.list(),
     enabled: cacheIdentity.length > 0,
     staleTime: 2 * 60 * 1000
   });
@@ -266,13 +300,10 @@ export function GalleryPage({
     try {
       setBusyTemplateId(useDialog.id);
       setError(null);
-      const created =
-        useDialog.source === "builtin"
-          ? await createProjectFromBuiltinTemplate(useDialog.id, { name: projectName.trim() })
-          : useDialog.project_id
-            ? await copyProject(useDialog.project_id, { name: projectName.trim() })
-            : null;
-      if (!created) throw new Error(t("gallery.invalidTemplate"));
+      const created = await templateCatalog.instantiate(
+        useDialog,
+        projectName.trim(),
+      );
       setUseDialog(null);
       await refreshProjects();
       navigate(`/project/${created.id}`);
@@ -293,7 +324,7 @@ export function GalleryPage({
     try {
       setBusyTemplateId(sourceProjectId);
       setError(null);
-      await updateProjectTemplate(sourceProjectId, true);
+      await templateCatalog.setProjectTemplate(sourceProjectId, true);
       setCreatePersonalOpen(false);
       await Promise.all([
         refreshProjects(),
@@ -312,7 +343,7 @@ export function GalleryPage({
     try {
       setBusyTemplateId(removeDialog.id);
       setError(null);
-      await updateProjectTemplate(removeDialog.project_id, false);
+      await templateCatalog.setProjectTemplate(removeDialog.project_id, false);
       setRemoveDialog(null);
       await Promise.all([
         refreshProjects(),
