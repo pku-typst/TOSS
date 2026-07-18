@@ -1,3 +1,3 @@
 [submodule "third-party/typst.ts"]
 	path = third-party/typst.ts
-	url = https://github.com/lucifer1004/typst.ts.git
+	url = https://github.com/pku-typst/typst.ts.git

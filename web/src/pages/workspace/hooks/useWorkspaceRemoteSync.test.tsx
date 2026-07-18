@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createActor } from "xstate";
 import { saveProjectSnapshotToCache } from "@/lib/projectCache";
@@ -13,6 +14,9 @@ import {
   workspaceSessionMachine,
   type WorkspaceSessionScope,
 } from "@/pages/workspace/workspaceSessionActor";
+import { coreWorkspaceBackend } from "@/workspace/coreWorkspaceBackend";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
 vi.mock("@/lib/projectCache", () => ({
   saveProjectSnapshotToCache: vi.fn()
@@ -40,6 +44,16 @@ const WORKSPACE_DELTA: WorkspaceDelta = {
   documentsChangeSequence: 1,
   assetMeta: {}
 };
+
+function wrapper({ children }: PropsWithChildren) {
+  return (
+    <ApplicationRuntimeProvider
+      runtime={createTestApplicationRuntime({ workspace: coreWorkspaceBackend })}
+    >
+      {children}
+    </ApplicationRuntimeProvider>
+  );
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -77,8 +91,6 @@ function input(
       settingsRevision: 0,
       nodes: [{ path: "main.typ", kind: "file" }],
       contentEpoch: 1,
-      gitRepoUrl: "",
-      shareLinks: [],
       documents: { "main.typ": "hello" },
       documentIdentities: {
         "main.typ": {
@@ -127,7 +139,7 @@ describe("useWorkspaceRemoteSync", () => {
           workspaceStructuralChangeSequence: workspace,
           activeLiveDocumentReady: ready
         }),
-      { initialProps: { connection: 0, workspace: 0, ready: true } }
+      { initialProps: { connection: 0, workspace: 0, ready: true }, wrapper }
     );
 
     await act(async () => Promise.resolve());
@@ -160,7 +172,7 @@ describe("useWorkspaceRemoteSync", () => {
           workspaceStructuralChangeSequence: workspace,
           activeLiveDocumentReady: ready
         }),
-      { initialProps: { workspace: 0, ready: false } }
+      { initialProps: { workspace: 0, ready: false }, wrapper }
     );
 
     rerender({ workspace: 1, ready: false });
@@ -191,7 +203,7 @@ describe("useWorkspaceRemoteSync", () => {
                   }
                 }
         }),
-      { initialProps: { sequence: 0, collaborationRevision: 0 } }
+      { initialProps: { sequence: 0, collaborationRevision: 0 }, wrapper }
     );
 
     rerender({ sequence: 1, collaborationRevision: 0 });
@@ -217,7 +229,7 @@ describe("useWorkspaceRemoteSync", () => {
           workspaceChangeSequence: workspace,
           workspaceStructuralChangeSequence: workspace
         }),
-      { initialProps: { workspace: 0 } }
+      { initialProps: { workspace: 0 }, wrapper }
     );
     rerender({ workspace: 1 });
     await waitFor(() => expect(loadWorkspaceDelta).toHaveBeenCalledOnce());
@@ -257,7 +269,7 @@ describe("useWorkspaceRemoteSync", () => {
           workspaceChangeSequence: workspace,
           workspaceStructuralChangeSequence: workspace,
         }),
-      { initialProps: { current: sessionA, workspace: 0 } },
+      { initialProps: { current: sessionA, workspace: 0 }, wrapper },
     );
     rerender({ current: sessionA, workspace: 1 });
     await waitFor(() => expect(loadWorkspaceDelta).toHaveBeenCalledOnce());

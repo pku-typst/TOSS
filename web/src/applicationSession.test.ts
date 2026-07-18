@@ -17,6 +17,7 @@ import {
   loadApplicationBootstrap,
   loadSignedInContext
 } from "@/applicationSession";
+import type { ProjectCatalog } from "@/projects/projectCatalog";
 
 vi.mock("@/lib/api", () => ({
   canAccessAdminPanel: vi.fn(),
@@ -75,6 +76,16 @@ const authUser: AuthUser = {
   username: "user-a"
 };
 
+const projectCatalog: ProjectCatalog = {
+  list: (query) => listProjects(query),
+  create: vi.fn(),
+  copy: vi.fn(),
+  rename: vi.fn(),
+  setArchived: vi.fn(),
+  loadThumbnail: vi.fn(),
+  saveThumbnail: vi.fn(),
+};
+
 describe("application session projections", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -95,7 +106,7 @@ describe("application session projections", () => {
     vi.mocked(listMyOrganizations).mockResolvedValue({ organizations: [] });
     vi.mocked(canAccessAdminPanel).mockRejectedValue(new Error("forbidden"));
 
-    await expect(loadSignedInContext()).resolves.toEqual({
+    await expect(loadSignedInContext(projectCatalog)).resolves.toEqual({
       projects: [],
       organizations: [],
       hasAdminAccess: false

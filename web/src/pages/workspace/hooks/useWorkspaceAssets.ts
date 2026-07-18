@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  getProjectAssetContentCached,
-  type ProjectAsset
-} from "@/lib/api";
+import type { ProjectAsset } from "@/lib/api";
+import { bytesToBase64 } from "@/lib/base64";
 import { sameAssetMetaMap } from "@/pages/workspace/equality";
 import { createAssetHydrationProgressState } from "@/pages/workspace/state";
 import { retainUnchangedAssetContents } from "@/pages/workspace/sync";
 import type { AssetMeta } from "@/pages/workspace/types";
+import { useWorkspaceBackend } from "@/workspace/workspaceBackend";
 
 const EMPTY_ASSET_CONTENTS: Record<string, string> = {};
 
@@ -23,6 +22,7 @@ export function useWorkspaceAssets({
   sessionGeneration,
   assetMeta,
 }: UseWorkspaceAssetsInput) {
+  const workspaceBackend = useWorkspaceBackend();
   const scopeKey = sessionGeneration;
   const [assetBase64, setAssetBase64] = useState<Record<string, string>>({});
   const [assetHydrationProgress, setAssetHydrationProgress] = useState(
@@ -78,12 +78,12 @@ export function useWorkspaceAssets({
       if (!asset) return null;
       const loadPromise = (async () => {
         try {
-          const response = await getProjectAssetContentCached(
+          const bytes = await workspaceBackend.readAsset(
             effectiveUserId,
             projectId,
             asset
           );
-          const contentBase64 = response.content_base64;
+          const contentBase64 = bytesToBase64(bytes);
           if (
             scopeKeyRef.current !== requestScope ||
             assetGenerationRef.current !== requestGeneration
@@ -114,7 +114,7 @@ export function useWorkspaceAssets({
       assetLoadInflightRef.current.set(loadKey, loadPromise);
       return loadPromise;
     },
-    [effectiveUserId, projectId, scopeKey, toProjectAsset]
+    [effectiveUserId, projectId, scopeKey, toProjectAsset, workspaceBackend]
   );
 
   const hydrateProjectAssetsForInitialLoad = useCallback(

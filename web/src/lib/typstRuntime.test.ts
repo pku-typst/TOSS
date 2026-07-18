@@ -14,15 +14,16 @@ function runtimeManifest(
     schema: 2,
     typst_ts_version: runtimeConfig.runtime_version,
     compiler_package_version: runtimeConfig.compiler.package_version,
+    compiler_upstream_package_version: runtimeConfig.compiler.upstream_package_version,
     compiler_source_revision: runtimeConfig.compiler.source_revision,
     renderer_package_version: runtimeConfig.renderer.package_version,
     compiler: {
-      url: "/typst-runtime/compiler/typst_ts_web_compiler_bg.wasm",
+      url: "compiler/typst_ts_web_compiler_bg.wasm",
       sha256: "a".repeat(64),
       size_bytes: 1024
     },
     renderer: {
-      url: "/typst-runtime/renderer/typst_ts_renderer_bg.wasm",
+      url: "renderer/typst_ts_renderer_bg.wasm",
       sha256: "b".repeat(64),
       size_bytes: 512
     },
@@ -44,7 +45,7 @@ describe("Typst runtime manifest", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(loadTypstRuntimeManifest("https://toss.example")).resolves.toMatchObject({
+    await expect(loadTypstRuntimeManifest("https://toss.example/typst-runtime/")).resolves.toMatchObject({
       compiler_source_revision: runtimeConfig.compiler.source_revision
     });
 
@@ -73,8 +74,87 @@ describe("Typst runtime manifest", () => {
       )
     );
 
-    await expect(loadTypstRuntimeManifest("https://toss.example")).rejects.toThrow(
+    await expect(loadTypstRuntimeManifest("https://toss.example/typst-runtime/")).rejects.toThrow(
       "incompatible with this application build"
     );
+  });
+
+  it("accepts an integrity-pinned HTTPS compiler and keeps the renderer local", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify(
+            runtimeManifest({
+              compiler: {
+                url: runtimeConfig.compiler.browser_url,
+                sha256: "c".repeat(64),
+                size_bytes: 2048
+              }
+            })
+          ),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(
+      loadTypstRuntimeManifest("https://toss.example/typst-runtime/")
+    ).resolves.toMatchObject({
+      compiler: { url: runtimeConfig.compiler.browser_url },
+      renderer: { url: "renderer/typst_ts_renderer_bg.wasm" }
+    });
+  });
+
+  it.each([
+    "http://cdn.example/compiler.wasm",
+    "https://user@cdn.example/compiler.wasm",
+    "https://cdn.example/compiler.wasm?mutable=1"
+  ])("rejects unsafe external compiler URL %s", async (url) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify(
+            runtimeManifest({
+              compiler: {
+                url,
+                sha256: "c".repeat(64),
+                size_bytes: 2048
+              }
+            })
+          ),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(
+      loadTypstRuntimeManifest("https://toss.example/typst-runtime/")
+    ).rejects.toThrow("manifest is incomplete");
+  });
+
+  it("rejects an external renderer URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify(
+            runtimeManifest({
+              renderer: {
+                url: "https://cdn.example/renderer.wasm",
+                sha256: "d".repeat(64),
+                size_bytes: 1024
+              }
+            })
+          ),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(
+      loadTypstRuntimeManifest("https://toss.example/typst-runtime/")
+    ).rejects.toThrow("manifest is incomplete");
   });
 });

@@ -128,7 +128,11 @@ describe("Typst package HTTP requester", () => {
     }
     vi.stubGlobal("XMLHttpRequest", FakeXmlHttpRequest);
     try {
-      const response = createHttpTypstPackageRequester("https://typst.example/")(previewSpec);
+      const response = createHttpTypstPackageRequester({
+        kind: "toss",
+        baseUrl: "https://typst.example/v1/typst/packages/",
+        withCredentials: true,
+      })(previewSpec);
       expect(Array.from(response.bytes)).toEqual([1, 2, 3]);
       expect(FakeXmlHttpRequest.last).toMatchObject({
         method: "GET",

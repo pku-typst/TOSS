@@ -19,6 +19,7 @@ related:
   - docs/community/runtimes/latex-worker.md
   - docs/community/operations/deployment.md
 code_paths:
+  - .github/workflows/pages.yml
   - rust-toolchain.toml
   - web/package.json
   - workers/Cargo.toml
@@ -44,8 +45,9 @@ real sandbox needs unprivileged user namespaces plus the repository AppArmor
 policy on affected Linux hosts; ordinary browser-preview development does not.
 
 A local Typst CLI installed through Pixi is useful for template comparison and
-offline debugging, but application preview does not invoke it. The browser uses
-the versioned compiler package bound by `web/typst-runtime.config.json`.
+offline debugging, but application preview does not invoke it. Both Core-backed
+and static builds use the versioned browser compiler package bound by
+`web/typst-runtime.config.json`.
 
 Resolve dependency versions from registries instead of guessing them. Before a
 dependency update, inspect `cargo update --dry-run --verbose`, `npm outdated`,
@@ -60,22 +62,21 @@ node scripts/fetch-runtime-artifacts.mjs
 
 cd web
 npm ci
-npm run verify:typst-compiler
 
 cd ../protocol
 npm ci
 cd ..
 ```
 
-The submodule is required to inspect or rebuild the compiler. The fetch step
-hydrates ignored package caches from pinned public release assets and verifies
-the compiler source revision, archive, and every extracted file. It downloads
-BusyTeX only when the selected distribution enables LaTeX.
+The submodule retains the exact public compiler source for audit and fork
+development. `npm ci` installs the immutable compiler package and verifies its
+registry integrity through the lockfile. The fetch step only hydrates BusyTeX
+from its pinned public release when the selected distribution enables LaTeX.
 
 Do not hand-edit generated files under `web/dist/`,
 `web/public/typst-runtime/`, `web/public/vendor/`, or
-`prebuilt/*/package/`. The compiler package is a versioned release input with
-its own reproducibility workflow.
+`prebuilt/*/package/`. The compiler package is published by the fork's own
+verified release workflow; application builds never rebuild it implicitly.
 
 ## Start local dependencies
 
@@ -103,9 +104,36 @@ cargo run --locked
 Relative paths resolve from each command's working directory. The backend runs
 database migrations during startup.
 
+For the frontend-only target, choose the deployment base path at build time:
+
+```bash
+cd web
+TOSS_BASE_URL=/TOSS/ npm run build:browser
+npm run preview -- --host 127.0.0.1
+```
+
+The static target embeds the selected distribution's public templates, Help
+content, product assets, and safe frontend policy. It stores projects locally
+in IndexedDB and does not require Core. Use `/` for a root deployment or the
+repository path, including leading and trailing slashes, for GitHub Pages.
+
+### Publish with GitHub Pages
+
+The `Pages` workflow builds, exercises, and deploys the standalone target on
+pushes to `main` or a manual run from `main`. It reads GitHub Pages' configured
+base path, so project sites, user sites, and custom domains use the same
+workflow without a hard-coded repository name. The uploaded artifact is the
+same `/dist` tree that passed the Chromium static smoke.
+
+Before the first run, set the repository's **Settings → Pages → Build and
+deployment → Source** to **GitHub Actions**. No deployment secret or `gh-pages`
+branch is required. Restrict the automatically created `github-pages`
+environment to `main` if the repository needs an explicit deployment
+protection rule.
+
 With no worker identity in the deployment TOML, processing operations are not
 enabled or advertised while Typst and BusyTeX preview continue normally. This
-is the supported browser-only development topology, not a degraded application
+is the supported Core-without-processors topology, not a degraded application
 state.
 
 ## Optional processing worker

@@ -16,18 +16,12 @@ WORKDIR /workspace
 COPY web/package.json ./web/package.json
 COPY web/package-lock.json ./web/package-lock.json
 COPY web/typst-runtime.config.json ./web/typst-runtime.config.json
-COPY third-party/typst.ts/Cargo.toml ./third-party/typst.ts/Cargo.toml
 COPY scripts/fetch-runtime-artifacts.mjs ./scripts/fetch-runtime-artifacts.mjs
-COPY scripts/prebuilt-typst-compiler.mjs ./scripts/prebuilt-typst-compiler.mjs
-COPY scripts/typst-compiler-builder.Dockerfile ./scripts/typst-compiler-builder.Dockerfile
-COPY prebuilt/typst-compiler/build-manifest.json ./prebuilt/typst-compiler/build-manifest.json
-COPY prebuilt/typst-compiler/artifact.json ./prebuilt/typst-compiler/artifact.json
 COPY prebuilt/busytex/build-manifest.json ./prebuilt/busytex/build-manifest.json
 COPY protocol/package.json ./protocol/package.json
 COPY protocol/package-lock.json ./protocol/package-lock.json
 COPY --from=selected-distribution /bundle/distributions ./distributions
 RUN node scripts/fetch-runtime-artifacts.mjs
-RUN node scripts/prebuilt-typst-compiler.mjs verify-package
 WORKDIR /workspace/protocol
 RUN npm ci
 WORKDIR /workspace/web

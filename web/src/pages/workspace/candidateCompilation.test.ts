@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { compileWorkspaceCandidate } from "@/pages/workspace/candidateCompilation";
 import type { CompileWorld } from "@/pages/workspace/compileWorld";
+import { createTestCompilationEnvironment } from "@/testSupport/applicationRuntime";
 
 const { compileTypstCandidateClientSide } = vi.hoisted(() => ({
   compileTypstCandidateClientSide: vi.fn(),
@@ -31,6 +32,8 @@ function world(main: string): CompileWorld {
 }
 
 describe("Workspace candidate compilation", () => {
+  const environment = createTestCompilationEnvironment();
+
   beforeEach(() => {
     compileTypstCandidateClientSide.mockReset();
     vi.stubGlobal("window", { location: { origin: "http://localhost" } });
@@ -38,6 +41,7 @@ describe("Workspace candidate compilation", () => {
 
   it("returns syntax errors without starting the candidate compiler", async () => {
     const result = await compileWorkspaceCandidate(
+      environment,
       world("#let value = ("),
       { kind: "typst", emitPdf: false },
       "main.typ",
@@ -68,6 +72,7 @@ describe("Workspace candidate compilation", () => {
     });
 
     const result = await compileWorkspaceCandidate(
+      environment,
       world("#let value = 1\nValue: #value"),
       { kind: "typst", emitPdf: false },
       "main.typ",
@@ -94,6 +99,7 @@ describe("Workspace candidate compilation", () => {
     );
 
     await expect(compileWorkspaceCandidate(
+      environment,
       world("#let value = 1\nValue: #value"),
       { kind: "typst", emitPdf: false },
       "main.typ",

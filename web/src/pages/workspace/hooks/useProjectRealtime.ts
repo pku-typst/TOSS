@@ -1,10 +1,10 @@
 import { useActorRef, useSelector } from "@xstate/react";
 import { useEffect, useMemo } from "react";
 import {
-  openProjectRealtime,
   projectRealtimeMachine,
   type ProjectRealtimeConfig,
 } from "@/pages/workspace/projectRealtimeActor";
+import { useCollaborationBackend } from "@/collaboration/collaborationBackend";
 
 export function useProjectRealtime(input: {
   projectId: string;
@@ -13,9 +13,10 @@ export function useProjectRealtime(input: {
   shareToken: string | null;
   guestSession: string | null;
 }) {
+  const collaborationBackend = useCollaborationBackend();
   const actor = useActorRef(projectRealtimeMachine, {
     input: {
-      open: openProjectRealtime,
+      open: collaborationBackend.openProject,
       onProjectReplaced: () => window.location.reload(),
       onAccessChanged: () => window.location.reload(),
     },

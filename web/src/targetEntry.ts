@@ -1,0 +1,1 @@
+export { startApplication } from "@/coreEntry";

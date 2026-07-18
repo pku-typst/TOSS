@@ -2,11 +2,12 @@ import type {
   AiTypstPackageToolRequest,
   AiWorkspaceToolExecution
 } from "@/features/ai/toolContract";
+import type { TypstPackageSource } from "@/lib/typstUniverse";
 
 export type TypstPackageInspectorExecute = {
   kind: "execute";
   id: number;
-  baseUrl: string;
+  source: TypstPackageSource;
   request: AiTypstPackageToolRequest;
 };
 

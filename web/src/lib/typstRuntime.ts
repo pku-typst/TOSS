@@ -10,6 +10,7 @@ export type TypstRuntimeManifest = {
   schema: 2;
   typst_ts_version: string;
   compiler_package_version: string;
+  compiler_upstream_package_version: string;
   compiler_source_revision: string;
   renderer_package_version: string;
   compiler: TypstRuntimeModule;
@@ -22,18 +23,47 @@ export type TypstRuntimeManifest = {
 export const TYPST_RUNTIME_BUILD_ID = [
   runtimeConfig.runtime_version,
   runtimeConfig.compiler.package_version,
+  runtimeConfig.compiler.upstream_package_version,
   runtimeConfig.compiler.source_revision,
   runtimeConfig.renderer.package_version
 ].join(":");
 
 export const TYPST_RUNTIME_MODULE_CACHE = `typst.runtime.modules.${TYPST_RUNTIME_BUILD_ID}`;
 
-function isRuntimeModule(value: unknown): value is TypstRuntimeModule {
+function isRelativeRuntimeModuleUrl(value: string) {
+  return (
+    !value.startsWith("/") &&
+    !value.includes(":") &&
+    value.split("/").every((part) => !!part && part !== "." && part !== "..")
+  );
+}
+
+function isExternalRuntimeModuleUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isRuntimeModule(
+  value: unknown,
+  allowExternal: boolean,
+): value is TypstRuntimeModule {
   if (!value || typeof value !== "object") return false;
   const module = value as Partial<TypstRuntimeModule>;
   return (
     typeof module.url === "string" &&
-    module.url.startsWith("/typst-runtime/") &&
+    !!module.url &&
+    (isRelativeRuntimeModuleUrl(module.url) ||
+      (allowExternal && isExternalRuntimeModuleUrl(module.url))) &&
     typeof module.sha256 === "string" &&
     /^[a-f0-9]{64}$/i.test(module.sha256) &&
     typeof module.size_bytes === "number" &&
@@ -53,18 +83,22 @@ function parseRuntimeManifest(value: unknown): TypstRuntimeManifest {
     !manifest.typst_ts_version ||
     typeof manifest.compiler_package_version !== "string" ||
     !manifest.compiler_package_version ||
+    typeof manifest.compiler_upstream_package_version !== "string" ||
+    !manifest.compiler_upstream_package_version ||
     typeof manifest.compiler_source_revision !== "string" ||
     !/^[a-f0-9]{40}$/i.test(manifest.compiler_source_revision) ||
     typeof manifest.renderer_package_version !== "string" ||
     !manifest.renderer_package_version ||
-    !isRuntimeModule(manifest.compiler) ||
-    !isRuntimeModule(manifest.renderer)
+    !isRuntimeModule(manifest.compiler, true) ||
+    !isRuntimeModule(manifest.renderer, false)
   ) {
     throw new Error("Typst runtime manifest is incomplete");
   }
   if (
     manifest.typst_ts_version !== runtimeConfig.runtime_version ||
     manifest.compiler_package_version !== runtimeConfig.compiler.package_version ||
+    manifest.compiler_upstream_package_version !==
+      runtimeConfig.compiler.upstream_package_version ||
     manifest.compiler_source_revision !== runtimeConfig.compiler.source_revision ||
     manifest.renderer_package_version !== runtimeConfig.renderer.package_version
   ) {
@@ -75,8 +109,8 @@ function parseRuntimeManifest(value: unknown): TypstRuntimeManifest {
   return manifest as TypstRuntimeManifest;
 }
 
-export async function loadTypstRuntimeManifest(appOrigin: string): Promise<TypstRuntimeManifest> {
-  const url = new URL("/typst-runtime/manifest.json", appOrigin);
+export async function loadTypstRuntimeManifest(runtimeBaseUrl: string): Promise<TypstRuntimeManifest> {
+  const url = new URL("manifest.json", runtimeBaseUrl);
   url.searchParams.set("runtime", TYPST_RUNTIME_BUILD_ID);
   const response = await fetch(url, {
     cache: "no-store",
@@ -88,8 +122,11 @@ export async function loadTypstRuntimeManifest(appOrigin: string): Promise<Typst
   return parseRuntimeManifest(await response.json());
 }
 
-export function absoluteRuntimeModuleUrl(module: TypstRuntimeModule, appOrigin: string): string {
-  return new URL(module.url, appOrigin).toString();
+export function absoluteRuntimeModuleUrl(
+  module: TypstRuntimeModule,
+  runtimeBaseUrl: string,
+): string {
+  return new URL(module.url, runtimeBaseUrl).toString();
 }
 
 export async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {

@@ -40,6 +40,7 @@ type UseWorkspaceRevisionsInput = {
   projectId: string;
   sessionGeneration: string;
   workspaceLoaded: boolean;
+  enabled: boolean;
   visible: boolean;
   projectType: ProjectType;
   liveDocs: Record<string, string>;
@@ -114,6 +115,7 @@ export function useWorkspaceRevisions({
   projectId,
   sessionGeneration,
   workspaceLoaded,
+  enabled,
   visible,
   projectType,
   liveDocs,
@@ -138,7 +140,7 @@ export function useWorkspaceRevisions({
         hasOlder: revisions.length >= REVISION_PAGE_SIZE
       };
     },
-    enabled: !!projectId && workspaceLoaded && visible,
+    enabled: enabled && !!projectId && workspaceLoaded && visible,
     refetchInterval: REVISION_REFRESH_INTERVAL_MS,
     retry: false,
     structuralSharing: shareRevisionHead
@@ -168,6 +170,7 @@ export function useWorkspaceRevisions({
   );
   const createRevision = useCallback(
     async (summary: string) => {
+      if (!enabled) throw new Error("workspace_revisions_unavailable");
       const created = await createProjectRevision(projectId, summary.trim());
       queryClient.setQueryData<RevisionHead>(headQueryKey, (previous) => ({
         revisions: [
@@ -179,7 +182,7 @@ export function useWorkspaceRevisions({
         hasOlder: previous?.hasOlder ?? false
       }));
     },
-    [headQueryKey, projectId, queryClient]
+    [enabled, headQueryKey, projectId, queryClient]
   );
 
   const revisionActor = useActorRef(revisionMaterializationMachine, {
@@ -237,6 +240,7 @@ export function useWorkspaceRevisions({
     : (headQuery.data?.hasOlder ?? false);
   const loadMore = useCallback(() => {
     if (
+      !enabled ||
       !visible ||
       !hasMore ||
       isFetchingNextPage ||
@@ -247,6 +251,7 @@ export function useWorkspaceRevisions({
     void fetchNextPage();
   }, [
     fetchNextPage,
+    enabled,
     hasMore,
     isFetchingNextPage,
     olderPagesLoaded,
@@ -256,7 +261,7 @@ export function useWorkspaceRevisions({
 
   const open = useCallback(
     (revisionId: string) => {
-      if (!projectId) return;
+      if (!enabled || !projectId) return;
       revisionActor.send({
         type: "open",
         request: {
@@ -269,6 +274,7 @@ export function useWorkspaceRevisions({
         }
       });
     }, [
+      enabled,
       liveAssetMeta,
       liveAssets,
       liveDocs,

@@ -106,15 +106,20 @@ or private processor configuration in the distribution file.
 
 The frontend build reads `project_types`, `frontend_features`, and the AI
 connection-policy kind when AI is included; it does not parse
-`document_processing` or receive a managed endpoint/model profile. A Typst-only build aliases the LaTeX editor
-and runtime to disabled modules and excludes BusyTeX assets. Every build emits
+`document_processing`. A Core-backed host build does not receive a managed
+endpoint or model profile. A Typst-only build aliases the LaTeX editor and
+runtime to disabled modules and excludes BusyTeX assets. Every build emits
 `toss-build-manifest.json`, which Core checks against runtime configuration.
 Schema 2 also binds an included AI host build to the exact
 `/_ai-runtime/bootstrap.html` artifact, build ID, and connection-policy kind.
 Core injects the validated full Runtime policy only when serving that no-store
-entry. An AI-excluded build emits
-neither the Assistant chunk, candidate compiler/docs-tool path, KaTeX assets,
-nor the Runtime artifact.
+entry.
+
+A static build has no server injection point. It applies
+`frontend_features.default_enabled`, embeds the validated AI policy only in the
+opaque Runtime entry, and keeps the host-side configuration redacted. An
+AI-excluded build emits neither the Assistant chunk, candidate compiler/docs
+tool, KaTeX assets, nor the Runtime artifact.
 
 ## Product identity
 

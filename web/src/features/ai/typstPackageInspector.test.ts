@@ -33,7 +33,11 @@ afterEach(() => {
 describe("browser Typst package inspector", () => {
   it("correlates worker results and validates the tool-specific response", async () => {
     vi.stubGlobal("Worker", FakeWorker);
-    const inspector = new BrowserTypstPackageInspector("https://toss.example");
+    const inspector = new BrowserTypstPackageInspector({
+      kind: "toss",
+      baseUrl: "https://toss.example/v1/typst/packages/",
+      withCredentials: true
+    });
     const result = inspector.execute({
       tool: "list_typst_package_files",
       arguments: { package_spec: "@preview/fixture:1.2.3" }
@@ -42,7 +46,11 @@ describe("browser Typst package inspector", () => {
     expect(worker.posted[0]).toMatchObject({
       kind: "execute",
       id: 1,
-      baseUrl: "https://toss.example"
+      source: {
+        kind: "toss",
+        baseUrl: "https://toss.example/v1/typst/packages/",
+        withCredentials: true
+      }
     });
     worker.respond({
       id: 1,
@@ -66,7 +74,10 @@ describe("browser Typst package inspector", () => {
 
   it("cancels an in-flight worker request without waiting for a response", async () => {
     vi.stubGlobal("Worker", FakeWorker);
-    const inspector = new BrowserTypstPackageInspector("");
+    const inspector = new BrowserTypstPackageInspector({
+      kind: "preview",
+      baseUrl: "https://packages.typst.org"
+    });
     const controller = new AbortController();
     const result = inspector.execute({
       tool: "read_typst_package_file",

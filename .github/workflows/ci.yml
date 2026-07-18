@@ -31,13 +31,11 @@ jobs:
           cache: npm
           cache-dependency-path: protocol/package-lock.json
 
-      - name: Cache verified browser runtime artifacts
+      - name: Cache verified BusyTeX runtime
         uses: actions/cache@v6
         with:
-          path: |
-            prebuilt/typst-compiler/package
-            prebuilt/busytex/package
-          key: browser-runtime-${{ hashFiles('prebuilt/typst-compiler/build-manifest.json', 'prebuilt/typst-compiler/artifact.json', 'prebuilt/busytex/build-manifest.json') }}
+          path: prebuilt/busytex/package
+          key: busytex-runtime-${{ hashFiles('prebuilt/busytex/build-manifest.json') }}
 
       - name: Run preflight checks
         run: scripts/ci/preflight.sh
@@ -143,13 +141,11 @@ jobs:
             protocol/package-lock.json
             web/package-lock.json
 
-      - name: Restore verified browser runtime artifacts
+      - name: Restore verified BusyTeX runtime
         uses: actions/cache@v6
         with:
-          path: |
-            prebuilt/typst-compiler/package
-            prebuilt/busytex/package
-          key: browser-runtime-${{ hashFiles('prebuilt/typst-compiler/build-manifest.json', 'prebuilt/typst-compiler/artifact.json', 'prebuilt/busytex/build-manifest.json') }}
+          path: prebuilt/busytex/package
+          key: busytex-runtime-${{ hashFiles('prebuilt/busytex/build-manifest.json') }}
 
       - name: Run web checks
         run: scripts/ci/web.sh
@@ -165,6 +161,40 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+  web_static:
+    name: web-static
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout with Typst documentation source
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: |
+            protocol/package-lock.json
+            web/package-lock.json
+
+      - name: Prepare static web checks
+        run: |
+          npm --prefix protocol ci
+          npm --prefix web ci
+
+      - name: Install Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run static web checks
+        env:
+          TOSS_BASE_URL: /TOSS/
+        run: scripts/ci/web-static.sh
 
   integration:
     name: integration
@@ -239,6 +269,7 @@ jobs:
       - backend
       - workers
       - web
+      - web_static
       - integration
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -249,6 +280,7 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend.result }}
           WORKERS_RESULT: ${{ needs.workers.result }}
           WEB_RESULT: ${{ needs.web.result }}
+          WEB_STATIC_RESULT: ${{ needs.web_static.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
         run: |
           for result in \
@@ -256,6 +288,7 @@ jobs:
             "$BACKEND_RESULT" \
             "$WORKERS_RESULT" \
             "$WEB_RESULT" \
+            "$WEB_STATIC_RESULT" \
             "$INTEGRATION_RESULT"; do
             if [[ "$result" != "success" ]]; then
               echo "Required CI job did not succeed: $result" >&2

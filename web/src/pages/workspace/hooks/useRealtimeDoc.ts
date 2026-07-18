@@ -10,11 +10,11 @@ import { minimalTextChange } from "@/lib/editorSync";
 import type { RealtimeStatus, ReconnectState } from "@/lib/realtime";
 import type { DocumentIdentity } from "@/pages/workspace/types";
 import {
-  openRealtimeDocumentSession,
   realtimeDocumentMachine,
   type RealtimeDocumentConfig,
   type RealtimeDocumentSession,
 } from "@/pages/workspace/realtimeDocumentActor";
+import { useCollaborationBackend } from "@/collaboration/collaborationBackend";
 
 type UseRealtimeDocParams = {
   projectId: string;
@@ -49,6 +49,7 @@ export function useRealtimeDoc({
   shareToken,
   guestSession,
 }: UseRealtimeDocParams) {
+  const collaborationBackend = useCollaborationBackend();
   const hasActiveLiveDoc = useMemo(
     () => Object.prototype.hasOwnProperty.call(docs, activePath),
     [activePath, docs],
@@ -100,7 +101,7 @@ export function useRealtimeDoc({
   ]);
   const realtimeActor = useActorRef(realtimeDocumentMachine, {
     input: {
-      openSession: openRealtimeDocumentSession,
+      openSession: collaborationBackend.openDocument,
       onProjectReplaced: () => window.location.reload(),
       onAccessChanged: () => window.location.reload(),
     },

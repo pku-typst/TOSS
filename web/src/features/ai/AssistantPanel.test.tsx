@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeTurnActivity,
+  aiRuntimeEntryPath,
   filterManagedModelProfiles,
   shouldShowManagedModelSearch,
   type AiTurnActivity
@@ -9,6 +10,14 @@ import type {
   AiTranscriptMessage,
   AiTranscriptPart
 } from "@/features/ai/runtimeClient";
+
+describe("aiRuntimeEntryPath", () => {
+  it("stays under root, nested, and relative application bases", () => {
+    expect(aiRuntimeEntryPath("/")).toBe("/_ai-runtime/bootstrap.html");
+    expect(aiRuntimeEntryPath("/TOSS")).toBe("/TOSS/_ai-runtime/bootstrap.html");
+    expect(aiRuntimeEntryPath("./")).toBe("./_ai-runtime/bootstrap.html");
+  });
+});
 
 function assistantMessage(
   parts: readonly AiTranscriptPart[],

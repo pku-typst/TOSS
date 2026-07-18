@@ -25,7 +25,6 @@ import {
 
 export const AI_RUNTIME_PROTOCOL_VERSION = 1 as const;
 export const AI_RUNTIME_BUILD_ID = __TOSS_AI_RUNTIME_BUILD_ID__;
-export const AI_RUNTIME_ENTRY_PATH = "/_ai-runtime/bootstrap.html";
 export const AI_ASSISTANT_PANEL_ID = "feature:ai_assistant" as const;
 
 export type AiRuntimeLocale = "en" | "zh-CN";

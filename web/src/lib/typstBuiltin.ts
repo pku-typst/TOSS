@@ -119,7 +119,7 @@ function parseCatalog(value: unknown): BuiltinTypstCatalog {
 }
 
 function builtinAssetUrl(baseUrl: string, artifactPath: string): string {
-  const base = `${baseUrl.replace(/\/$/, "")}/v1/typst/builtin/`;
+  const base = `${baseUrl.replace(/\/$/, "")}/`;
   return new URL(artifactPath, base).toString();
 }
 
@@ -131,11 +131,12 @@ async function fetchVerifiedAsset(
   url: string,
   expectedSize: number,
   expectedSha256: string,
-  label: string
+  label: string,
+  credentials: RequestCredentials,
 ): Promise<{ bytes: Uint8Array; response: Response }> {
   const response = await fetch(url, {
     cache: "force-cache",
-    credentials: "include"
+    credentials,
   });
   if (!response.ok) throw new Error(`${label} fetch failed: ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -189,12 +190,16 @@ class LocalPackageRegistry implements PackageRegistry {
   }
 }
 
-export async function loadBuiltinTypst(baseUrl: string): Promise<LoadedBuiltinTypst> {
+export async function loadBuiltinTypst(options: {
+  baseUrl: string;
+  credentials: RequestCredentials;
+}): Promise<LoadedBuiltinTypst> {
+  const { baseUrl, credentials } = options;
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
-  const catalogUrl = `${normalizedBaseUrl}/v1/typst/builtin/catalog.json`;
+  const catalogUrl = `${normalizedBaseUrl}/catalog.json`;
   const catalogResponse = await fetch(catalogUrl, {
     cache: "no-store",
-    credentials: "include"
+    credentials,
   });
   if (!catalogResponse.ok) {
     throw new Error(`Built-in Typst catalog fetch failed: ${catalogResponse.status}`);
@@ -207,7 +212,8 @@ export async function loadBuiltinTypst(baseUrl: string): Promise<LoadedBuiltinTy
         url,
         entry.size_bytes,
         entry.sha256,
-        `@${entry.namespace}/${entry.name}:${entry.version}`
+        `@${entry.namespace}/${entry.name}:${entry.version}`,
+        credentials,
       );
       return { ...entry, bytes };
     })
@@ -226,7 +232,8 @@ export async function loadBuiltinTypst(baseUrl: string): Promise<LoadedBuiltinTy
       requestUrl,
       entry.size_bytes,
       entry.sha256,
-      `font ${entry.file}`
+      `font ${entry.file}`,
+      credentials,
     );
     const body = new Uint8Array(bytes.byteLength);
     body.set(bytes);

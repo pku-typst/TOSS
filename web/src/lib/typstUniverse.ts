@@ -22,6 +22,17 @@ export type TypstPackageResponse = {
 
 export type TypstPackageRequester = (spec: PackageSpec) => TypstPackageResponse;
 
+export type TypstPackageSource =
+  | {
+      kind: "toss";
+      baseUrl: string;
+      withCredentials: boolean;
+    }
+  | {
+      kind: "preview";
+      baseUrl: string;
+    };
+
 function packageSpecLabel(spec: PackageSpec): string {
   return `@${spec.namespace}/${spec.name}:${spec.version}`;
 }
@@ -54,14 +65,26 @@ function packageError(status: number, spec: PackageSpec, detail: string): Error 
   return new Error(`Cannot download Typst package ${label} (HTTP ${status || "network error"})${suffix}`);
 }
 
-export function createHttpTypstPackageRequester(baseUrl: string): TypstPackageRequester {
-  const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
+function packageUrl(source: TypstPackageSource, spec: PackageSpec) {
+  const baseUrl = source.baseUrl.replace(/\/$/, "");
+  if (source.kind === "preview") {
+    if (spec.namespace !== "preview") {
+      throw new Error(`Typst package ${packageSpecLabel(spec)} is not available from the preview registry`);
+    }
+    return `${baseUrl}/preview/${encodeURIComponent(spec.name)}-${encodeURIComponent(spec.version)}.tar.gz`;
+  }
+  return `${baseUrl}/${encodeURIComponent(spec.namespace)}/${encodeURIComponent(spec.name)}/${encodeURIComponent(spec.version)}`;
+}
+
+export function createHttpTypstPackageRequester(
+  source: TypstPackageSource,
+): TypstPackageRequester {
   return (spec) => {
-    const url = `${normalizedBaseUrl}/v1/typst/packages/${encodeURIComponent(spec.namespace)}/${encodeURIComponent(spec.name)}/${encodeURIComponent(spec.version)}`;
+    const url = packageUrl(source, spec);
     const request = new XMLHttpRequest();
     request.open("GET", url, false);
     request.responseType = "arraybuffer";
-    request.withCredentials = true;
+    request.withCredentials = source.kind === "toss" && source.withCredentials;
     try {
       request.send(null);
     } catch (error) {
@@ -157,12 +180,12 @@ export class HybridPackageRegistry implements PackageRegistry {
 export function createHybridPackageRegistry(options: {
   local: PackageRegistry;
   accessModel: WritableAccessModel;
-  baseUrl: string;
+  source: TypstPackageSource;
   onStatus?: (status: TypstPackageStatus) => void;
 }): PackageRegistry {
   const universe = new UniversePackageRegistry(
     options.accessModel,
-    createHttpTypstPackageRequester(options.baseUrl),
+    createHttpTypstPackageRequester(options.source),
     options.onStatus
   );
   return new HybridPackageRegistry(options.local, universe);

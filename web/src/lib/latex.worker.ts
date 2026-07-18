@@ -6,14 +6,14 @@ import {
   parseLatexCompileDiagnostics,
   summarizeLatexCompileErrors,
 } from "./latexRuntimeUtils";
+import type { CompilationEnvironment } from "@/compilation/compilationEnvironment";
 
 type CompileRequest = {
   id: number;
   entryFilePath: string;
   documents: Array<{ path: string; content: string }>;
   assets: Array<{ path: string; content_base64: string }>;
-  coreApiUrl: string;
-  appOrigin?: string;
+  environment: NonNullable<CompilationEnvironment["latex"]>;
   engine: "pdftex" | "xetex";
 };
 
@@ -45,15 +45,12 @@ function base64ToUint8(value: string): Uint8Array {
   return out;
 }
 
-function texliveEndpoint(coreApiUrl: string, appOrigin: string) {
-  const base = coreApiUrl.replace(/\/$/, "") || appOrigin;
-  return `${base.replace(/\/$/, "")}/v1/latex/texlive`;
-}
-
 function runtimeFor(request: CompileRequest) {
-  const appOrigin = request.appOrigin ?? self.location.origin;
-  const remoteEndpoint = texliveEndpoint(request.coreApiUrl, appOrigin);
-  const basePath = new URL(`/busytex/${BUSYTEX_VERSION}`, appOrigin).toString();
+  const remoteEndpoint = request.environment.texliveBaseUrl;
+  const basePath = new URL(
+    `${BUSYTEX_VERSION}/`,
+    request.environment.runtimeBaseUrl,
+  ).toString().replace(/\/$/, "");
   const nextKey = `${basePath}:${remoteEndpoint}`;
   if (compiler && compilerKey === nextKey) return compiler;
   compiler?.close();

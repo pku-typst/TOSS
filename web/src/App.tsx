@@ -55,6 +55,7 @@ import {
 import { clearProjectSnapshotCaches } from "@/lib/projectCache";
 import { StatusPage } from "@/pages/StatusPage";
 import { ProcessingTaskCenter } from "@/pages/processing/ProcessingTaskCenter";
+import { useProjectCatalog } from "@/projects/projectCatalog";
 
 export type AppRouteHandle = {
   page?: "home" | "signin" | "projects" | "gallery" | "help" | "profile" | "admin" | "project" | "share" | "not-found";
@@ -224,6 +225,7 @@ function TopbarLink({ to, children }: { to: string; children: ReactNode }) {
 }
 
 export function App() {
+  const projectCatalog = useProjectCatalog();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -271,7 +273,7 @@ export function App() {
   const authUser = bootstrapQuery.data?.authUser ?? null;
   const signedInContextQuery = useQuery({
     queryKey: signedInContextQueryKey(authUser?.user_id ?? "anonymous"),
-    queryFn: loadSignedInContext,
+    queryFn: () => loadSignedInContext(projectCatalog),
     enabled: !!authUser,
     retry: false
   });
@@ -445,7 +447,7 @@ export function App() {
           const joined = await joinProjectShareLink(pendingShare);
           await queryClient.fetchQuery({
             queryKey: signedInContextQueryKey(me.user_id),
-            queryFn: loadSignedInContext,
+            queryFn: () => loadSignedInContext(projectCatalog),
             staleTime: 0
           });
           navigate(`/project/${joined.project_id}`, { replace: true });
@@ -460,7 +462,7 @@ export function App() {
       }
       navigate(returnTo, { replace: true });
     },
-    [navigate, queryClient, shareToken, t]
+    [navigate, projectCatalog, queryClient, shareToken, t]
   );
 
   if (reloadRequired && (!authConfig || !experience)) {

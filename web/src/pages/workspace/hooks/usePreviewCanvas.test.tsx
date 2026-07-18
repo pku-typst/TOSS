@@ -120,6 +120,7 @@ function renderPreviewHook(onTypstPreviewClick = vi.fn()) {
       vectorData: Uint8Array | null;
     }) =>
       usePreviewCanvas({
+        typstRuntimeBaseUrl: "https://example.test/typst-runtime/",
         showPreviewPanel: show,
         previewArtifactKind: "typst-vector",
         vectorData,

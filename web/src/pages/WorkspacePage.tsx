@@ -11,6 +11,7 @@ import "@/pages/workspace/styles.css";
 import { createPortal } from "react-dom";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { UiButton } from "@/components/ui";
+import { useCompilationEnvironment } from "@/compilation/compilationEnvironment";
 import {
   AiAssistantPanel,
   AI_ASSISTANT_PANEL_ID,
@@ -27,7 +28,6 @@ import {
   type AiWorkspaceToolSource
 } from "@/features/ai";
 import {
-  coreApiBaseUrl,
   type AuthUser,
   type AnonymousMode,
   type OrganizationMembership,
@@ -83,6 +83,10 @@ import {
 } from "@/pages/workspace/utils";
 import type { Translator, UiLocale } from "@/lib/i18n";
 import type { WorkspaceSettingsSectionId } from "@/pages/workspace/types";
+import {
+  coreWorkspaceFeatureAvailability,
+  type WorkspaceFeatureAvailability,
+} from "@/pages/workspace/featureAvailability";
 
 type WorkspacePageProps = {
   projects: Project[];
@@ -102,6 +106,7 @@ type WorkspacePageProps = {
   onSaveSharedProject?: () => Promise<void>;
   onSignInFromWorkspace?: () => Promise<void>;
   onLogoutFromWorkspace?: () => Promise<void>;
+  featureAvailability?: WorkspaceFeatureAvailability;
 };
 
 export function WorkspacePage(props: WorkspacePageProps) {
@@ -156,8 +161,10 @@ function ResolvedWorkspacePage({
   shareSaveError = null,
   onSaveSharedProject,
   onSignInFromWorkspace,
-  onLogoutFromWorkspace
+  onLogoutFromWorkspace,
+  featureAvailability = coreWorkspaceFeatureAvailability
 }: ResolvedWorkspacePageProps) {
+  const compilationEnvironment = useCompilationEnvironment();
   const navigate = useNavigate();
   const {
     guestSessionToken,
@@ -212,6 +219,13 @@ function ResolvedWorkspacePage({
     openPanel,
     beginHorizontalResize
   } = useWorkspaceLayout();
+  const revisionPanelActive =
+    featureAvailability.revisions && effectiveShowRevisionPanel;
+  useEffect(() => {
+    if (!featureAvailability.revisions && compactPanelView === "revisions") {
+      selectCompactPanel("editor");
+    }
+  }, [compactPanelView, featureAvailability.revisions, selectCompactPanel]);
   const [preferredSettingsSection, setPreferredSettingsSection] =
     useState<WorkspaceSettingsSectionId | null>(null);
   const assistantPanelActive =
@@ -255,8 +269,7 @@ function ResolvedWorkspacePage({
     canRequestGuestWrite,
     canWrite,
     canManageProject,
-    canViewWriteShareLink,
-    canViewShareLinks
+    canViewWriteShareLink
   } = deriveWorkspacePermissions({
     isAnonymousShare,
     sharePermission: sharePermission ?? null,
@@ -277,7 +290,6 @@ function ResolvedWorkspacePage({
       shareGuestSession,
     ]),
     canWrite: !!canWrite,
-    canViewShareLinks,
     cachedOfflineMessage: t("workspace.cachedOffline"),
     loadErrorMessage: t("errors.loadWorkspace")
   });
@@ -321,7 +333,8 @@ function ResolvedWorkspacePage({
   const backgroundLatexBuild = useBackgroundLatexBuild({
     projectId,
     userId: authUser?.user_id ?? null,
-    enabled: projectType === "latex"
+    enabled:
+      featureAvailability.backgroundProcessing && projectType === "latex"
   });
   const {
     error: projectActionError,
@@ -359,7 +372,8 @@ function ResolvedWorkspacePage({
     projectId,
     sessionGeneration: workspaceSessionGeneration,
     workspaceLoaded,
-    visible: effectiveShowRevisionPanel,
+    enabled: featureAvailability.revisions,
+    visible: revisionPanelActive,
     projectType,
     liveDocs: docs,
     liveAssets: assetBase64,
@@ -577,6 +591,7 @@ function ResolvedWorkspacePage({
     handlePreviewClick,
     beginPreviewPan
   } = usePreviewCanvas({
+    typstRuntimeBaseUrl: compilationEnvironment.typst.runtimeBaseUrl,
     showPreviewPanel: effectiveShowPreviewPanel,
     previewArtifactKind,
     vectorData,
@@ -601,7 +616,7 @@ function ResolvedWorkspacePage({
       effectiveShowFilesPanel,
       effectiveShowPreviewPanel,
       effectiveShowSettingsPanel,
-      effectiveShowRevisionPanel
+      revisionPanelActive
     ].join(":"),
     onRenderError: reportPreviewError,
     renderErrorFallback: t("errors.previewRender"),
@@ -824,6 +839,7 @@ function ResolvedWorkspacePage({
       };
     }
     const output = await compileWorkspaceCandidate(
+      compilationEnvironment,
       candidateWorld,
       revision.target,
       candidate.path,
@@ -835,7 +851,7 @@ function ResolvedWorkspacePage({
       errors: output.errors,
       diagnostics: output.diagnostics
     };
-  }, []);
+  }, [compilationEnvironment]);
   const isAiCandidateRevisionCurrent = useCallback(
     (revision: object) => aiCandidateCompileRevisionRef.current === revision,
     []
@@ -963,7 +979,7 @@ function ResolvedWorkspacePage({
       projectType,
       mode: isRevisionMode ? "revision" : "live",
       allowEdits: aiWorkspaceAllowsEdits,
-      coreApiUrl: coreApiBaseUrl(),
+      typstPackageSource: compilationEnvironment.typst.packageSource,
       getContextSnapshot: getAiWorkspaceContext,
       getCompilationSnapshot: getAiWorkspaceCompilation,
       getSource: getAiWorkspaceSource,
@@ -976,6 +992,7 @@ function ResolvedWorkspacePage({
       aiWorkspaceAllowsEdits,
       aiWorkspaceScopeId,
       assistantEditReviewCoordinator,
+      compilationEnvironment.typst.packageSource,
       getAiWorkspaceCompilation,
       getAiWorkspaceContext,
       getAiWorkspaceSource,
@@ -1095,17 +1112,16 @@ function ResolvedWorkspacePage({
       return;
     }
     void prewarmTypstClientSide({
-      coreApiUrl: coreApiBaseUrl(),
-      appOrigin: window.location.origin,
+      environment: compilationEnvironment.typst,
       documents: compileWorld.documents.slice()
     }).catch(() => undefined);
-  }, [compileWorld, projectId, workspaceLoaded]);
+  }, [compilationEnvironment.typst, compileWorld, projectId, workspaceLoaded]);
 
   useEffect(() => {
-    if (effectiveShowRevisionPanel) return;
+    if (revisionPanelActive) return;
     if (!activeRevisionId) return;
     clearRevisionSelection();
-  }, [activeRevisionId, clearRevisionSelection, effectiveShowRevisionPanel]);
+  }, [activeRevisionId, clearRevisionSelection, revisionPanelActive]);
 
   useEffect(() => {
     if (contentReplaced) window.location.reload();
@@ -1164,7 +1180,8 @@ function ResolvedWorkspacePage({
             showFilesPanel={effectiveShowFilesPanel}
             showPreviewPanel={effectiveShowPreviewPanel}
             showProjectSettingsPanel={effectiveShowSettingsPanel}
-            showRevisionPanel={effectiveShowRevisionPanel}
+            showRevisionPanel={revisionPanelActive}
+            revisionsAvailable={featureAvailability.revisions}
             optionalAuxiliaryPanels={assistantPanelControl ? [assistantPanelControl] : []}
             collapsePanelsIntoMenu={collapsePanelToggles}
             singlePanelMode={singlePanelMode}
@@ -1174,6 +1191,7 @@ function ResolvedWorkspacePage({
             onTogglePanel={togglePanel}
             onSelectPanel={selectCompactPanel}
             showAccountControlsInViewMenu={showAccountControlsInViewMenu}
+            accountControlsAvailable={featureAvailability.accountControls}
             accountDisplayName={authUser?.display_name ?? null}
             onOpenProfile={() => navigate("/profile")}
             onLogout={async () => {
@@ -1434,6 +1452,10 @@ function ResolvedWorkspacePage({
                   canManageProject: !!canManageProject,
                   canViewWriteShareLink: !!canViewWriteShareLink
                 }}
+                projectAccessEnabled={featureAvailability.projectAccess}
+                externalRepositoriesEnabled={
+                  featureAvailability.externalRepositories
+                }
                 preview={{
                   renderer: typstPreviewRenderer,
                   setRenderer: setTypstPreviewRenderer
@@ -1450,7 +1472,7 @@ function ResolvedWorkspacePage({
           </>
         )}
 
-        {effectiveShowRevisionPanel && (
+        {revisionPanelActive && (
           <>
             {!singlePanelMode && (
               <div

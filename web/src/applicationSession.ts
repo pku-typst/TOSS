@@ -5,13 +5,13 @@ import {
   getAuthMe,
   getExperience,
   listMyOrganizations,
-  listProjects,
   type AuthConfig,
   type AuthUser,
   type Experience,
   type OrganizationMembership,
   type Project
 } from "@/lib/api";
+import type { ProjectCatalog } from "@/projects/projectCatalog";
 
 export const applicationBootstrapQueryKey = ["app-bootstrap"] as const;
 
@@ -40,9 +40,11 @@ export async function loadApplicationBootstrap(): Promise<ApplicationBootstrap> 
   return { authConfig, experience, authUser };
 }
 
-export async function loadSignedInContext(): Promise<SignedInContext> {
+export async function loadSignedInContext(
+  projectCatalog: ProjectCatalog,
+): Promise<SignedInContext> {
   const [projects, organizations, hasAdminAccess] = await Promise.all([
-    listProjects({ includeArchived: true }),
+    projectCatalog.list({ includeArchived: true }),
     listMyOrganizations(),
     canAccessAdminPanel().catch(() => false)
   ]);

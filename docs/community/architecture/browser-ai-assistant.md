@@ -28,9 +28,12 @@ code_paths:
   - web/src/pages/workspace
   - web/src/features/ai
   - web/src/ai-runtime
+  - web/ai-runtime/bootstrap.template.html
+  - web/aiRuntimeHtml.ts
   - web/src/lib/deploymentCapabilities.ts
   - web/distributionBuildConfig.ts
   - web/vite.ai-runtime.config.ts
+  - web/scripts/build-ai-runtime.mjs
   - web/scripts/headless-ai-runtime.mjs
   - backend/src/deployment_config.rs
   - backend/src/server/ai_runtime.rs
@@ -82,14 +85,16 @@ slices are implemented. They contain:
   panel descriptor;
 - one mutually exclusive auxiliary-panel state for Assistant, Settings, and
   Revisions;
-- a separately built `/_ai-runtime/bootstrap.html` artifact with a fixed,
+- a separately built `/_ai-runtime/bootstrap.html` artifact rendered from one
+  owned template and a machine-readable bundle manifest, with a fixed,
   versioned protocol and deterministic fake provider for tests;
 - Runtime-owned English and Simplified Chinese UI catalogs selected through a
   bounded locale value in the channel handshake, without exposing host storage
   or importing the host catalog into the opaque principal;
 - an opaque `sandbox="allow-scripts"` iframe and one-use `MessageChannel`;
 - explicit Core routes, per-response nonces, Runtime CSP, public immutable
-  CORS/CORP module assets, and fixed not-found behavior while disabled;
+  CORS/CORP module assets, and fixed not-found behavior while disabled; the
+  static target instead emits one CSP-bound inline Runtime module;
 - a schema-2 web build manifest and Runtime build descriptor that make rollout
   skew a startup error;
 - an AI-excluded build check proving there is no Assistant chunk or Runtime
@@ -225,11 +230,12 @@ typed Workspace tool adapters             pi-ai provider adapter
         +-------------------------------------------+
         |                                           |
 Workspace | Yjs | compiler actors           user model endpoint
-
-TOSS Core serves the SPA, the static Runtime artifact, bootstrap
-configuration, and ordinary project APIs. It receives neither model
-credentials nor the AI transcript.
 ```
+
+In the primary topology, TOSS Core serves the SPA, Runtime artifact, bootstrap
+configuration, and ordinary project APIs. The static topology serves the host
+and Runtime as immutable files. Neither topology sends model credentials or
+the AI transcript to Core.
 
 The AI Runtime is a separately built static browser artifact in the same web
 release, served from a reserved, explicitly handled path such as
@@ -249,15 +255,19 @@ cookies, or service-worker registration, even though its URL has the same
 origin as the application. Combining `allow-scripts` and `allow-same-origin`
 on this same-origin iframe would destroy that isolation and is forbidden.
 
-The Runtime entry response also carries CSP `sandbox allow-scripts`. This
-preserves the opaque principal if the URL is opened as a top-level page rather
-than through the intended iframe. The entry route is dedicated, generated from
-an immutable build template with a per-response nonce, and independent of
-authentication. Its initial navigation may still carry a path-matching host
-cookie at the HTTP layer, although Runtime JavaScript cannot read that cookie;
-the handler must neither consume nor reflect authentication state. Narrowing
-the application's authentication cookie path is a useful independent
-hardening candidate, subject to normal authentication regression testing.
+In a Core deployment, the Runtime entry response also carries CSP
+`sandbox allow-scripts`. This preserves the opaque principal if the URL is
+opened as a top-level page. Core renders the owned build template with a
+per-response nonce and the validated policy; the dedicated route is independent
+of authentication. Its initial navigation may still carry a path-matching host
+cookie, although Runtime JavaScript cannot read it; the handler must neither
+consume nor reflect authentication state.
+
+The static target has no response-time header or nonce injection. Its build
+renders the same owned template with a CSP meta element, the validated policy,
+and one self-contained inline module. Inlining avoids cross-origin module rules
+for the iframe's opaque principal. The static document is immutable and loaded
+only with `sandbox="allow-scripts"`; it contains no untrusted markup.
 
 The Runtime has no direct Workspace API, persistent credential store, or
 generic network RPC. Its small visible surface owns credential entry and
@@ -389,9 +399,11 @@ therefore has two stages:
 9. changing the base URL destroys and recreates the iframe, clearing the old
    heap, port, agent session, and credential before another connection starts.
 
-CSP delivered in the response is the immutable upper bound; the meta policy
-only narrows it because multiple policies intersect and removing a meta element
-does not undo an already applied policy. An illustrative Runtime response is:
+In Core deployments, CSP delivered in the response is the immutable upper
+bound; later meta policies only narrow it because multiple policies intersect.
+The static entry installs the equivalent initial upper bound through its first
+meta element before executing its inline module. An illustrative Core Runtime
+response is:
 
 ```text
 Content-Security-Policy:
@@ -470,15 +482,12 @@ bounds are distribution policy; the deployment may only narrow
 recommendations, while the user owns their selection, saved custom profiles,
 and credential. None of these are backend processing capabilities.
 
-An enabled build also includes the matching Runtime artifact and serves its
-reserved entry and asset routes with the required CSP, CORS, and isolation
-headers. This needs no second hostname, Ingress, provider preset, model
-credential, Worker identity, or dynamic backend capability. The Runtime entry
-must be an explicit route rather than falling through the generic SPA static
-handler. Core returns not found for both entry and assets when the feature is
-not included or not deployment-enabled. The entry response is revalidated or
-not stored, while content-hashed modules and styles may be immutable; the exact
-host/Runtime build-ID handshake rejects rollout skew.
+An enabled build also includes the matching Runtime artifact. A Core deployment
+serves its reserved entry and assets with the required CSP, CORS, and isolation
+headers; the entry is an explicit route rather than a generic SPA fallback.
+Core returns not found when the feature is unavailable. A static deployment
+emits the entry only when enabled and addresses it relative to the configured
+base path. Both use the exact host/Runtime build-ID handshake to reject skew.
 
 ## Connection-policy ownership
 
@@ -580,15 +589,15 @@ personal profile from distribution-policy defaults; changing any verified recomm
 parameters likewise makes the result customized rather than verified. The
 catalog response itself remains ephemeral and is never copied to Local Storage.
 
-The build embeds only the policy kind and records it in both build manifests.
-Core refuses to start if the distribution, host artifact, and Runtime artifact
-do not agree. Core projects only safe host metadata—provider ID/label, default
-recommendation, recommendation IDs/models/labels, and the non-secret custom
-profile defaults/limits—through `GET /v1/auth/config`. It omits the managed
-endpoint, credential label, and protocol details. The full managed policy is
-serialized into the no-store Runtime entry and parsed only inside the isolated
-frame. This is a UI and least-disclosure boundary; the distribution file itself
-is still deployment-controlled configuration rather than a secret store.
+The build records the policy kind in both build manifests. In a Core
+deployment, Core refuses to start if the distribution, host artifact, and
+Runtime artifact disagree. It projects only safe host metadata—provider
+ID/label, defaults, recommendation IDs/models/labels, and non-secret custom
+profile limits—through `GET /v1/auth/config`; the full policy is serialized
+only into the no-store Runtime entry. In a static deployment, the build embeds
+the full policy only into the isolated Runtime entry and gives the host the same
+redacted projection. This is a UI and least-disclosure boundary, not a secret
+store.
 
 Managed activation proceeds as follows:
 

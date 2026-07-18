@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NavigateFunction } from "react-router-dom";
-import {
-  copyProject,
-  renameProject,
-  type AuthUser,
-  type Project
-} from "@/lib/api";
+import type { AuthUser, Project } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
 import type { ProjectCopyDialogState } from "@/types/project-ui";
+import { useProjectCatalog } from "@/projects/projectCatalog";
 
 type UseWorkspaceProjectActionsInput = {
   projectId: string;
@@ -26,6 +22,7 @@ function errorMessage(error: unknown, fallback: string) {
 export function useWorkspaceProjectActions(
   input: UseWorkspaceProjectActionsInput
 ) {
+  const projectCatalog = useProjectCatalog();
   const {
     projectId,
     sessionGeneration,
@@ -76,7 +73,7 @@ export function useWorkspaceProjectActions(
     const operationGeneration = sessionGeneration;
     try {
       setCopyBusy(true);
-      const created = await copyProject(copyDialog.projectId, {
+      const created = await projectCatalog.copy(copyDialog.projectId, {
         name: copyDialog.suggestedName.trim()
       });
       await refreshProjects().catch(() => undefined);
@@ -93,13 +90,20 @@ export function useWorkspaceProjectActions(
         setCopyBusy(false);
       }
     }
-  }, [copyDialog, navigate, refreshProjects, sessionGeneration, t]);
+  }, [
+    copyDialog,
+    navigate,
+    projectCatalog,
+    refreshProjects,
+    sessionGeneration,
+    t,
+  ]);
 
   const renameCurrentProject = useCallback(async (nextName: string) => {
     if (!projectId || !nextName.trim()) return false;
     const operationGeneration = sessionGeneration;
     try {
-      await renameProject(projectId, nextName.trim());
+      await projectCatalog.rename(projectId, nextName.trim());
       await refreshProjects();
       if (sessionGenerationRef.current !== operationGeneration) return false;
       setError(null);
@@ -111,7 +115,7 @@ export function useWorkspaceProjectActions(
       );
       return false;
     }
-  }, [projectId, refreshProjects, sessionGeneration, t]);
+  }, [projectCatalog, projectId, refreshProjects, sessionGeneration, t]);
 
   return {
     error,

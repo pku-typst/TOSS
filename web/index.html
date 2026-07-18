@@ -14,9 +14,9 @@
     <!-- TOSS_TOUCH_ICON -->
     <title>Typst Collaboration</title>
     <script>
-      document.documentElement.dataset.appBoot = /^\/(?:project|share)\//.test(
-        window.location.pathname
-      )
+      document.documentElement.dataset.appBoot =
+        /^\/(?:project|share)\//.test(window.location.pathname) ||
+        /^#\/(?:project|share)\//.test(window.location.hash)
         ? "workspace"
         : "product";
     </script>

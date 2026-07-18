@@ -1,13 +1,9 @@
 import {
   createProjectFile,
-  getGitRepoLink,
   getProjectSettings,
   getProjectTree,
   listDocuments,
-  listProjectAssets,
-  listProjectShareLinks,
-  type LatexEngine,
-  type ProjectShareLink
+  listProjectAssets
 } from "@/lib/api";
 import type { ProjectType } from "@/lib/deploymentCapabilities";
 import {
@@ -16,10 +12,16 @@ import {
   mapDocumentsByPath
 } from "@/pages/workspace/mappers";
 import type {
-  AssetMeta,
-  DocumentIdentity,
-  ProjectNode
-} from "@/pages/workspace/types";
+  LoadWorkspaceBootstrapInput,
+  LoadWorkspaceDeltaInput,
+  WorkspaceBootstrap,
+  WorkspaceDelta,
+} from "@/workspace/workspaceSnapshot";
+
+export type {
+  WorkspaceBootstrap,
+  WorkspaceDelta,
+} from "@/workspace/workspaceSnapshot";
 
 type LoadedDocuments = {
   documents: Awaited<ReturnType<typeof listDocuments>>["documents"];
@@ -48,36 +50,11 @@ export function defaultEntryForProjectType(projectType: ProjectType): string {
   return projectType === "latex" ? "main.tex" : "main.typ";
 }
 
-type LoadWorkspaceBootstrapInput = {
-  projectId: string;
-  projectTypeHint: ProjectType;
-  canWrite: boolean;
-  canViewShareLinks: boolean;
-};
-
-export type WorkspaceBootstrap = {
-  projectType: ProjectType;
-  latexEngine: LatexEngine;
-  entryFilePath: string;
-  settingsRevision: number;
-  nodes: ProjectNode[];
-  contentEpoch: number;
-  gitRepoUrl: string;
-  shareLinks: ProjectShareLink[];
-  documents: Record<string, string>;
-  documentIdentities: Record<string, DocumentIdentity>;
-  documentsChangeSequence: number | null;
-  assetMeta: Record<string, AssetMeta>;
-};
-
 export async function loadWorkspaceBootstrap(
   input: LoadWorkspaceBootstrapInput
 ): Promise<WorkspaceBootstrap> {
   const defaultEntryHint = defaultEntryForProjectType(input.projectTypeHint);
-  const shareLinksPromise = input.canViewShareLinks
-    ? listProjectShareLinks(input.projectId).catch(() => [])
-    : Promise.resolve([]);
-  let [tree, settings, git, documents, assets, shareLinks] =
+  let [tree, settings, documents, assets] =
     await Promise.all([
       getProjectTree(input.projectId),
       getProjectSettings(input.projectId).catch(() => ({
@@ -86,10 +63,8 @@ export async function loadWorkspaceBootstrap(
         entry_file_path: defaultEntryHint,
         settings_revision: -1
       })),
-      getGitRepoLink(input.projectId).catch(() => ({ repo_url: "" })),
       loadDocumentPages(input.projectId),
-      listProjectAssets(input.projectId).catch(() => ({ assets: [] })),
-      shareLinksPromise
+      listProjectAssets(input.projectId).catch(() => ({ assets: [] }))
     ]);
 
   if (input.canWrite && !tree.nodes.some((node) => node.kind === "file")) {
@@ -118,35 +93,12 @@ export async function loadWorkspaceBootstrap(
     settingsRevision: settings.settings_revision,
     nodes: tree.nodes,
     contentEpoch: tree.content_epoch,
-    gitRepoUrl: git.repo_url || "",
-    shareLinks,
     documents: mapDocumentsByPath(documents.documents),
     documentIdentities: mapDocumentIdentitiesByPath(documents.documents),
     documentsChangeSequence: documents.changeSequence,
     assetMeta: mapAssetMetaByPath(assets.assets)
   };
 }
-
-type LoadWorkspaceDeltaInput = {
-  projectId: string;
-  projectType: ProjectType;
-  latexEngine: LatexEngine;
-  entryFilePath: string;
-  afterDocumentsChangeSequence: number | null;
-};
-
-export type WorkspaceDelta = {
-  projectType: ProjectType;
-  latexEngine: LatexEngine;
-  entryFilePath: string;
-  settingsRevision: number;
-  nodes: ProjectNode[];
-  contentEpoch: number;
-  documents: Record<string, string>;
-  documentIdentities: Record<string, DocumentIdentity>;
-  documentsChangeSequence: number | null;
-  assetMeta: Record<string, AssetMeta>;
-};
 
 export async function loadWorkspaceDelta(
   input: LoadWorkspaceDeltaInput

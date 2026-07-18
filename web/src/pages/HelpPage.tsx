@@ -8,25 +8,27 @@ import remarkGfm from "remark-gfm";
 import { useSearchParams } from "react-router-dom";
 import { ExperienceResourceLink } from "@/components/ExperienceResourceLink";
 import { UiButton, UiEmptyState, UiInput, UiPageHeading, UiSelect } from "@/components/ui";
-import { getHelpContent } from "@/lib/api";
+import { getHelpContent, type HelpContent } from "@/lib/api";
 import { localizedText } from "@/lib/experience";
 import type { Translator, UiLocale } from "@/lib/i18n";
 
 export function HelpPage({
   cacheIdentity,
   locale,
-  t
+  t,
+  loadContent = getHelpContent,
 }: {
   cacheIdentity: string;
   locale: UiLocale;
   t: Translator;
+  loadContent?: () => Promise<HelpContent>;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const selectedId = searchParams.get("topic") ?? "";
   const helpQuery = useQuery({
     queryKey: ["help-content", cacheIdentity],
-    queryFn: getHelpContent,
+    queryFn: loadContent,
     staleTime: 30 * 60 * 1000
   });
   const content = helpQuery.data ?? null;

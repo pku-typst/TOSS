@@ -19,6 +19,7 @@ import type {
   TypstPackageInspectorRequest,
   TypstPackageInspectorResponse
 } from "@/features/ai/typstPackageInspectorProtocol";
+import type { TypstPackageSource } from "@/lib/typstUniverse";
 
 const MAX_CACHED_PACKAGES = 3;
 const MAX_CACHED_PACKAGE_BYTES = 128 * 1024 * 1024;
@@ -51,23 +52,29 @@ function failure(error: unknown): AiWorkspaceToolExecution {
   };
 }
 
-function cacheKey(baseUrl: string, packageSpec: string) {
-  return `${baseUrl.replace(/\/$/, "")}\n${packageSpec}`;
+function sourceIdentity(source: TypstPackageSource) {
+  return source.kind === "toss"
+    ? `${source.kind}:${source.baseUrl}:${source.withCredentials}`
+    : `${source.kind}:${source.baseUrl}`;
+}
+
+function cacheKey(source: TypstPackageSource, packageSpec: string) {
+  return `${sourceIdentity(source)}\n${packageSpec}`;
 }
 
 async function loadPackage(
-  baseUrl: string,
+  source: TypstPackageSource,
   packageSpec: string,
   signal: AbortSignal
 ) {
-  const key = cacheKey(baseUrl, packageSpec);
+  const key = cacheKey(source, packageSpec);
   const cached = packages.get(key);
   if (cached) {
     packages.delete(key);
     packages.set(key, cached);
     return cached;
   }
-  const loaded = await fetchTypstPackage(baseUrl, packageSpec, signal);
+  const loaded = await fetchTypstPackage(source, packageSpec, signal);
   packages.delete(key);
   packages.set(key, loaded);
   let cachedBytes = [...packages.values()].reduce(
@@ -87,7 +94,7 @@ async function loadPackage(
 }
 
 async function execute(
-  baseUrl: string,
+  source: TypstPackageSource,
   request: AiTypstPackageToolRequest,
   signal: AbortSignal
 ) {
@@ -100,7 +107,7 @@ async function execute(
       "The Typst package tool arguments are invalid."
     ));
   }
-  const pkg = await loadPackage(baseUrl, request.arguments.package_spec, signal);
+  const pkg = await loadPackage(source, request.arguments.package_spec, signal);
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   if (request.tool === "list_typst_package_files") {
     return success(listTypstPackageFiles(pkg, request.arguments));
@@ -123,13 +130,12 @@ self.addEventListener("message", (event: MessageEvent<TypstPackageInspectorReque
     message.kind !== "execute" ||
     !Number.isSafeInteger(message.id) ||
     message.id < 1 ||
-    typeof message.baseUrl !== "string" ||
-    message.baseUrl.length > 2_048 ||
+    !isPackageSource(message.source) ||
     controllers.has(message.id)
   ) return;
   const controller = new AbortController();
   controllers.set(message.id, controller);
-  void execute(message.baseUrl, message.request, controller.signal)
+  void execute(message.source, message.request, controller.signal)
     .catch(failure)
     .then((execution) => {
       const response: TypstPackageInspectorResponse = { id: message.id, execution };
@@ -139,3 +145,11 @@ self.addEventListener("message", (event: MessageEvent<TypstPackageInspectorReque
       controllers.delete(message.id);
     });
 });
+
+function isPackageSource(value: unknown): value is TypstPackageSource {
+  if (!value || typeof value !== "object") return false;
+  const source = value as Partial<TypstPackageSource>;
+  if (typeof source.baseUrl !== "string" || source.baseUrl.length > 2_048) return false;
+  if (source.kind === "preview") return true;
+  return source.kind === "toss" && typeof source.withCredentials === "boolean";
+}

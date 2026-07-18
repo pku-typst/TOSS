@@ -165,21 +165,60 @@ async function loadCheckedFile(root, entry) {
 
 async function loadRuntimeArtifact(manifest, runtimeVersion, name) {
   const entry = manifest[name];
-  const expectedRoot = path.resolve(webRoot, "public", "typst-runtime", runtimeVersion);
+  const manifestRoot = path.resolve(webRoot, "public", "typst-runtime");
+  const expectedRoot = path.resolve(manifestRoot, runtimeVersion);
   if (
     !entry ||
     typeof entry.url !== "string" ||
     typeof entry.sha256 !== "string" ||
+    !/^[a-f0-9]{64}$/i.test(entry.sha256) ||
     !Number.isSafeInteger(entry.size_bytes) ||
     entry.size_bytes <= 0
   ) {
     throw new Error(`Typst runtime ${name} manifest entry is invalid`);
   }
-  const artifactPath = path.resolve(webRoot, "public", entry.url.replace(/^\//, ""));
-  if (path.dirname(artifactPath) !== expectedRoot) {
-    throw new Error(`Typst runtime ${name} URL does not use runtime ${runtimeVersion}`);
+
+  let bytes;
+  if (entry.url.includes(":")) {
+    let url;
+    try {
+      url = new URL(entry.url);
+    } catch {
+      throw new Error(`Typst runtime ${name} URL is invalid`);
+    }
+    if (
+      name !== "compiler" ||
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error(`Typst runtime ${name} external URL is invalid`);
+    }
+    const response = await fetch(url, { redirect: "follow" });
+    if (!response.ok) {
+      throw new Error(`Typst runtime ${name} fetch failed: ${response.status}`);
+    }
+    if (new URL(response.url).protocol !== "https:") {
+      throw new Error(`Typst runtime ${name} redirected outside HTTPS`);
+    }
+    bytes = new Uint8Array(await response.arrayBuffer());
+  } else {
+    if (
+      path.isAbsolute(entry.url) ||
+      entry.url.includes("\\") ||
+      entry.url.split("/").some((segment) => !segment || segment === "." || segment === "..")
+    ) {
+      throw new Error(`Typst runtime ${name} relative URL is invalid`);
+    }
+    const artifactPath = path.resolve(manifestRoot, entry.url);
+    if (path.dirname(artifactPath) !== expectedRoot) {
+      throw new Error(`Typst runtime ${name} URL does not use runtime ${runtimeVersion}`);
+    }
+    bytes = new Uint8Array(await fs.readFile(artifactPath));
   }
-  const bytes = new Uint8Array(await fs.readFile(artifactPath));
+
   if (bytes.byteLength !== entry.size_bytes || sha256(bytes) !== entry.sha256) {
     throw new Error(`Typst runtime ${name} artifact does not match its manifest`);
   }
@@ -199,6 +238,8 @@ async function main() {
     runtimeManifest.typst_ts_version !== runtimeConfig.runtime_version ||
     runtimeManifest.compiler_source_revision !== runtimeConfig.compiler.source_revision ||
     runtimeManifest.compiler_package_version !== runtimeConfig.compiler.package_version ||
+    runtimeManifest.compiler_upstream_package_version !==
+      runtimeConfig.compiler.upstream_package_version ||
     runtimeManifest.renderer_package_version !== runtimeConfig.renderer.package_version
   ) {
     throw new Error("Typst runtime manifest provenance does not match typst-runtime.config.json");
@@ -238,6 +279,7 @@ async function main() {
       withPackageRegistry(new CheckedPackageRegistry(accessModel, packages)),
       loadFonts(fonts, { assets: false })
     ],
+    getWrapper: () => import("@pku-typst/typst-ts-web-compiler"),
     getModule: () => ({ module_or_path: compilerWasm })
   });
   await typst.addSource("/main.typ", distribution.template);

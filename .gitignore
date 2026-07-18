@@ -16,5 +16,4 @@ web/playwright-report
 web/public/vendor/typst-assets/fonts
 web/public/typst-runtime
 web/public/busytex
-prebuilt/typst-compiler/package
 prebuilt/busytex/package

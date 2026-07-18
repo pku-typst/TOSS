@@ -7,11 +7,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listProjectAccessUsers,
   listProjectOrganizationAccess,
+  listProjectShareLinks,
   type ProjectAccessUser,
   type ProjectOrganizationAccess,
 } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
 import { useWorkspaceAccessActions } from "@/pages/workspace/hooks/useWorkspaceAccessActions";
+import type { TemplateCatalog } from "@/templates/templateCatalog";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/api")>();
@@ -19,10 +23,17 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...original,
     listProjectAccessUsers: vi.fn(),
     listProjectOrganizationAccess: vi.fn(),
+    listProjectShareLinks: vi.fn(),
   };
 });
 
 const t: Translator = (key) => key;
+const templateCatalog: TemplateCatalog = {
+  list: vi.fn(),
+  instantiate: vi.fn(),
+  setProjectTemplate: vi.fn(),
+  loadThumbnail: vi.fn(),
+};
 
 function organizationAccess(name: string): ProjectOrganizationAccess {
   return {
@@ -62,7 +73,11 @@ function wrapper() {
   });
   return function QueryWrapper({ children }: PropsWithChildren) {
     return (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <ApplicationRuntimeProvider
+        runtime={createTestApplicationRuntime({ templates: templateCatalog })}
+      >
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      </ApplicationRuntimeProvider>
     );
   };
 }
@@ -75,9 +90,9 @@ function renderAccessActions(sessionGeneration = "session-a") {
         sessionGeneration: generation,
         projectIsTemplate: false,
         canManageProject: true,
+        projectAccessEnabled: true,
         settingsPanelVisible: true,
         presenceMembershipKey: "members-a",
-        replaceShareLinks: vi.fn(),
         refreshProjects: vi.fn().mockResolvedValue(undefined),
         t,
       }),
@@ -92,6 +107,8 @@ describe("useWorkspaceAccessActions", () => {
   beforeEach(() => {
     vi.mocked(listProjectAccessUsers).mockReset();
     vi.mocked(listProjectOrganizationAccess).mockReset();
+    vi.mocked(listProjectShareLinks).mockReset();
+    vi.mocked(listProjectShareLinks).mockResolvedValue([]);
   });
 
   it("does not carry access data across Workspace session generations", async () => {

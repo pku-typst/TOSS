@@ -11,6 +11,7 @@ import {
   verifyRuntimeModule
 } from "@/lib/typstRuntime";
 import { CandidateRuntimeScheduler } from "@/lib/candidateRuntime";
+import type { CompilationEnvironment } from "@/compilation/compilationEnvironment";
 import type {
   TypstDocumentPosition,
   TypstMappingResponse,
@@ -80,12 +81,11 @@ export type CompileOptions = {
   entryFilePath: string;
   documents: Array<{ path: string; content: string }>;
   assets: Array<{ path: string; contentBase64: string }>;
-  coreApiUrl: string;
+  environment: CompilationEnvironment["typst"];
   fontData: Uint8Array[];
   emitPdf?: boolean;
   pdfOnly?: boolean;
   diagnosticsOnly?: boolean;
-  appOrigin?: string;
 };
 
 type WorkspaceSnapshot = {
@@ -100,6 +100,7 @@ type PendingWorkerRequest = {
   resolve: (response: WorkerCompileResponse) => void;
   snapshot?: WorkspaceSnapshot;
   workspaceAcknowledged?: boolean;
+  rendererRuntimeBaseUrl?: string;
 };
 
 type PendingMappingRequest = {
@@ -108,8 +109,7 @@ type PendingMappingRequest = {
 };
 
 type PrewarmOptions = {
-  coreApiUrl: string;
-  appOrigin?: string;
+  environment: CompilationEnvironment["typst"];
   documents?: Array<{ content: string }>;
 };
 
@@ -271,7 +271,8 @@ class TypstWorkerRuntime {
       if (compileResponse.ok && compileResponse.vectorBytes && compileResponse.vectorMode) {
         void preparePersistentVectorArtifact(
           compileResponse.vectorBytes,
-          compileResponse.vectorMode
+          compileResponse.vectorMode,
+          pending.rendererRuntimeBaseUrl,
         )
           .then(() => pending.resolve(compileResponse))
           .catch((error) => {
@@ -328,18 +329,21 @@ class TypstWorkerRuntime {
     );
     const patch = this.workspacePatch(snapshot, hasUnacknowledgedWorkspaceRequest);
     return new Promise<WorkerCompileResponse>((resolve) => {
-      this.pending.set(id, { resolve, snapshot });
+      this.pending.set(id, {
+        resolve,
+        snapshot,
+        rendererRuntimeBaseUrl: options.environment.runtimeBaseUrl,
+      });
       worker.postMessage({
         kind: "compile",
         id,
         entryFilePath: options.entryFilePath,
         ...patch,
-        coreApiUrl: options.coreApiUrl,
+        environment: options.environment,
         emitPdf: options.emitPdf ?? false,
         pdfOnly: options.pdfOnly ?? false,
         diagnosticsOnly: options.diagnosticsOnly ?? false,
         forceFullVector: persistentRendererNeedsFullArtifact(),
-        appOrigin: options.appOrigin
       });
     }).then((response) => {
       if (!response.ok && this.fatalError(response)) {
@@ -414,11 +418,10 @@ class TypstWorkerRuntime {
       worker.postMessage({
         kind: "prewarm",
         id,
-        coreApiUrl: options.coreApiUrl,
+        environment: options.environment,
         fontProfile: options.documents?.some((document) => CJK_TEXT_PATTERN.test(document.content))
           ? "cjk"
           : "latin",
-        appOrigin: options.appOrigin
       });
     })
       .then((response) => {
@@ -437,6 +440,7 @@ class TypstWorkerRuntime {
 }
 
 let rendererPromise: ReturnType<typeof createTypstRenderer> | null = null;
+let rendererRuntimeBaseUrl = "";
 let renderVersion = 0;
 type PersistentRendererSession = {
   renderer: TypstRenderer;
@@ -530,10 +534,12 @@ function unpackIncrementalVectorArtifact(artifact: Uint8Array, mode: "full" | "d
 
 function preparePersistentVectorArtifact(
   artifact: Uint8Array,
-  mode: "full" | "delta"
+  mode: "full" | "delta",
+  runtimeBaseUrl?: string,
 ) {
   return enqueueRendererOperation(async () => {
-    const renderer = await getRenderer();
+    if (!runtimeBaseUrl) throw new Error("Typst renderer runtime is not configured");
+    const renderer = await getRenderer(runtimeBaseUrl);
     if (mode === "delta" && persistentRendererNeedsFullArtifact()) {
       throw new Error("Incremental preview requires a full vector snapshot");
     }
@@ -615,18 +621,25 @@ async function fetchRendererModule(url: string, module: TypstRuntimeModule) {
   return bytes.buffer;
 }
 
-async function getRenderer() {
+async function getRenderer(runtimeBaseUrl: string) {
+  if (rendererPromise && rendererRuntimeBaseUrl !== runtimeBaseUrl) {
+    await disposePersistentRendererSession();
+    rendererPromise = null;
+  }
   if (!rendererPromise) {
     const renderer = createTypstRenderer();
-    const appOrigin = window.location.origin;
-    const manifest = await loadTypstRuntimeManifest(appOrigin);
-    const rendererUrl = absoluteRuntimeModuleUrl(manifest.renderer, appOrigin);
+    const manifest = await loadTypstRuntimeManifest(runtimeBaseUrl);
+    const rendererUrl = absoluteRuntimeModuleUrl(
+      manifest.renderer,
+      runtimeBaseUrl,
+    );
     await renderer.init({
       // Keep the promise inside wasm-bindgen's object-form initialization argument.
       getModule: () => ({
         module_or_path: fetchRendererModule(rendererUrl, manifest.renderer)
       })
     });
+    rendererRuntimeBaseUrl = runtimeBaseUrl;
     rendererPromise = renderer;
   }
   return rendererPromise;
@@ -1025,14 +1038,14 @@ export function resolveTypstDocumentToSource(options: {
 export async function renderTypstVectorToCanvas(
   container: HTMLElement,
   vectorData: Uint8Array,
-  options?: { pixelPerPt?: number }
+  options: { pixelPerPt?: number; runtimeBaseUrl: string },
 ) {
   const version = ++renderVersion;
   const pixelPerPt = Math.max(0.25, Math.min(12, options?.pixelPerPt ?? 3));
   void vectorData;
   await enqueueRendererOperation(async () => {
     if (version !== renderVersion) return;
-    const renderer = await getRenderer();
+    const renderer = await getRenderer(options.runtimeBaseUrl);
     const rendererSession = persistentRendererSession;
     if (
       !rendererSession ||

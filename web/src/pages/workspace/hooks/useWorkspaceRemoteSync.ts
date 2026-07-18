@@ -8,9 +8,6 @@ import {
 } from "react";
 import { waitFor } from "xstate";
 import { saveProjectSnapshotToCache } from "@/lib/projectCache";
-import {
-  loadWorkspaceDelta,
-} from "@/pages/workspace/loaders";
 import type {
   AssetMeta,
 } from "@/pages/workspace/types";
@@ -22,6 +19,7 @@ import {
   type WorkspaceDeltaJob,
   type WorkspaceDeltaRequest
 } from "@/pages/workspace/workspaceDeltaActor";
+import { useWorkspaceBackend } from "@/workspace/workspaceBackend";
 
 type UseWorkspaceRemoteSyncInput = {
   sessionActor: WorkspaceSessionActor;
@@ -39,6 +37,7 @@ type UseWorkspaceRemoteSyncInput = {
 };
 
 export function useWorkspaceRemoteSync(input: UseWorkspaceRemoteSyncInput) {
+  const workspaceBackend = useWorkspaceBackend();
   const projectionSnapshot = useSelector(
     input.sessionActor,
     (current) => current,
@@ -46,7 +45,7 @@ export function useWorkspaceRemoteSync(input: UseWorkspaceRemoteSyncInput) {
   const projection = projectionSnapshot.context;
   const syncActor = useActorRef(workspaceDeltaMachine, {
     input: {
-      load: loadWorkspaceDelta
+      load: workspaceBackend.loadDelta
     }
   });
   const snapshot = useSelector(syncActor, (current) => current);

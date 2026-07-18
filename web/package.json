@@ -2,14 +2,13 @@
   "name": "@typst-collab/web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "packageManager": "npm@11.16.0",
   "engines": {
     "node": "24.x",
     "npm": "11.x"
   },
   "scripts": {
-    "build:typst-compiler": "cd .. && node scripts/prebuilt-typst-compiler.mjs build",
-    "verify:typst-compiler": "cd .. && node scripts/prebuilt-typst-compiler.mjs verify",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:protocol": "npm --prefix ../protocol run check:types",
     "check:ai-excluded-build": "node scripts/check-ai-excluded-build.mjs",
@@ -19,6 +18,7 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:i18n": "playwright test tests/e2e/i18n.spec.ts",
+    "test:browser-build": "node scripts/headless-browser-build.mjs",
     "test:release-resilience": "node scripts/headless-release-resilience.mjs",
     "test:ai-agent-local": "node scripts/local-ai-agent-scenario.mjs",
     "sync:typst-docs": "node scripts/sync-typst-docs.mjs sync",
@@ -28,6 +28,7 @@
     "check:typst-runtime": "npm run sync:typst-assets && node scripts/check-typst-runtime.mjs",
     "dev": "npm run sync:typst-assets && npm run sync:busytex-assets && vite --host 127.0.0.1 --port 3000",
     "build": "npm run lint && npm run check:i18n && npm run check:protocol && npm run check:typst-docs && npm run sync:typst-assets && npm run sync:busytex-assets && tsc -b && vite build && node scripts/build-ai-runtime.mjs && node scripts/precompress-dist.mjs && npm run check:ai-excluded-build",
+    "build:browser": "npm run lint && npm run check:i18n && npm run check:protocol && npm run check:typst-docs && TOSS_WEB_TARGET=browser npm run sync:typst-assets && tsc -b && TOSS_WEB_TARGET=browser vite build && TOSS_WEB_TARGET=browser node scripts/build-ai-runtime.mjs",
     "preview": "npm run sync:typst-assets && npm run sync:busytex-assets && vite preview --host 127.0.0.1 --port 3000"
   },
   "dependencies": {
@@ -40,11 +41,11 @@
     "@fontsource-variable/noto-sans-sc": "5.2.10",
     "@lezer/highlight": "^1.2.3",
     "@myriaddreamin/typst-ts-renderer": "0.8.0-rc3",
-    "@myriaddreamin/typst-ts-web-compiler": "file:../prebuilt/typst-compiler/package",
     "@myriaddreamin/typst.ts": "0.8.0-rc3",
     "@nvidia-elements/core": "2.0.4",
     "@nvidia-elements/styles": "2.0.2",
     "@nvidia-elements/themes": "2.0.0",
+    "@pku-typst/typst-ts-web-compiler": "0.8.0-rc3-toss.1",
     "@tanstack/react-query": "^5.101.2",
     "@uiw/react-codemirror": "^4.25.11",
     "@xstate/react": "^6.1.0",
@@ -74,6 +75,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
     "oxlint": "^1.73.0",
     "playwright": "^1.61.1",

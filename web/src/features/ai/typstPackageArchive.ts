@@ -9,6 +9,7 @@ import {
   type AiSearchTypstPackageTextResult,
   type AiWorkspaceToolErrorCode
 } from "@/features/ai/toolContract";
+import type { TypstPackageSource } from "@/lib/typstUniverse";
 
 const MAX_PACKAGE_FILES = 4_096;
 const DEFAULT_LIST_LIMIT = 100;
@@ -317,7 +318,7 @@ export async function parseTypstPackageArchive(
 }
 
 export async function fetchTypstPackage(
-  baseUrl: string,
+  source: TypstPackageSource,
   packageSpec: string,
   signal?: AbortSignal
 ) {
@@ -328,15 +329,26 @@ export async function fetchTypstPackage(
       "Use an exact @local/name:version or @preview/name:version package spec."
     );
   }
-  const applicationOrigin = globalThis.location?.origin ?? "http://localhost";
-  const base = new URL(baseUrl || applicationOrigin, applicationOrigin).href.replace(/\/$/, "");
-  const url = new URL(
-    `${base}/v1/typst/packages/${encodeURIComponent(spec.namespace)}/${encodeURIComponent(spec.name)}/${encodeURIComponent(spec.version)}`
-  );
+  if (source.kind === "preview" && spec.namespace !== "preview") {
+    throw new TypstPackageInspectionError(
+      "typst_package_not_found",
+      `Typst package ${spec.canonical} is not available from the configured registry.`
+    );
+  }
+  const base = source.baseUrl.replace(/\/$/, "");
+  const url = source.kind === "preview"
+    ? new URL(
+        `${base}/preview/${encodeURIComponent(spec.name)}-${encodeURIComponent(spec.version)}.tar.gz`
+      )
+    : new URL(
+        `${base}/${encodeURIComponent(spec.namespace)}/${encodeURIComponent(spec.name)}/${encodeURIComponent(spec.version)}`
+      );
   let response: Response;
   try {
     response = await fetch(url, {
-      credentials: "include",
+      credentials: source.kind === "toss" && source.withCredentials
+        ? "include"
+        : "omit",
       cache: "force-cache",
       signal
     });
@@ -365,8 +377,10 @@ export async function fetchTypstPackage(
       `Typst package ${spec.canonical} could not be loaded (HTTP ${response.status}).`
     );
   }
-  const expectedDigest = response.headers.get(SHA256_HEADER)?.toLowerCase() ?? "";
-  if (!/^[a-f0-9]{64}$/.test(expectedDigest)) {
+  const expectedDigest = source.kind === "toss"
+    ? response.headers.get(SHA256_HEADER)?.toLowerCase() ?? ""
+    : null;
+  if (expectedDigest !== null && !/^[a-f0-9]{64}$/.test(expectedDigest)) {
     throw new TypstPackageInspectionError(
       "typst_package_archive_invalid",
       "The Typst package response is missing its verified digest."
@@ -406,7 +420,7 @@ export async function fetchTypstPackage(
   }
   checkAbort(signal);
   const actualDigest = await sha256(compressed);
-  if (actualDigest !== expectedDigest) {
+  if (expectedDigest !== null && actualDigest !== expectedDigest) {
     throw new TypstPackageInspectionError(
       "typst_package_archive_invalid",
       "The Typst package archive digest does not match the server contract."

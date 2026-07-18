@@ -13,13 +13,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProject, type Project } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
 import { ProjectsPage } from "@/pages/ProjectsPage";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { coreProjectCatalog } from "@/projects/coreProjectCatalog";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
 vi.mock("@/lib/api", () => ({
   copyProject: vi.fn(),
   createProject: vi.fn(),
+  listProjects: vi.fn(),
   projectThumbnailUrl: vi.fn(),
   renameProject: vi.fn(),
-  setProjectArchived: vi.fn()
+  setProjectArchived: vi.fn(),
+  uploadProjectThumbnail: vi.fn()
 }));
 
 vi.mock("@/components/ui", () => ({
@@ -114,17 +119,21 @@ const existingProject: Project = {
 
 function renderPage(projects: Project[] = []) {
   render(
-    <MemoryRouter>
-      <ProjectsPage
-        projects={projects}
-        organizations={[]}
-        enabledProjectTypes={["typst"]}
-        externalGitProviders={[]}
-        refreshProjects={vi.fn().mockResolvedValue(undefined)}
-        locale="en"
-        t={t}
-      />
-    </MemoryRouter>
+    <ApplicationRuntimeProvider
+      runtime={createTestApplicationRuntime({ projects: coreProjectCatalog })}
+    >
+      <MemoryRouter>
+        <ProjectsPage
+          projects={projects}
+          organizations={[]}
+          enabledProjectTypes={["typst"]}
+          externalGitProviders={[]}
+          refreshProjects={vi.fn().mockResolvedValue(undefined)}
+          locale="en"
+          t={t}
+        />
+      </MemoryRouter>
+    </ApplicationRuntimeProvider>
   );
 }
 

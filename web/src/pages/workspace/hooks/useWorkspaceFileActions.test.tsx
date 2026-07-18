@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
+import type { PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createProjectFile,
@@ -11,15 +12,32 @@ import {
   uploadProjectAsset,
 } from "@/lib/api";
 import { useWorkspaceFileActions } from "@/pages/workspace/hooks/useWorkspaceFileActions";
+import { coreWorkspaceBackend } from "@/workspace/coreWorkspaceBackend";
+import { ApplicationRuntimeProvider } from "@/composition/applicationRuntime";
+import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
-vi.mock("@/lib/api", () => ({
-  createProjectFile: vi.fn(),
-  deleteProjectFile: vi.fn(),
-  downloadProjectArchive: vi.fn(),
-  moveProjectFile: vi.fn(),
-  upsertDocumentByPath: vi.fn(),
-  uploadProjectAsset: vi.fn(),
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    createProjectFile: vi.fn(),
+    deleteProjectFile: vi.fn(),
+    downloadProjectArchive: vi.fn(),
+    moveProjectFile: vi.fn(),
+    upsertDocumentByPath: vi.fn(),
+    uploadProjectAsset: vi.fn(),
+  };
+});
+
+function wrapper({ children }: PropsWithChildren) {
+  return (
+    <ApplicationRuntimeProvider
+      runtime={createTestApplicationRuntime({ workspace: coreWorkspaceBackend })}
+    >
+      {children}
+    </ApplicationRuntimeProvider>
+  );
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -65,7 +83,7 @@ describe("useWorkspaceFileActions", () => {
           refreshProjectData,
           t: (key) => key,
         }),
-      { initialProps: { projectId: "project-a" } },
+      { initialProps: { projectId: "project-a" }, wrapper },
     );
     act(() => {
       result.current.setPathDialog({

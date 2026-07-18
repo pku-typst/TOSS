@@ -33,6 +33,7 @@ import type {
   AssistantEditReviewRequestResult
 } from "@/pages/workspace/assistantEditReview";
 import type { DocumentIdentity, ProjectNode } from "@/pages/workspace/types";
+import type { TypstPackageSource } from "@/lib/typstUniverse";
 
 const DEFAULT_LIST_LIMIT = 100;
 const DEFAULT_SEARCH_RESULTS = 50;
@@ -57,7 +58,7 @@ export type AiWorkspacePortOptions = {
   projectType: "typst" | "latex";
   mode: "live" | "revision";
   allowEdits: boolean;
-  coreApiUrl?: string;
+  typstPackageSource?: TypstPackageSource;
   typstPackageInspector?: AiTypstPackageInspector;
   getContextSnapshot: () => AiWorkspaceContextSnapshot;
   getCompilationSnapshot: () => AiWorkspaceCompilationSnapshot;
@@ -698,7 +699,7 @@ export function createAiWorkspacePort({
   projectType,
   mode,
   allowEdits,
-  coreApiUrl,
+  typstPackageSource,
   typstPackageInspector: providedTypstPackageInspector,
   getContextSnapshot,
   getCompilationSnapshot,
@@ -710,7 +711,9 @@ export function createAiWorkspacePort({
   const fullReadSnapshots = new Map<string, string>();
   const typstPackageInspector = projectType === "typst"
     ? providedTypstPackageInspector ?? (
-        coreApiUrl === undefined ? null : new BrowserTypstPackageInspector(coreApiUrl)
+        typstPackageSource === undefined
+          ? null
+          : new BrowserTypstPackageInspector(typstPackageSource)
       )
     : null;
   const capabilities: AiWorkspaceCapabilities = {

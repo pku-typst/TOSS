@@ -24,7 +24,9 @@ code_paths:
   - scripts/ci/backend.sh
   - scripts/ci/workers.sh
   - scripts/ci/web.sh
+  - scripts/ci/web-static.sh
   - scripts/ci/integration.sh
+  - web/scripts/headless-browser-build.mjs
   - backend/Cargo.toml
   - workers/Cargo.toml
   - web/package.json
@@ -38,8 +40,9 @@ code_paths:
 
 Choose checks according to the changed ownership boundary. Run the complete
 workflow before a release or after a cross-context change.
-Hydrate the manifest-verified browser runtime inputs before installing the web
-workspace or running its checks:
+Hydrate the manifest-verified BusyTeX input before Core Web checks when the
+selected distribution enables LaTeX. The Typst compiler is installed by
+`npm ci` at the exact lockfile version.
 
 ```bash
 node scripts/fetch-runtime-artifacts.mjs
@@ -82,6 +85,20 @@ Vitest owns deterministic unit/component/state tests. Playwright owns complete
 browser workflows and rendering behavior. Repository scripts are reserved for
 multi-process stress, performance, migration, and smoke scenarios that do not
 fit a unit-test runner.
+
+The standalone browser target has a separate production smoke:
+
+```bash
+cd web
+npx playwright install chromium
+cd ..
+TOSS_BASE_URL=/TOSS/ scripts/ci/web-static.sh
+```
+
+It builds for a subpath, then uses Chromium to create and edit a project,
+compile Typst, reload IndexedDB state, reject Core API traffic, and complete the
+AI Runtime handshake in an opaque iframe. Assertions use DOM/protocol state,
+not localized copy.
 
 ## Processing workers
 
@@ -201,10 +218,10 @@ scripts/ci-checks.sh
 ```
 
 The wrapper composes independently runnable phase scripts under `scripts/ci/`.
-GitHub Actions runs preflight, backend, and worker validation concurrently,
-runs the web phase after preflight has populated the verified runtime cache,
-and starts integration only from the backend and web artifacts produced by
-that exact commit. The final `checks` job is the stable aggregate branch gate.
+GitHub Actions runs preflight, backend, and worker validation concurrently.
+Core Web and standalone Web run in parallel after preflight; integration starts
+only from the backend and Core Web artifacts produced by that exact commit. The
+final `checks` job is the stable aggregate branch gate.
 
 Backend Clippy and tests remain in one job so they reuse one Cargo target.
 Integration scenarios likewise share one Core process, disposable database,

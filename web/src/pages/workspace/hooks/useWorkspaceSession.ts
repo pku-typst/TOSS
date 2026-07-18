@@ -14,8 +14,6 @@ import {
 } from "@/lib/projectCache";
 import {
   defaultEntryForProjectType,
-  loadWorkspaceBootstrap,
-  type WorkspaceBootstrap,
 } from "@/pages/workspace/loaders";
 import { useWorkspaceAssets } from "@/pages/workspace/hooks/useWorkspaceAssets";
 import {
@@ -23,6 +21,8 @@ import {
   workspaceSessionMachine,
   type WorkspaceSessionScope,
 } from "@/pages/workspace/workspaceSessionActor";
+import { useWorkspaceBackend } from "@/workspace/workspaceBackend";
+import type { WorkspaceBootstrap } from "@/workspace/workspaceSnapshot";
 
 type UseWorkspaceSessionInput = {
   projectId: string;
@@ -31,7 +31,6 @@ type UseWorkspaceSessionInput = {
   offlineCacheIdentity: string | null;
   accessSessionKey: string;
   canWrite: boolean;
-  canViewShareLinks: boolean;
   cachedOfflineMessage: string;
   loadErrorMessage: string;
 };
@@ -42,8 +41,8 @@ type BootstrapApplication = {
 };
 
 export function useWorkspaceSession(input: UseWorkspaceSessionInput) {
+  const workspaceBackend = useWorkspaceBackend();
   const {
-    canViewShareLinks,
     canWrite,
     effectiveUserId,
     offlineCacheIdentity,
@@ -59,7 +58,6 @@ export function useWorkspaceSession(input: UseWorkspaceSessionInput) {
     projectId,
     templateUnavailable,
     canWrite,
-    canViewShareLinks,
   ]);
   const scope = useMemo<WorkspaceSessionScope>(
     () => ({
@@ -227,14 +225,12 @@ export function useWorkspaceSession(input: UseWorkspaceSessionInput) {
       sessionGeneration,
       projectTypeHint,
       canWrite,
-      canViewShareLinks,
     ],
     queryFn: () =>
-      loadWorkspaceBootstrap({
+      workspaceBackend.loadBootstrap({
         projectId,
         projectTypeHint,
         canWrite,
-        canViewShareLinks,
       }),
     enabled: !!projectId && !templateUnavailable,
     retry: false,
