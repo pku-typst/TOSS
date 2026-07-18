@@ -23,6 +23,7 @@
     "test:ai-agent-local": "node scripts/local-ai-agent-scenario.mjs",
     "sync:typst-docs": "node scripts/sync-typst-docs.mjs sync",
     "check:typst-docs": "node scripts/sync-typst-docs.mjs verify",
+    "check:typst-source": "node scripts/check-typst-source.mjs",
     "sync:typst-assets": "node scripts/sync-typst-assets.mjs",
     "sync:busytex-assets": "node scripts/sync-busytex-assets.mjs",
     "check:typst-runtime": "npm run sync:typst-assets && node scripts/check-typst-runtime.mjs",

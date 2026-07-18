@@ -9,6 +9,7 @@ ci_require_node_24
 
 echo "[ci:preflight] install protocol tooling + validate docs and runtime provenance"
 node scripts/fetch-runtime-artifacts.mjs
+(cd web && npm run check:typst-source)
 (cd protocol && npm ci)
 node scripts/check-docs.mjs
 node scripts/check-migration-baseline.mjs

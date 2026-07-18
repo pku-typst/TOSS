@@ -20,10 +20,8 @@ jobs:
       contents: read
       pages: read
     steps:
-      - name: Checkout with Typst documentation source
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: true
 
       - name: Setup Node
         uses: actions/setup-node@v7

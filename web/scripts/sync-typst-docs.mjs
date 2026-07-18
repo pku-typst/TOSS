@@ -5,12 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(scriptDir, "..");
-const repoRoot = path.resolve(webRoot, "..");
 const outputRoot = path.join(webRoot, "src", "ai-runtime", "typst-docs");
 const manifestPath = path.join(outputRoot, "manifest.json");
 const recipesPath = path.join(outputRoot, "recipes.json");
 const runtimeConfigPath = path.join(webRoot, "typst-runtime.config.json");
-const typstCargoPath = path.join(repoRoot, "third-party", "typst.ts", "Cargo.toml");
 
 const SOURCE_REPOSITORY = "https://github.com/lucifer1004/claude-skill-typst";
 const SOURCE_RAW_ROOT = "https://raw.githubusercontent.com/lucifer1004/claude-skill-typst";
@@ -47,14 +45,6 @@ async function verifyLanguageVersion() {
     fail(
       `Typst documentation version ${LANGUAGE_VERSION} does not match ` +
       `typst-runtime.config.json (${runtimeConfig.typst_language_version ?? "missing"})`
-    );
-  }
-  const cargo = await fs.readFile(typstCargoPath, "utf8");
-  const dependency = /^typst\s*=\s*"([^"]+)"\s*$/m.exec(cargo)?.[1];
-  if (dependency !== LANGUAGE_VERSION) {
-    fail(
-      `Typst documentation version ${LANGUAGE_VERSION} does not match ` +
-      `third-party/typst.ts (${dependency ?? "missing"})`
     );
   }
 }
