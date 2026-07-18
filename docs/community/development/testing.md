@@ -17,6 +17,8 @@ related:
   - docs/community/architecture/release-resilience.md
   - protocol/README.md
 code_paths:
+  - .github/workflows/ci.yml
+  - .github/workflows/latex-worker-image.yml
   - scripts/check-docs.mjs
   - web/scripts/headless-release-resilience.mjs
   - scripts/ci-checks.sh
@@ -26,6 +28,8 @@ code_paths:
   - scripts/ci/web.sh
   - scripts/ci/web-static.sh
   - scripts/ci/integration.sh
+  - scripts/ci/core-image-smoke.sh
+  - scripts/ci/latex-worker-image-smoke.sh
   - web/scripts/headless-browser-build.mjs
   - backend/Cargo.toml
   - workers/Cargo.toml
@@ -120,6 +124,18 @@ the Dockerfile to use the manifest's pinned base and verify every declared
 runtime fingerprint and tool version. Rust tests verify the Core-authored bundle
 shape and reject unsafe paths, unknown file kinds, bad digests, and invalid
 source epochs. They do not replace an image-level bubblewrap build.
+
+## Container images
+
+The main CI workflow builds the complete Community application image and runs
+its packaged Core against disposable PostgreSQL before the aggregate check can
+pass. The path-scoped LaTeX image workflow builds the pinned TeX Live image and
+compares its embedded manifest and processor contract with the source tree.
+
+Release tags use the same smoke scripts against the exact pushed digest before
+attaching provenance. The full processing smoke below remains required before
+a worker release because contract identity alone does not execute a real TeX
+job through Core.
 
 ## Generated protocols
 

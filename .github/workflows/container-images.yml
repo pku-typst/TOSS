@@ -1,0 +1,202 @@
+name: Container images
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "latex-worker-v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_IMAGE: ghcr.io/pku-typst/toss
+  LATEX_WORKER_IMAGE: ghcr.io/pku-typst/toss-latex-worker
+
+jobs:
+  application:
+    name: application
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: typstapp
+          POSTGRES_PASSWORD: community-container-release
+          POSTGRES_DB: typstappdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U typstapp -d typstappdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://typstapp:community-container-release@127.0.0.1:5432/typstappdb
+      CORE_API_PORT: "18080"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require a merged application release commit
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+
+      - name: Validate application release tag
+        id: release
+        run: node scripts/ci/release-image-tag.mjs app "$GITHUB_REF_NAME" >>"$GITHUB_OUTPUT"
+
+      - name: Generate application image metadata
+        id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.APP_IMAGE }}
+          tags: |
+            type=raw,value=${{ steps.release.outputs.version }}
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=latest,enable=${{ steps.release.outputs.stable == 'true' }}
+          labels: |
+            org.opencontainers.image.title=TOSS Community
+            org.opencontainers.image.description=Self-hosted collaborative Typst and LaTeX writing
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and publish application image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: runtime-source
+          build-args: TOSS_DISTRIBUTION=community
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=community-core-image
+          cache-to: type=gha,mode=max,scope=community-core-image
+
+      - name: Smoke published application image
+        env:
+          CONTAINER_IMAGE: ${{ env.APP_IMAGE }}@${{ steps.build.outputs.digest }}
+        run: scripts/ci/core-image-smoke.sh
+
+      - name: Attest application image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.APP_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  latex_worker:
+    name: latex-worker
+    if: startsWith(github.ref_name, 'latex-worker-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require a merged LaTeX worker release commit
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.18.0"
+
+      - name: Validate LaTeX worker release tag
+        id: release
+        run: node scripts/ci/release-image-tag.mjs latex-worker "$GITHUB_REF_NAME" >>"$GITHUB_OUTPUT"
+
+      - name: Generate LaTeX worker image metadata
+        id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.LATEX_WORKER_IMAGE }}
+          tags: |
+            type=raw,value=${{ steps.release.outputs.version }}
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=latest,enable=${{ steps.release.outputs.stable == 'true' }}
+          labels: |
+            org.opencontainers.image.title=TOSS Community LaTeX Worker
+            org.opencontainers.image.description=Optional native TeX Live processor for latex.compile.pdf/v1
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and publish LaTeX worker image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: workers/latex/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=community-latex-worker-image
+          cache-to: type=gha,mode=max,scope=community-latex-worker-image
+
+      - name: Verify published LaTeX worker image contract
+        env:
+          CONTAINER_IMAGE: ${{ env.LATEX_WORKER_IMAGE }}@${{ steps.build.outputs.digest }}
+        run: scripts/ci/latex-worker-image-smoke.sh
+
+      - name: Attest LaTeX worker image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.LATEX_WORKER_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

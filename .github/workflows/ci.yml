@@ -93,6 +93,54 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  container:
+    name: container
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: typstapp
+          POSTGRES_PASSWORD: community-container-ci
+          POSTGRES_DB: typstappdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U typstapp -d typstappdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://typstapp:community-container-ci@127.0.0.1:5432/typstappdb
+      CORE_API_PORT: "18080"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Community application image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: runtime-source
+          build-args: TOSS_DISTRIBUTION=community
+          load: true
+          push: false
+          tags: toss-community:ci
+          provenance: false
+          cache-from: type=gha,scope=community-core-image
+          cache-to: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'type=gha,mode=max,scope=community-core-image' || '' }}
+
+      - name: Smoke Community application image
+        env:
+          CONTAINER_IMAGE: toss-community:ci
+        run: scripts/ci/core-image-smoke.sh
+
   workers:
     name: workers
     runs-on: ubuntu-latest
@@ -264,6 +312,7 @@ jobs:
     needs:
       - preflight
       - backend
+      - container
       - workers
       - web
       - web_static
@@ -275,6 +324,7 @@ jobs:
         env:
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
           WORKERS_RESULT: ${{ needs.workers.result }}
           WEB_RESULT: ${{ needs.web.result }}
           WEB_STATIC_RESULT: ${{ needs.web_static.result }}
@@ -283,6 +333,7 @@ jobs:
           for result in \
             "$PREFLIGHT_RESULT" \
             "$BACKEND_RESULT" \
+            "$CONTAINER_RESULT" \
             "$WORKERS_RESULT" \
             "$WEB_RESULT" \
             "$WEB_STATIC_RESULT" \
