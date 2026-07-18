@@ -1,0 +1,61 @@
+name: LaTeX worker image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .dockerignore
+      - .github/workflows/container-images.yml
+      - .github/workflows/latex-worker-image.yml
+      - scripts/ci/latex-worker-image-smoke.sh
+      - workers/Cargo.lock
+      - workers/Cargo.toml
+      - workers/latex/**
+      - workers/processing-sdk/**
+  pull_request:
+    paths:
+      - .dockerignore
+      - .github/workflows/container-images.yml
+      - .github/workflows/latex-worker-image.yml
+      - scripts/ci/latex-worker-image-smoke.sh
+      - workers/Cargo.lock
+      - workers/Cargo.toml
+      - workers/latex/**
+      - workers/processing-sdk/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: latex-worker-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build LaTeX worker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: workers/latex/Dockerfile
+          load: true
+          push: false
+          tags: toss-latex-worker:ci
+          provenance: false
+          cache-from: type=gha,scope=community-latex-worker-image
+          cache-to: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'type=gha,mode=max,scope=community-latex-worker-image' || '' }}
+
+      - name: Verify LaTeX worker image contract
+        env:
+          CONTAINER_IMAGE: toss-latex-worker:ci
+        run: scripts/ci/latex-worker-image-smoke.sh

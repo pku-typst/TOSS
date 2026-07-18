@@ -21,6 +21,7 @@ related:
   - docs/community/runtimes/typst.md
   - docs/community/runtimes/latex-worker.md
 code_paths:
+  - .github/workflows/container-images.yml
   - backend/Dockerfile
   - backend/src/process_lifecycle.rs
   - backend/src/server/runtime.rs
@@ -28,6 +29,7 @@ code_paths:
   - .env.example
   - backend/migrations
   - workers/latex/toss-latex-worker.apparmor
+  - workers/latex/Dockerfile
 ---
 
 # Deployment and operations
@@ -162,6 +164,35 @@ from a different repository's commit.
 base is pinned by digest, and `toss-latex-worker contract` prints the exact
 allowlist value that must accompany that image. Do not reuse a contract printed
 by a different source tree or tag.
+
+### Published Community images
+
+Application and worker releases are independent:
+
+| Source tag | Published image |
+| --- | --- |
+| `vX.Y.Z` | `ghcr.io/pku-typst/toss:X.Y.Z` |
+| `latex-worker-vX.Y.Z` | `ghcr.io/pku-typst/toss-latex-worker:X.Y.Z` |
+
+Each release also publishes `sha-<full-source-revision>`. A stable release
+updates that image's own `latest` tag; a prerelease does not. The shared SemVer
+text does not imply compatibility between independently released images.
+Worker admission continues to use the exact processor contract printed by the
+worker image. Release tags must point to commits already contained in `main`.
+
+The tag workflow publishes `linux/amd64`, smoke-checks the pushed digest, and
+attaches GitHub build provenance. Pull production images by digest even when a
+version tag is retained for readability:
+
+```bash
+docker pull ghcr.io/pku-typst/toss:0.1.0@sha256:<manifest-digest>
+docker pull ghcr.io/pku-typst/toss-latex-worker:0.1.0@sha256:<manifest-digest>
+```
+
+Pull requests build the application image without publishing it. Worker image
+validation runs when its Docker context or workflow changes. Create the
+human-facing GitHub release only after the corresponding image workflow is
+green.
 
 ## Persistent state
 
