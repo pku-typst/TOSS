@@ -92,12 +92,16 @@ The standalone browser target has a separate production smoke:
 cd web
 npx playwright install chromium
 cd ..
-TOSS_BASE_URL=/TOSS/ scripts/ci/web-static.sh
+TOSS_BASE_URL=/TOSS/ \
+  TOSS_BROWSER_ENABLED_FEATURES=ai_assistant \
+  scripts/ci/web-static.sh
 ```
 
 It builds for a subpath, then uses Chromium to create and edit a project,
 compile Typst, reload IndexedDB state, reject Core API traffic, and complete the
-AI Runtime handshake in an opaque iframe. Assertions use DOM/protocol state,
+AI Runtime handshake in an opaque iframe. When
+`TOSS_BROWSER_ENABLED_FEATURES` is explicit, it also verifies that the
+Assistant control matches that selection. Assertions use DOM/protocol state,
 not localized copy.
 
 ## Processing workers

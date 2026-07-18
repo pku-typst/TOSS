@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveBrowserFrontendFeatures } from "./browserFeatureSelection";
 import { resolveDistributionConfigPath } from "./distributionBuildConfig";
 
 type LocalizedText = { en: string; "zh-CN": string };
@@ -253,7 +254,11 @@ export function loadBrowserBuildConfiguration() {
   // source and is therefore not inferred from the Core distribution contract.
   const enabledProjectTypes = new Set<ProjectType>(["typst"]);
   const enabledFrontendFeatures = new Set(
-    distribution.frontend_features.default_enabled,
+    resolveBrowserFrontendFeatures({
+      included: distribution.frontend_features.included,
+      defaultEnabled: distribution.frontend_features.default_enabled,
+      configured: process.env.TOSS_BROWSER_ENABLED_FEATURES,
+    }),
   );
   const typstStarterPath = resolveDistributionFile(
     baseDir,

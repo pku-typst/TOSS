@@ -13,6 +13,15 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(scriptDirectory, "..");
 const distRoot = path.join(webRoot, "dist");
 const timeoutMs = 120_000;
+const configuredFrontendFeatures =
+  process.env.TOSS_BROWSER_ENABLED_FEATURES === undefined
+    ? null
+    : new Set(
+        process.env.TOSS_BROWSER_ENABLED_FEATURES
+          .split(",")
+          .map((feature) => feature.trim())
+          .filter(Boolean),
+      );
 
 function applicationBase() {
   const configured = process.env.TOSS_BASE_URL?.trim() || "/TOSS/";
@@ -405,6 +414,19 @@ async function main() {
       { timeout: timeoutMs },
     );
     await waitForCompiledPreview(page);
+
+    if (configuredFrontendFeatures !== null) {
+      const assistantControlCount = await page
+        .locator('[data-panel-toggle="feature:ai_assistant"]')
+        .count();
+      const assistantExpected = configuredFrontendFeatures.has("ai_assistant");
+      const expectedControlCount = assistantExpected ? 1 : 0;
+      if (assistantControlCount !== expectedControlCount) {
+        throw new Error(
+          `Assistant control does not match static feature selection: expected=${expectedControlCount}, actual=${assistantControlCount}`,
+        );
+      }
+    }
 
     const identity = await runtimeIdentity(context, runtimeUrl, pageFailures);
     if (

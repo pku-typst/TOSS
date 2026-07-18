@@ -50,6 +50,7 @@ jobs:
       - name: Build and test Pages artifact
         env:
           TOSS_BASE_URL: ${{ format('{0}/', steps.pages.outputs.base_path) }}
+          TOSS_BROWSER_ENABLED_FEATURES: ai_assistant
         run: scripts/ci/web-static.sh
 
       - name: Upload GitHub Pages artifact
