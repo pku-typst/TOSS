@@ -85,9 +85,12 @@ export function usePreviewCanvas({
     kind: "typst-vector" | "pdf";
     pixelPerPt: number;
     bytes: Uint8Array;
-    mappingRevision: number | null;
   } | null>(null);
   const manualViewportRef = useRef<ManualViewportAnchor>({ xCenterRatio: 0.5, yCenterRatio: 0.5 });
+  const activeRenderAnchorsRef = useRef<{
+    viewport: PreviewViewportAnchor;
+    manual: ManualViewportAnchor;
+  } | null>(null);
   const gestureLastScaleRef = useRef(1);
   const viewportAnchorRef = useRef<PreviewViewportAnchor>(initialViewportAnchor ?? { xRatio: 0, yRatio: 0 });
   const viewportAnchorHydratedRef = useRef(false);
@@ -123,6 +126,22 @@ export function usePreviewCanvas({
     onViewportAnchorChange?.(viewportAnchorRef.current);
   };
 
+  const updateNavigationViewport = (frame: HTMLElement) => {
+    const viewport = captureViewportAnchor(frame);
+    const manual = captureManualViewportAnchor(frame);
+    viewportAnchorRef.current = viewport;
+    manualViewportRef.current = manual;
+    if (activeRenderAnchorsRef.current) {
+      activeRenderAnchorsRef.current.viewport = viewport;
+      activeRenderAnchorsRef.current.manual = manual;
+    }
+  };
+
+  const rememberNavigationViewport = (frame: HTMLElement) => {
+    updateNavigationViewport(frame);
+    emitViewportAnchor(frame);
+  };
+
   const currentPageIndicator = (frame: HTMLElement) => {
     const indicator = measurePageIndicator(frame, preferredPageIndexRef.current);
     if (indicator.pageTotal === 0) preferredPageIndexRef.current = null;
@@ -152,16 +171,18 @@ export function usePreviewCanvas({
     const frame = canvasPreviewRef.current;
     if (!frame) return;
     syncPreviewScrollbarWidth(frame);
-    if (viewportAnchorHydratedRef.current) {
+    const hasRenderedPages = collectRenderedPages(frame).length > 0;
+    if (viewportAnchorHydratedRef.current && hasRenderedPages) {
       viewportAnchorRef.current = captureViewportAnchor(frame);
     }
-    if (viewportAnchorHydratedRef.current) {
+    if (viewportAnchorHydratedRef.current && hasRenderedPages) {
       emitViewportAnchorFromEffect(frame);
     }
     const artifactBytes = previewArtifactKind === "typst-vector" ? vectorData : pdfData;
     const artifactMappingRevision =
       previewArtifactKind === "typst-vector" ? typstMappingRevision : null;
     if (!artifactBytes) {
+      activeRenderAnchorsRef.current = null;
       lastRenderedArtifactRef.current = null;
       frame.replaceChildren();
       dispatchCanvas({
@@ -175,21 +196,24 @@ export function usePreviewCanvas({
       lastRenderedArtifact?.kind === previewArtifactKind &&
       lastRenderedArtifact.pixelPerPt === previewPixelPerPt &&
       lastRenderedArtifact.bytes === artifactBytes &&
-      lastRenderedArtifact.mappingRevision === artifactMappingRevision &&
       !!frame.querySelector(".pdf-pages .typst-page, .pdf-pages canvas");
     if (alreadyRendered) {
       dispatchCanvas({
-        type: "render.settled",
+        type: "mapping.changed",
         mappingRevision: artifactMappingRevision,
-        ...currentPageIndicator(frame)
       });
       return;
     }
     let cancelled = false;
-    const preferencesAtRenderStart = readPreviewPreferences();
-    if (preferencesAtRenderStart.fitMode === "manual") {
-      manualViewportRef.current = captureManualViewportAnchor(frame);
-    }
+    const renderAnchors = {
+      viewport: hasRenderedPages
+        ? captureViewportAnchor(frame)
+        : viewportAnchorRef.current,
+      manual: hasRenderedPages
+        ? captureManualViewportAnchor(frame)
+        : manualViewportRef.current,
+    };
+    activeRenderAnchorsRef.current = renderAnchors;
     dispatchCanvas({ type: "render.started" });
     const renderPromise =
       previewArtifactKind === "typst-vector"
@@ -204,8 +228,7 @@ export function usePreviewCanvas({
         lastRenderedArtifactRef.current = {
           kind: previewArtifactKind,
           pixelPerPt: previewPixelPerPt,
-          bytes: artifactBytes,
-          mappingRevision: artifactMappingRevision
+          bytes: artifactBytes
         };
         const pages = frame.querySelector(".pdf-pages") as HTMLElement | null;
         if (pages) {
@@ -214,17 +237,18 @@ export function usePreviewCanvas({
           applyPreviewZoom(frame, zoom);
           syncPreviewScrollbarWidth(frame);
           if (fitMode === "manual") {
-            restoreManualViewportAnchor(frame, manualViewportRef.current);
+            restoreManualViewportAnchor(frame, renderAnchors.manual);
             if (!viewportAnchorHydratedRef.current) {
               viewportAnchorHydratedRef.current = true;
             }
           } else {
-            restoreViewportAnchor(frame, viewportAnchorRef.current);
+            restoreViewportAnchor(frame, renderAnchors.viewport);
             if (!viewportAnchorHydratedRef.current) {
               viewportAnchorHydratedRef.current = true;
             }
           }
           viewportAnchorRef.current = captureViewportAnchor(frame);
+          manualViewportRef.current = captureManualViewportAnchor(frame);
           emitViewportAnchorFromEffect(frame);
           if (fitMode !== "manual" && Math.abs(zoom - currentZoom) > FIT_ZOOM_SYNC_EPSILON) {
             setPreviewZoom(zoom);
@@ -235,6 +259,9 @@ export function usePreviewCanvas({
           mappingRevision: artifactMappingRevision,
           ...currentPageIndicator(frame)
         });
+        if (activeRenderAnchorsRef.current === renderAnchors) {
+          activeRenderAnchorsRef.current = null;
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -242,11 +269,17 @@ export function usePreviewCanvas({
           type: "render.failed",
           ...currentPageIndicator(frame)
         });
+        if (activeRenderAnchorsRef.current === renderAnchors) {
+          activeRenderAnchorsRef.current = null;
+        }
         const message = err instanceof Error ? err.message : renderErrorFallback;
         reportRenderError(message);
       });
     return () => {
       cancelled = true;
+      if (activeRenderAnchorsRef.current === renderAnchors) {
+        activeRenderAnchorsRef.current = null;
+      }
     };
   }, [
     typstRuntimeBaseUrl,
@@ -400,7 +433,7 @@ export function usePreviewCanvas({
     if (!frame) return;
     const onScroll = () => {
       if (viewportAnchorHydratedRef.current) {
-        viewportAnchorRef.current = captureViewportAnchor(frame);
+        updateNavigationViewport(frame);
         emitViewportAnchorFromEffect(frame);
       }
       refreshPageIndicator(frame);
@@ -447,6 +480,7 @@ export function usePreviewCanvas({
       previewPanCleanupRef.current = null;
       dispatchCanvas({ type: "panning.changed", active: false });
       if (previewPanMovedRef.current) {
+        rememberNavigationViewport(frame);
         window.setTimeout(() => {
           previewPanMovedRef.current = false;
         }, 0);
@@ -494,8 +528,7 @@ export function usePreviewCanvas({
     const target = pages[targetIndex];
     preferredPageIndexRef.current = targetIndex;
     frame.scrollTop = previewPageScrollTarget(frame, target);
-    viewportAnchorRef.current = captureViewportAnchor(frame);
-    emitViewportAnchor(frame);
+    rememberNavigationViewport(frame);
     refreshPageIndicator(frame);
   }
 
@@ -529,8 +562,7 @@ export function usePreviewCanvas({
     const maxTop = Math.max(0, frame.scrollHeight - frame.clientHeight);
     frame.scrollLeft = Math.min(maxLeft, Math.max(0, pointLeft - frame.clientWidth / 2));
     frame.scrollTop = Math.min(maxTop, Math.max(0, pointTop - frame.clientHeight / 2));
-    viewportAnchorRef.current = captureViewportAnchor(frame);
-    emitViewportAnchor(frame);
+    rememberNavigationViewport(frame);
     refreshPageIndicator(frame);
   }
 
@@ -544,11 +576,22 @@ export function usePreviewCanvas({
     fulfillPendingPreviewJump();
   }, [canvasState.pageTotal, canvasState.renderRevision, showPreviewPanel]);
 
+  const requestedArtifactBytes =
+    previewArtifactKind === "typst-vector" ? vectorData : pdfData;
+  const renderedArtifact = lastRenderedArtifactRef.current;
+  const previewReplacing =
+    canvasState.renderStatus === "rendering" ||
+    (!!requestedArtifactBytes &&
+      (renderedArtifact?.kind !== previewArtifactKind ||
+        renderedArtifact.pixelPerPt !== previewPixelPerPt ||
+        renderedArtifact.bytes !== requestedArtifactBytes));
+
   return {
     canvasPreviewRef,
     previewRenderTick: canvasState.renderRevision,
     previewIsPanning: canvasState.isPanning,
     previewRendering: canvasState.renderStatus === "rendering",
+    previewReplacing,
     hasPreviewPage: canvasState.pageTotal > 0,
     previewPageCurrent: canvasState.pageCurrent,
     previewPageTotal: canvasState.pageTotal,

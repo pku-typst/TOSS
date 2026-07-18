@@ -18,6 +18,16 @@ function boundedPercent(loaded: number, total: number): number | null {
   return Math.min(100, Math.max(0, Math.round((100 * loaded) / total)));
 }
 
+export function hasCompilationFailure(
+  diagnostics: readonly CompileDiagnostic[],
+  errors: readonly string[],
+) {
+  return (
+    errors.length > 0 ||
+    diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  );
+}
+
 export function PreviewPanel({
   editorRatio,
   previewFitMode,
@@ -31,8 +41,9 @@ export function PreviewPanel({
   workspaceSyncPending,
   compileActive,
   previewRendering,
+  previewReplacing,
+  previewOutdated,
   assetHydrationProgress,
-  vectorData,
   previewIsPanning,
   compileDiagnostics,
   compileErrors,
@@ -67,6 +78,8 @@ export function PreviewPanel({
   workspaceSyncPending: boolean;
   compileActive: boolean;
   previewRendering: boolean;
+  previewReplacing: boolean;
+  previewOutdated: boolean;
   assetHydrationProgress: {
     active: boolean;
     loaded: number;
@@ -74,7 +87,6 @@ export function PreviewPanel({
     loadedBytes: number;
     totalBytes: number;
   };
-  vectorData: Uint8Array | null;
   previewIsPanning: boolean;
   compileDiagnostics: CompileDiagnostic[];
   compileErrors: string[];
@@ -101,9 +113,16 @@ export function PreviewPanel({
 }) {
   const [pageJumpInput, setPageJumpInput] = useState("");
   const pageJumpPopoverId = "preview-page-jump";
-  const hasCompileFailure = compileDiagnostics.length > 0 || compileErrors.length > 0;
+  const hasCompileFailure = hasCompilationFailure(
+    compileDiagnostics,
+    compileErrors,
+  );
   const showStaleOverlay = hasCompileFailure && hasPreviewPage;
   const showEmptyErrorState = hasCompileFailure && !hasPreviewPage;
+  const showRefreshOverlay =
+    hasPreviewPage &&
+    !hasCompileFailure &&
+    (previewOutdated || compileActive || previewReplacing);
   const assetHydrationPercent =
     assetHydrationProgress.totalBytes > 0
       ? boundedPercent(assetHydrationProgress.loadedBytes, assetHydrationProgress.totalBytes)
@@ -370,6 +389,10 @@ export function PreviewPanel({
             className={`pdf-frame preview-fit-${previewFitMode} ${previewIsPanning ? "is-panning" : ""}`}
             onMouseDown={onBeginPreviewPan}
             onClick={onPreviewClick}
+          />
+          <div
+            className={`preview-refresh-overlay${showRefreshOverlay ? " active" : ""}`}
+            aria-hidden
           />
           {showInitialLoadingState && (
             <div className="preview-initial-loading" role="status" aria-live="polite">
