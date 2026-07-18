@@ -108,7 +108,9 @@ For the frontend-only target, choose the deployment base path at build time:
 
 ```bash
 cd web
-TOSS_BASE_URL=/TOSS/ npm run build:browser
+TOSS_BASE_URL=/TOSS/ \
+  TOSS_BROWSER_ENABLED_FEATURES=ai_assistant \
+  npm run build:browser
 npm run preview -- --host 127.0.0.1
 ```
 
@@ -120,10 +122,12 @@ repository path, including leading and trailing slashes, for GitHub Pages.
 ### Publish with GitHub Pages
 
 The `Pages` workflow builds, exercises, and deploys the standalone target on
-pushes to `main` or a manual run from `main`. It reads GitHub Pages' configured
-base path, so project sites, user sites, and custom domains use the same
-workflow without a hard-coded repository name. The uploaded artifact is the
-same `/dist` tree that passed the Chromium static smoke.
+pushes to `main` or a manual run from `main`. It explicitly enables the
+Community BYOK Assistant without changing the Core deployment default, and
+reads GitHub Pages' configured base path so project sites, user sites, and
+custom domains use the same workflow without a hard-coded repository name. The
+uploaded artifact is the same `/dist` tree that passed the Chromium static
+smoke.
 
 Before the first run, set the repository's **Settings → Pages → Build and
 deployment → Source** to **GitHub Actions**. No deployment secret or `gh-pages`

@@ -116,9 +116,13 @@ Core injects the validated full Runtime policy only when serving that no-store
 entry.
 
 A static build has no server injection point. It applies
-`frontend_features.default_enabled`, embeds the validated AI policy only in the
-opaque Runtime entry, and keeps the host-side configuration redacted. An
-AI-excluded build emits neither the Assistant chunk, candidate compiler/docs
+`TOSS_BROWSER_ENABLED_FEATURES` when that comma-separated build setting is
+present, otherwise it uses `frontend_features.default_enabled`. The explicit
+selection may contain only distribution-included features; unknown, duplicate,
+or empty items in a non-empty list fail the build. An empty value explicitly
+disables all optional frontend features. The validated AI policy is embedded
+only in the opaque Runtime entry, while host-side configuration stays redacted.
+An AI-excluded build emits neither the Assistant chunk, candidate compiler/docs
 tool, KaTeX assets, nor the Runtime artifact.
 
 ## Product identity

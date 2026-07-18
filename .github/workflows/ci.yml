@@ -194,6 +194,7 @@ jobs:
       - name: Run static web checks
         env:
           TOSS_BASE_URL: /TOSS/
+          TOSS_BROWSER_ENABLED_FEATURES: ai_assistant
         run: scripts/ci/web-static.sh
 
   integration:

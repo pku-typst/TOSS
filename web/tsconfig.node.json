@@ -10,6 +10,7 @@
     "vite.ai-runtime.config.ts",
     "vitest.config.ts",
     "distributionBuildConfig.ts",
+    "browserFeatureSelection.ts",
     "browserBuildConfiguration.ts",
     "aiRuntimeBuildConfig.ts"
   ]
