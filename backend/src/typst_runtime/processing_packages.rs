@@ -31,7 +31,7 @@ pub(crate) struct ResolvedTypstPackageFile {
 
 #[derive(Debug, Error)]
 pub(crate) enum ResolveProcessingPackagesError {
-    #[error("Typst package dependency is dynamic and cannot be captured")]
+    #[error("Typst dependency is dynamic and cannot be captured")]
     DynamicDependency,
     #[error("Typst package closure contains too many packages")]
     TooManyPackages,

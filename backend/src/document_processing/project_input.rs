@@ -3,7 +3,6 @@
 use super::persistence::{pin_project_assets, release_project_asset_pins};
 use super::ProcessingOperation;
 use crate::collaboration::{CollaborationContext, FlushProjectCollaborationError};
-use crate::distribution::DistributionConfig;
 use crate::object_storage::ObjectStorage;
 use crate::typst_runtime::{
     analyze_project_dependencies, resolve_processing_package_closure,
@@ -45,7 +44,6 @@ pub(super) struct TypstProjectBundleCapture<'a> {
     pub db: &'a PgPool,
     pub storage: Option<&'a ObjectStorage>,
     pub collaboration: &'a CollaborationContext,
-    pub distribution: &'a DistributionConfig,
     pub builtin_dir: &'a Path,
     pub operation: ProcessingOperation,
     pub job_id: Uuid,
@@ -65,8 +63,6 @@ pub(super) enum CaptureProjectBundleError {
     TooManyFiles,
     #[error("project input exceeds the configured processing limit")]
     TooLarge,
-    #[error("project does not satisfy the processing operation policy")]
-    OperationInapplicable,
     #[error(transparent)]
     Package(#[from] ResolveProcessingPackagesError),
     #[error("collaboration state could not be captured")]
@@ -173,7 +169,6 @@ pub(super) async fn capture_typst_project_bundle(
         db,
         storage,
         collaboration,
-        distribution,
         builtin_dir,
         operation,
         job_id,
@@ -182,9 +177,7 @@ pub(super) async fn capture_typst_project_bundle(
     } = capture;
     let snapshot = capture_project_snapshot(db, collaboration, job_id, project_id).await?;
     let dependencies = analyze_project_dependencies(&snapshot.entry_file_path, &snapshot.documents);
-    let result = if !distribution.processing_operation_applicable(operation, Some(&dependencies)) {
-        Err(CaptureProjectBundleError::OperationInapplicable)
-    } else {
+    let result =
         match resolve_processing_package_closure(builtin_dir, &dependencies, max_input_bytes).await
         {
             Ok(packages) => {
@@ -200,8 +193,7 @@ pub(super) async fn capture_typst_project_bundle(
                 .await
             }
             Err(error) => Err(error.into()),
-        }
-    };
+        };
     release_pins(db, job_id).await;
     result
 }
