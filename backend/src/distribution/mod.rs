@@ -9,6 +9,7 @@ pub(crate) mod template_catalog;
 use crate::document_processing::ProcessingOperation;
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 use crate::text_enum::text_enum;
+use crate::typst_runtime::{TypstPackageRequirement, TypstProjectDependencies};
 use crate::workspace::ProjectType;
 pub use ai_assistant::{AiAssistantConfig, AiConnectionPolicyKind, ManagedAiCatalogConfig};
 use experience_content::{ExperienceConfig, ExperienceResource, LandingConfig, LandingHighlight};
@@ -137,6 +138,13 @@ pub struct FrontendFeaturesConfig {
 #[derive(Clone, Debug)]
 pub struct DocumentProcessingDistributionConfig {
     pub allowed_operations: Vec<ProcessingOperation>,
+    pub operation_policies: Vec<ProcessingOperationPolicy>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcessingOperationPolicy {
+    pub operation: ProcessingOperation,
+    pub required_typst_packages: Vec<TypstPackageRequirement>,
 }
 
 impl Default for DistributionConfig {
@@ -173,6 +181,7 @@ impl Default for DistributionConfig {
             ai_assistant: None,
             document_processing: DocumentProcessingDistributionConfig {
                 allowed_operations: vec![ProcessingOperation::LatexCompilePdfV1],
+                operation_policies: Vec::new(),
             },
             experience: ExperienceConfig {
                 landing: LandingConfig {
@@ -259,6 +268,30 @@ impl DistributionConfig {
             .contains(&operation)
     }
 
+    pub(crate) fn processing_operation_applicable(
+        &self,
+        operation: ProcessingOperation,
+        dependencies: Option<&TypstProjectDependencies>,
+    ) -> bool {
+        let Some(policy) = self
+            .document_processing
+            .operation_policies
+            .iter()
+            .find(|policy| policy.operation == operation)
+        else {
+            return true;
+        };
+        let Some(dependencies) = dependencies else {
+            return false;
+        };
+        policy.required_typst_packages.iter().all(|requirement| {
+            dependencies
+                .packages
+                .iter()
+                .any(|package| requirement.matches(package))
+        })
+    }
+
     pub fn starter_content(&self, project_type: ProjectType) -> Option<&str> {
         match project_type {
             ProjectType::Typst if self.supports_project_type(ProjectType::Typst) => {
@@ -317,11 +350,13 @@ fn is_hex_color(value: &str) -> bool {
 mod tests {
     use super::{
         AiConnectionPolicyKind, CheckpointBranchPrefix, DistributionConfig,
-        InvalidCheckpointBranchPrefix,
+        InvalidCheckpointBranchPrefix, ProcessingOperationPolicy,
     };
     use crate::document_processing::ProcessingOperation;
     use crate::experience::ExperienceVisibility;
+    use crate::typst_runtime::{PackageSpec, TypstPackageRequirement, TypstProjectDependencies};
     use crate::workspace::ProjectType;
+    use std::collections::HashSet;
     use std::error::Error;
     use std::path::Path;
     use uuid::Uuid;
@@ -409,5 +444,52 @@ mod tests {
                 Err(InvalidCheckpointBranchPrefix)
             );
         }
+    }
+
+    #[test]
+    fn processing_policy_matches_an_exact_reachable_typst_package(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut config = DistributionConfig::default();
+        let requirement = TypstPackageRequirement::parse(
+            "local".to_string(),
+            "slides".to_string(),
+            vec!["0.7.0".to_string()],
+        )
+        .ok_or("test package requirement is invalid")?;
+        config.document_processing.operation_policies = vec![ProcessingOperationPolicy {
+            operation: ProcessingOperation::TypstExportPptxV1,
+            required_typst_packages: vec![requirement],
+        }];
+        let matching = TypstProjectDependencies {
+            packages: HashSet::from([PackageSpec::parse(
+                "local".to_string(),
+                "slides".to_string(),
+                "0.7.0".to_string(),
+            )
+            .ok_or("matching test package spec is invalid")?]),
+            has_dynamic_imports: false,
+        };
+        let wrong_version = TypstProjectDependencies {
+            packages: HashSet::from([PackageSpec::parse(
+                "local".to_string(),
+                "slides".to_string(),
+                "0.6.0".to_string(),
+            )
+            .ok_or("wrong-version test package spec is invalid")?]),
+            has_dynamic_imports: false,
+        };
+
+        assert!(config.processing_operation_applicable(
+            ProcessingOperation::TypstExportPptxV1,
+            Some(&matching)
+        ));
+        assert!(!config.processing_operation_applicable(
+            ProcessingOperation::TypstExportPptxV1,
+            Some(&wrong_version)
+        ));
+        assert!(
+            config.processing_operation_applicable(ProcessingOperation::LatexCompilePdfV1, None)
+        );
+        Ok(())
     }
 }

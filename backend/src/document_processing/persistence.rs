@@ -50,6 +50,7 @@ pub(super) struct JobRecord {
     pub id: Uuid,
     pub operation: ProcessingOperation,
     pub project_id: Option<Uuid>,
+    pub result_project_id: Option<Uuid>,
     pub state: ProcessingJobState,
     pub phase: ProcessingPhase,
     pub cancellation_requested: bool,
@@ -100,6 +101,7 @@ impl JobRecord {
             id: self.id,
             operation: self.operation,
             project_id: self.project_id,
+            result_project_id: self.result_project_id,
             state: self.state,
             phase: self.phase,
             cancellation_requested: self.cancellation_requested,
@@ -244,7 +246,7 @@ async fn find_idempotent_job(
     key: &str,
 ) -> Result<Option<JobRecord>, sqlx::Error> {
     let row = sqlx::query(
-        "select id, operation, requester_user_id, project_id, state, phase,
+        "select id, operation, requester_user_id, project_id, result_project_id, state, phase,
                 cancellation_requested, attempt_count, processor_contract,
                 failure_class, failure_code, failure_message,
                 created_at, updated_at, completed_at
@@ -296,13 +298,14 @@ pub(super) async fn release_project_asset_pins(
 
 pub(super) struct PreparedInput<'a> {
     pub schema: &'a str,
+    pub media_type: &'a str,
     pub bytes: &'a [u8],
     pub digest: &'a [u8],
     pub normalized_options: &'a Value,
     pub options_digest: &'a [u8],
-    pub workspace_version: i64,
-    pub content_epoch: i64,
-    pub source_epoch: i64,
+    pub workspace_version: Option<i64>,
+    pub content_epoch: Option<i64>,
+    pub source_epoch: Option<i64>,
     pub now: DateTime<Utc>,
 }
 
@@ -315,7 +318,7 @@ pub(super) async fn store_prepared_input(
     let blob_id = store_blob(
         &mut transaction,
         input.digest,
-        "application/vnd.toss.project-bundle+zip",
+        input.media_type,
         input.bytes,
         input.now,
     )
@@ -328,7 +331,7 @@ pub(super) async fn store_prepared_input(
              source_epoch = $9, state = 'queued', phase = 'waiting_for_worker',
              queued_at = $10, updated_at = $10
          where id = $1 and state = 'preparing' and not cancellation_requested
-         returning id, operation, requester_user_id, project_id, state, phase,
+         returning id, operation, requester_user_id, project_id, result_project_id, state, phase,
                    cancellation_requested, attempt_count, processor_contract,
                    failure_class, failure_code, failure_message,
                    created_at, updated_at, completed_at",
@@ -391,7 +394,7 @@ pub(super) async fn list_jobs_for_user(
     user_id: Uuid,
 ) -> Result<Vec<JobRecord>, sqlx::Error> {
     let rows = sqlx::query(
-        "select id, operation, requester_user_id, project_id, state, phase,
+        "select id, operation, requester_user_id, project_id, result_project_id, state, phase,
                 cancellation_requested, attempt_count, processor_contract,
                 failure_class, failure_code, failure_message,
                 created_at, updated_at, completed_at
@@ -415,7 +418,7 @@ pub(super) async fn job_for_user(
     job_id: Uuid,
 ) -> Result<Option<JobRecord>, sqlx::Error> {
     let row = sqlx::query(
-        "select id, operation, requester_user_id, project_id, state, phase,
+        "select id, operation, requester_user_id, project_id, result_project_id, state, phase,
                 cancellation_requested, attempt_count, processor_contract,
                 failure_class, failure_code, failure_message,
                 created_at, updated_at, completed_at
@@ -499,7 +502,7 @@ pub(super) async fn cancel_job(
         | ProcessingJobState::Expired => {}
     }
     let row = sqlx::query(
-        "select id, operation, requester_user_id, project_id, state, phase,
+        "select id, operation, requester_user_id, project_id, result_project_id, state, phase,
                 cancellation_requested, attempt_count, processor_contract,
                 failure_class, failure_code, failure_message,
                 created_at, updated_at, completed_at
@@ -614,6 +617,7 @@ fn job_from_row(row: &sqlx::postgres::PgRow) -> Result<JobRecord, sqlx::Error> {
         id: row.try_get("id")?,
         operation: row.try_get("operation")?,
         project_id: row.try_get("project_id")?,
+        result_project_id: row.try_get("result_project_id")?,
         state: row.try_get("state")?,
         phase: row.try_get("phase")?,
         cancellation_requested: row.try_get("cancellation_requested")?,

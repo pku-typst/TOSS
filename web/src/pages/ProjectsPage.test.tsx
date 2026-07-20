@@ -9,6 +9,7 @@ import type {
   SelectHTMLAttributes
 } from "react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProject, type Project } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
@@ -19,6 +20,7 @@ import { createTestApplicationRuntime } from "@/testSupport/applicationRuntime";
 
 vi.mock("@/lib/api", () => ({
   copyProject: vi.fn(),
+  getProcessingCapabilities: vi.fn(),
   createProject: vi.fn(),
   listProjects: vi.fn(),
   projectThumbnailUrl: vi.fn(),
@@ -118,22 +120,27 @@ const existingProject: Project = {
 };
 
 function renderPage(projects: Project[] = []) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
+  });
   render(
-    <ApplicationRuntimeProvider
-      runtime={createTestApplicationRuntime({ projects: coreProjectCatalog })}
-    >
-      <MemoryRouter>
-        <ProjectsPage
-          projects={projects}
-          organizations={[]}
-          enabledProjectTypes={["typst"]}
-          externalGitProviders={[]}
-          refreshProjects={vi.fn().mockResolvedValue(undefined)}
-          locale="en"
-          t={t}
-        />
-      </MemoryRouter>
-    </ApplicationRuntimeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ApplicationRuntimeProvider
+        runtime={createTestApplicationRuntime({ projects: coreProjectCatalog })}
+      >
+        <MemoryRouter>
+          <ProjectsPage
+            projects={projects}
+            organizations={[]}
+            enabledProjectTypes={["typst"]}
+            externalGitProviders={[]}
+            refreshProjects={vi.fn().mockResolvedValue(undefined)}
+            locale="en"
+            t={t}
+          />
+        </MemoryRouter>
+      </ApplicationRuntimeProvider>
+    </QueryClientProvider>
   );
 }
 

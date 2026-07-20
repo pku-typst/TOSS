@@ -1,15 +1,20 @@
 //! Browser/user HTTP edge for durable processing commands and task queries.
 
 use super::model::{
-    ProcessingCapabilities, ProcessingCapability, ProcessingCapabilityState, ProcessingJob,
-    ProcessingJobList, ProcessingOperation,
+    CreatePptxExportInput, CreatePptxImportInput, ProcessingCapabilities, ProcessingCapability,
+    ProcessingCapabilityState, ProcessingJob, ProcessingJobList, ProcessingOperation,
+    ProjectProcessingCapabilities, ProjectProcessingCapability, ProjectProcessingCapabilityState,
 };
 use super::persistence::{
     artifact_content_for_user, artifacts_for_jobs, cancel_job, capability_stats, job_for_user,
     list_jobs_for_user, mark_preparation_failed, reserve_job, store_prepared_input, PreparedInput,
     ReserveJob, ReserveJobError, ReserveJobOutcome,
 };
-use super::project_input::{capture_project_bundle, CaptureProjectBundleError};
+use super::pptx::{validate_pptx, PptxValidationError};
+use super::project_input::{
+    capture_project_bundle, capture_typst_project_bundle, CaptureProjectBundleError,
+    CapturedProjectBundle, TypstProjectBundleCapture,
+};
 use crate::access::{
     ensure_project_role, ensure_project_role_for_user, required_request_user_id, AccessNeed,
     ProjectAuthorizationError,
@@ -17,19 +22,44 @@ use crate::access::{
 use crate::app_state::AppState;
 use crate::http_response::ApiError;
 use crate::protocol::ApiErrorCode;
-use crate::workspace::{load_project_entry_point, ProjectType};
-use axum::body::Body;
-use axum::extract::{Path, State};
+use crate::typst_runtime::{analyze_project_dependencies, ResolveProcessingPackagesError};
+use crate::workspace::{
+    load_project_content_snapshot, load_project_entry_point, ProjectName, ProjectType,
+};
+use axum::body::{Body, Bytes};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono::Utc;
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::path::Path as FsPath;
 use uuid::Uuid;
 
 const IDEMPOTENCY_HEADER: &str = "idempotency-key";
+type CreateJobResponse = (StatusCode, Json<ProcessingJob>);
+
+struct ReservedJob {
+    actor: Uuid,
+    job_id: Uuid,
+}
+
+struct ProcessingJobReservation<'a> {
+    actor: Uuid,
+    project_id: Option<Uuid>,
+    idempotency_scope: &'static str,
+    idempotency_key: &'a str,
+    operation: ProcessingOperation,
+    command: &'a Value,
+    options: &'a Value,
+}
+
+enum ProjectJobStart {
+    Existing(CreateJobResponse),
+    Reserved(ReservedJob),
+}
 
 pub(crate) async fn create_latex_pdf_build(
     State(state): State<AppState>,
@@ -37,103 +67,30 @@ pub(crate) async fn create_latex_pdf_build(
     Path(project_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let operation = ProcessingOperation::LatexCompilePdfV1;
-    if !state.distribution.supports_processing_operation(operation) {
-        return Err(ApiError::new(
-            StatusCode::NOT_FOUND,
-            ApiErrorCode::ProcessingUnavailable,
-            "Background LaTeX builds are disabled in this distribution",
-        ));
-    }
-    if !state.processing.config.operation_configured(operation) {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            ApiErrorCode::ProcessingUnavailable,
-            "No background LaTeX processor is configured",
-        ));
-    }
-    let actor = ensure_project_role(&state.db, &headers, project_id, AccessNeed::Read).await?;
-    let entry_point = load_project_entry_point(&state.db, project_id).await?;
-    if entry_point.project_type != ProjectType::Latex {
-        return Err(ApiError::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ApiErrorCode::ProcessingOperationInvalid,
-            "Background LaTeX builds require a LaTeX project",
-        ));
-    }
-    let idempotency_key = idempotency_key(&headers)?;
-    let command_digest = Sha256::digest(format!("{}:{project_id}", operation.as_ref()).as_bytes());
-    let placeholder_options = json!({});
-    let placeholder_options_bytes = serde_json::to_vec(&placeholder_options).map_err(|error| {
-        processing_unavailable("processing options could not be encoded", error)
-    })?;
-    let placeholder_options_digest = Sha256::digest(&placeholder_options_bytes);
-    let now = Utc::now();
-    let job_id = Uuid::new_v4();
-    let outcome = reserve_job(
-        &state.db,
-        &state.processing.config,
-        &ReserveJob {
-            id: job_id,
-            operation,
-            requester_user_id: actor,
-            project_id: Some(project_id),
-            idempotency_scope: "project-build",
-            idempotency_key,
-            command_digest: command_digest.as_ref(),
-            normalized_options: &placeholder_options,
-            options_digest: placeholder_options_digest.as_ref(),
-            now,
-        },
-    )
-    .await
-    .map_err(reserve_error)?;
-    if let ReserveJobOutcome::Existing(job) = outcome {
-        let artifacts = super::persistence::artifacts_by_job(&state.db, job.id)
-            .await
-            .map_err(|error| {
-                processing_unavailable("processing artifacts could not be read", error)
-            })?;
-        return Ok((StatusCode::OK, Json(job.into_public(artifacts))));
-    }
-
-    let bundle = match capture_project_bundle(
-        &state.db,
-        state.storage.as_ref(),
-        &state.collaboration,
-        job_id,
-        project_id,
-        state.processing.config.max_input_bytes,
-    )
-    .await
-    {
-        Ok(bundle) => bundle,
-        Err(error) => {
-            let (code, message) = capture_failure(&error);
-            if let Err(mark_error) = mark_preparation_failed(&state.db, job_id, code, message).await
-            {
-                tracing::error!(%job_id, %mark_error, "processing preparation failure could not be persisted");
-            }
-            return Err(capture_error(error));
-        }
-    };
-    if bundle.project_type != ProjectType::Latex {
-        return Err(fail_preparation(
-            &state,
-            job_id,
-            "project_type_changed",
-            "Project type changed while the build was being prepared",
-            ApiError::new(
-                StatusCode::CONFLICT,
-                ApiErrorCode::ProjectContentChanged,
-                "Project type changed while the build was being prepared",
-            ),
+    let reserved =
+        match begin_project_job(&state, &headers, project_id, operation, &json!({})).await? {
+            ProjectJobStart::Existing(response) => return Ok(response),
+            ProjectJobStart::Reserved(reserved) => reserved,
+        };
+    let bundle = capture_or_fail(
+        &state,
+        reserved.job_id,
+        capture_project_bundle(
+            &state.db,
+            state.storage.as_ref(),
+            &state.collaboration,
+            reserved.job_id,
+            project_id,
+            state.processing.config.max_input_bytes,
         )
-        .await);
-    }
+        .await,
+    )
+    .await?;
+    ensure_captured_project_type(&state, reserved.job_id, &bundle, ProjectType::Latex).await?;
     let Some(engine) = bundle.latex_engine else {
         return Err(fail_preparation(
             &state,
-            job_id,
+            reserved.job_id,
             "latex_engine_missing",
             "LaTeX engine is missing from the captured project",
             ApiError::new(
@@ -149,12 +106,274 @@ pub(crate) async fn create_latex_pdf_build(
         "entry_file_path": bundle.entry_file_path,
         "source_epoch": bundle.source_epoch,
     });
+    finish_project_job(&state, reserved, bundle, options).await
+}
+
+pub(crate) async fn create_typst_pptx_export(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<Uuid>,
+    Json(input): Json<CreatePptxExportInput>,
+) -> Result<impl IntoResponse, ApiError> {
+    let operation = ProcessingOperation::TypstExportPptxV1;
+    let initial_options = serde_json::to_value(&input).map_err(|error| {
+        processing_unavailable("processing options could not be encoded", error)
+    })?;
+    let reserved =
+        match begin_project_job(&state, &headers, project_id, operation, &initial_options).await? {
+            ProjectJobStart::Existing(response) => return Ok(response),
+            ProjectJobStart::Reserved(reserved) => reserved,
+        };
+    let bundle = capture_or_fail(
+        &state,
+        reserved.job_id,
+        capture_typst_project_bundle(TypstProjectBundleCapture {
+            db: &state.db,
+            storage: state.storage.as_ref(),
+            collaboration: &state.collaboration,
+            distribution: &state.distribution,
+            builtin_dir: &state.typst_builtin_dir,
+            operation,
+            job_id: reserved.job_id,
+            project_id,
+            max_input_bytes: state.processing.config.max_input_bytes,
+        })
+        .await,
+    )
+    .await?;
+    ensure_captured_project_type(&state, reserved.job_id, &bundle, ProjectType::Typst).await?;
+    let options = json!({
+        "mode": input.mode,
+        "entry_file_path": bundle.entry_file_path,
+        "source_epoch": bundle.source_epoch,
+    });
+    finish_project_job(&state, reserved, bundle, options).await
+}
+
+pub(crate) async fn create_pptx_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(input): Query<CreatePptxImportInput>,
+    body: Bytes,
+) -> Result<impl IntoResponse, ApiError> {
+    let operation = ProcessingOperation::PptxImportTypstV1;
+    ensure_operation_enabled(&state, operation)?;
+    require_pptx_content_type(&headers)?;
+    let actor = required_request_user_id(&state.db, &headers).await?;
+    let (filename, project_name) = normalize_import_filename(&input.filename)?;
+    let size_bytes = i64::try_from(body.len()).unwrap_or(i64::MAX);
+    if body.is_empty() || size_bytes > state.processing.config.max_input_bytes {
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ApiErrorCode::ProcessingInputTooLarge,
+            "PPTX input exceeds the processing input limit",
+        ));
+    }
+    let expanded_limit = u64::try_from(state.processing.config.max_input_bytes)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(4);
+    let validation_bytes = body.clone();
+    let validation = tokio::task::spawn_blocking(move || {
+        validate_pptx(validation_bytes.as_ref(), expanded_limit)
+    })
+    .await
+    .map_err(|error| processing_unavailable("PPTX validation task failed", error))?;
+    if let Err(error) = validation {
+        return Err(pptx_input_error(error));
+    }
+    let input_digest: [u8; 32] = Sha256::digest(&body).into();
+    let options = json!({
+        "filename": filename,
+        "project_name": project_name,
+        "mode": input.mode,
+    });
+    let command = json!({
+        "operation": operation,
+        "input_sha256": hex::encode(input_digest),
+        "options": options,
+    });
+    let reserved = match reserve_processing_job(
+        &state,
+        ProcessingJobReservation {
+            actor,
+            project_id: None,
+            idempotency_scope: "pptx-import",
+            idempotency_key: idempotency_key(&headers)?,
+            operation,
+            command: &command,
+            options: &options,
+        },
+    )
+    .await?
+    {
+        ProjectJobStart::Existing(response) => return Ok(response),
+        ProjectJobStart::Reserved(reserved) => reserved,
+    };
+    let options_bytes = serde_json::to_vec(&options).map_err(|error| {
+        processing_unavailable("processing options could not be encoded", error)
+    })?;
+    let options_digest = Sha256::digest(options_bytes);
+    let contract = operation.contract();
+    finish_reserved_job(
+        &state,
+        reserved,
+        PreparedInput {
+            schema: contract.input_schema,
+            media_type: contract.input_media_type,
+            bytes: body.as_ref(),
+            digest: &input_digest,
+            normalized_options: &options,
+            options_digest: options_digest.as_ref(),
+            workspace_version: None,
+            content_epoch: None,
+            source_epoch: None,
+            now: Utc::now(),
+        },
+    )
+    .await
+}
+
+async fn begin_project_job(
+    state: &AppState,
+    headers: &HeaderMap,
+    project_id: Uuid,
+    operation: ProcessingOperation,
+    initial_options: &Value,
+) -> Result<ProjectJobStart, ApiError> {
+    ensure_operation_enabled(state, operation)?;
+    let actor = ensure_project_role(&state.db, headers, project_id, AccessNeed::Read).await?;
+    let entry_point = load_project_entry_point(&state.db, project_id).await?;
+    if operation.project_type() != Some(entry_point.project_type) {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ApiErrorCode::ProcessingOperationInvalid,
+            "The operation does not support this project type",
+        ));
+    }
+    let command = json!({
+        "operation": operation,
+        "project_id": project_id,
+        "options": initial_options,
+    });
+    reserve_processing_job(
+        state,
+        ProcessingJobReservation {
+            actor,
+            project_id: Some(project_id),
+            idempotency_scope: "project-processing",
+            idempotency_key: idempotency_key(headers)?,
+            operation,
+            command: &command,
+            options: initial_options,
+        },
+    )
+    .await
+}
+
+async fn reserve_processing_job(
+    state: &AppState,
+    reservation: ProcessingJobReservation<'_>,
+) -> Result<ProjectJobStart, ApiError> {
+    let command_bytes = serde_json::to_vec(reservation.command).map_err(|error| {
+        processing_unavailable("processing command could not be encoded", error)
+    })?;
+    let options_bytes = serde_json::to_vec(reservation.options).map_err(|error| {
+        processing_unavailable("processing options could not be encoded", error)
+    })?;
+    let command_digest = Sha256::digest(&command_bytes);
+    let options_digest = Sha256::digest(&options_bytes);
+    let now = Utc::now();
+    let job_id = Uuid::new_v4();
+    let outcome = reserve_job(
+        &state.db,
+        &state.processing.config,
+        &ReserveJob {
+            id: job_id,
+            operation: reservation.operation,
+            requester_user_id: reservation.actor,
+            project_id: reservation.project_id,
+            idempotency_scope: reservation.idempotency_scope,
+            idempotency_key: reservation.idempotency_key,
+            command_digest: command_digest.as_ref(),
+            normalized_options: reservation.options,
+            options_digest: options_digest.as_ref(),
+            now,
+        },
+    )
+    .await
+    .map_err(reserve_error)?;
+    match outcome {
+        ReserveJobOutcome::Reserved => Ok(ProjectJobStart::Reserved(ReservedJob {
+            actor: reservation.actor,
+            job_id,
+        })),
+        ReserveJobOutcome::Existing(job) => {
+            let artifacts = super::persistence::artifacts_by_job(&state.db, job.id)
+                .await
+                .map_err(|error| {
+                    processing_unavailable("processing artifacts could not be read", error)
+                })?;
+            Ok(ProjectJobStart::Existing((
+                StatusCode::OK,
+                Json(job.into_public(artifacts)),
+            )))
+        }
+    }
+}
+
+async fn capture_or_fail(
+    state: &AppState,
+    job_id: Uuid,
+    result: Result<CapturedProjectBundle, CaptureProjectBundleError>,
+) -> Result<CapturedProjectBundle, ApiError> {
+    match result {
+        Ok(bundle) => Ok(bundle),
+        Err(error) => {
+            let (code, message) = capture_failure(&error);
+            if let Err(mark_error) = mark_preparation_failed(&state.db, job_id, code, message).await
+            {
+                tracing::error!(%job_id, %mark_error, "processing preparation failure could not be persisted");
+            }
+            Err(capture_error(error))
+        }
+    }
+}
+
+async fn ensure_captured_project_type(
+    state: &AppState,
+    job_id: Uuid,
+    bundle: &CapturedProjectBundle,
+    expected: ProjectType,
+) -> Result<(), ApiError> {
+    if bundle.project_type == expected {
+        return Ok(());
+    }
+    Err(fail_preparation(
+        state,
+        job_id,
+        "project_type_changed",
+        "Project type changed while the operation was being prepared",
+        ApiError::new(
+            StatusCode::CONFLICT,
+            ApiErrorCode::ProjectContentChanged,
+            "Project type changed while the operation was being prepared",
+        ),
+    )
+    .await)
+}
+
+async fn finish_project_job(
+    state: &AppState,
+    reserved: ReservedJob,
+    bundle: CapturedProjectBundle,
+    options: Value,
+) -> Result<CreateJobResponse, ApiError> {
     let options_bytes = match serde_json::to_vec(&options) {
         Ok(bytes) => bytes,
         Err(error) => {
             return Err(fail_preparation(
-                &state,
-                job_id,
+                state,
+                reserved.job_id,
                 "options_encoding_failed",
                 "Processing options could not be encoded",
                 processing_unavailable("processing options could not be encoded", error),
@@ -163,29 +382,38 @@ pub(crate) async fn create_latex_pdf_build(
         }
     };
     let options_digest = Sha256::digest(&options_bytes);
-    let stored = store_prepared_input(
-        &state.db,
-        job_id,
-        &PreparedInput {
+    finish_reserved_job(
+        state,
+        reserved,
+        PreparedInput {
             schema: bundle.schema,
+            media_type: bundle.media_type,
             bytes: &bundle.bytes,
             digest: &bundle.digest,
             normalized_options: &options,
             options_digest: options_digest.as_ref(),
-            workspace_version: bundle.workspace_version,
-            content_epoch: bundle.content_epoch,
-            source_epoch: bundle.source_epoch,
+            workspace_version: Some(bundle.workspace_version),
+            content_epoch: Some(bundle.content_epoch),
+            source_epoch: Some(bundle.source_epoch),
             now: Utc::now(),
         },
     )
-    .await;
+    .await
+}
+
+async fn finish_reserved_job(
+    state: &AppState,
+    reserved: ReservedJob,
+    input: PreparedInput<'_>,
+) -> Result<CreateJobResponse, ApiError> {
+    let stored = store_prepared_input(&state.db, reserved.job_id, &input).await;
     let job = match stored {
         Ok(Some(job)) => job,
         Ok(None) => {
             // Cancellation and queue expiry serialize against the transition out of
             // `preparing`. Return the winning terminal resource instead of turning
             // that legitimate race into a storage outage.
-            if let Some(job) = job_for_user(&state.db, actor, job_id)
+            if let Some(job) = job_for_user(&state.db, reserved.actor, reserved.job_id)
                 .await
                 .map_err(|error| {
                     processing_unavailable("processing job could not be read", error)
@@ -199,8 +427,8 @@ pub(crate) async fn create_latex_pdf_build(
                 return Ok((StatusCode::OK, Json(job.into_public(artifacts))));
             }
             return Err(fail_preparation(
-                &state,
-                job_id,
+                state,
+                reserved.job_id,
                 "input_state_conflict",
                 "Processing input could not be queued",
                 processing_unavailable(
@@ -212,8 +440,8 @@ pub(crate) async fn create_latex_pdf_build(
         }
         Err(error) => {
             return Err(fail_preparation(
-                &state,
-                job_id,
+                state,
+                reserved.job_id,
                 "input_persistence_failed",
                 "Processing input could not be queued",
                 processing_unavailable("processing input could not be queued", error),
@@ -304,7 +532,12 @@ pub(crate) async fn processing_capabilities(
 ) -> Result<Json<ProcessingCapabilities>, ApiError> {
     required_request_user_id(&state.db, &headers).await?;
     let mut capabilities = Vec::new();
-    for operation in state.processing.configured_operations() {
+    for operation in state
+        .processing
+        .configured_operations()
+        .into_iter()
+        .filter(|operation| state.distribution.supports_processing_operation(*operation))
+    {
         let stats = capability_stats(&state.db, operation)
             .await
             .map_err(|error| {
@@ -329,6 +562,74 @@ pub(crate) async fn processing_capabilities(
         });
     }
     Ok(Json(ProcessingCapabilities { capabilities }))
+}
+
+pub(crate) async fn project_processing_capabilities(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<ProjectProcessingCapabilities>, ApiError> {
+    ensure_project_role(&state.db, &headers, project_id, AccessNeed::Read).await?;
+    let snapshot = load_project_content_snapshot(&state.db, project_id)
+        .await
+        .map_err(|error| {
+            processing_unavailable("project processing capability could not be read", error)
+        })?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                ApiErrorCode::ProjectNotFound,
+                "Project was not found",
+            )
+        })?;
+    let dependencies = (snapshot.project_type == ProjectType::Typst)
+        .then(|| analyze_project_dependencies(&snapshot.entry_file_path, &snapshot.documents));
+    let mut capabilities = Vec::new();
+    for operation in state
+        .processing
+        .configured_operations()
+        .into_iter()
+        .filter(|operation| state.distribution.supports_processing_operation(*operation))
+        .filter(|operation| operation.project_type() == Some(snapshot.project_type))
+    {
+        let dynamic_dependency = dependencies
+            .as_ref()
+            .is_some_and(|dependencies| dependencies.has_dynamic_imports);
+        let (capability_state, reason) = if dynamic_dependency {
+            (
+                ProjectProcessingCapabilityState::Inapplicable,
+                Some("dynamic_typst_dependency".to_string()),
+            )
+        } else if !state
+            .distribution
+            .processing_operation_applicable(operation, dependencies.as_ref())
+        {
+            (
+                ProjectProcessingCapabilityState::Inapplicable,
+                Some("required_typst_package_missing".to_string()),
+            )
+        } else {
+            let stats = capability_stats(&state.db, operation)
+                .await
+                .map_err(|error| {
+                    processing_unavailable("project processing capability could not be read", error)
+                })?;
+            if stats.healthy_sessions == 0 {
+                (
+                    ProjectProcessingCapabilityState::Waiting,
+                    Some("worker_temporarily_offline".to_string()),
+                )
+            } else {
+                (ProjectProcessingCapabilityState::Available, None)
+            }
+        };
+        capabilities.push(ProjectProcessingCapability {
+            operation,
+            state: capability_state,
+            reason,
+        });
+    }
+    Ok(Json(ProjectProcessingCapabilities { capabilities }))
 }
 
 pub(crate) async fn download_processing_artifact(
@@ -376,6 +677,102 @@ async fn authorized_job(
         ensure_project_role_for_user(&state.db, actor, project_id, AccessNeed::Read).await?;
     }
     Ok(job)
+}
+
+fn ensure_operation_enabled(
+    state: &AppState,
+    operation: ProcessingOperation,
+) -> Result<(), ApiError> {
+    if !state.distribution.supports_processing_operation(operation) {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            ApiErrorCode::ProcessingUnavailable,
+            "This background operation is disabled in the distribution",
+        ));
+    }
+    if !state.processing.config.operation_configured(operation) {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ApiErrorCode::ProcessingUnavailable,
+            "No compatible background processor is configured",
+        ));
+    }
+    Ok(())
+}
+
+fn require_pptx_content_type(headers: &HeaderMap) -> Result<(), ApiError> {
+    let valid = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<mime::Mime>().ok())
+        .is_some_and(|value| value.essence_str() == super::operation_contract::PPTX_MEDIA_TYPE);
+    if valid {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ApiErrorCode::ProcessingInputInvalid,
+            "PPTX import requires the PPTX media type",
+        ))
+    }
+}
+
+fn normalize_import_filename(raw: &str) -> Result<(String, String), ApiError> {
+    let filename = raw.trim();
+    let path = FsPath::new(filename);
+    let safe_basename = path.file_name().and_then(|value| value.to_str()) == Some(filename);
+    let pptx_extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("pptx"));
+    if filename.is_empty()
+        || filename.len() > 255
+        || !safe_basename
+        || !pptx_extension
+        || filename.contains(['/', '\\'])
+        || filename.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            ApiErrorCode::ProcessingInputInvalid,
+            "PPTX filename is invalid",
+        ));
+    }
+    let project_name = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                ApiErrorCode::ProcessingInputInvalid,
+                "PPTX filename is invalid",
+            )
+        })?;
+    let project_name = ProjectName::parse(project_name).map_err(|_| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            ApiErrorCode::ProjectNameInvalid,
+            "PPTX filename cannot be used as a project name",
+        )
+    })?;
+    Ok((filename.to_string(), project_name.as_str().to_string()))
+}
+
+fn pptx_input_error(error: PptxValidationError) -> ApiError {
+    match error {
+        PptxValidationError::Limit => ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ApiErrorCode::ProcessingInputTooLarge,
+            "PPTX input exceeds structural limits",
+        ),
+        PptxValidationError::Archive
+        | PptxValidationError::UnsafePart
+        | PptxValidationError::MissingPart => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ApiErrorCode::ProcessingInputInvalid,
+            "PPTX input is not a valid presentation package",
+        ),
+    }
 }
 
 fn idempotency_key(headers: &HeaderMap) -> Result<&str, ApiError> {
@@ -439,6 +836,25 @@ fn capture_failure(error: &CaptureProjectBundleError) -> (&'static str, &'static
             "input_too_large",
             "Project exceeds the processing input limit",
         ),
+        CaptureProjectBundleError::OperationInapplicable => (
+            "operation_inapplicable",
+            "Project does not satisfy the processing operation policy",
+        ),
+        CaptureProjectBundleError::Package(
+            ResolveProcessingPackagesError::TooManyPackages
+            | ResolveProcessingPackagesError::TooLarge,
+        ) => (
+            "input_too_large",
+            "Project dependencies exceed the processing input limit",
+        ),
+        CaptureProjectBundleError::Package(ResolveProcessingPackagesError::DynamicDependency) => (
+            "dynamic_typst_dependency",
+            "Project contains a dynamic Typst package dependency",
+        ),
+        CaptureProjectBundleError::Package(_) => (
+            "package_capture_failed",
+            "Typst package dependencies could not be captured",
+        ),
         CaptureProjectBundleError::Collaboration(_)
         | CaptureProjectBundleError::Persistence(_)
         | CaptureProjectBundleError::Asset(_)
@@ -470,6 +886,33 @@ fn capture_error(error: CaptureProjectBundleError) -> ApiError {
                 ApiErrorCode::ProcessingInputTooLarge,
                 "Project exceeds the processing input limit",
             )
+        }
+        CaptureProjectBundleError::OperationInapplicable => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ApiErrorCode::ProcessingOperationInvalid,
+            "Project does not satisfy the processing operation policy",
+        ),
+        CaptureProjectBundleError::Package(
+            ResolveProcessingPackagesError::TooManyPackages
+            | ResolveProcessingPackagesError::TooLarge,
+        ) => ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ApiErrorCode::ProcessingInputTooLarge,
+            "Project dependencies exceed the processing input limit",
+        ),
+        CaptureProjectBundleError::Package(
+            ResolveProcessingPackagesError::DynamicDependency
+            | ResolveProcessingPackagesError::LocalPackageNotFound { .. }
+            | ResolveProcessingPackagesError::UnsafeArchive { .. }
+            | ResolveProcessingPackagesError::Manifest { .. }
+            | ResolveProcessingPackagesError::DuplicateFile { .. },
+        ) => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ApiErrorCode::ProcessingInputInvalid,
+            "Typst package dependencies cannot be processed",
+        ),
+        failure @ CaptureProjectBundleError::Package(_) => {
+            processing_unavailable("Typst package dependencies could not be captured", failure)
         }
         failure @ (CaptureProjectBundleError::Collaboration(_)
         | CaptureProjectBundleError::Persistence(_)

@@ -4,23 +4,28 @@ mod config;
 mod context;
 mod finalization;
 mod model;
+mod operation_contract;
 mod persistence;
+mod pptx;
 mod project_input;
 mod public_http;
 mod worker_http;
 mod worker_idempotency;
 mod worker_persistence;
 pub(crate) mod worker_protocol;
+mod workspace_bundle;
 
 pub(crate) use config::{ProcessingConfig, ProcessingConfigFile};
 pub(crate) use context::DocumentProcessingContext;
 pub(crate) use finalization::spawn_processing_maintenance;
 pub(crate) use model::{
-    ProcessingCapabilities, ProcessingJob, ProcessingJobList, ProcessingOperation,
+    CreatePptxExportInput, ProcessingCapabilities, ProcessingJob, ProcessingJobList,
+    ProcessingOperation, ProjectProcessingCapabilities,
 };
 pub(crate) use public_http::{
-    cancel_processing_job, create_latex_pdf_build, download_processing_artifact,
-    get_processing_job, list_processing_jobs, processing_capabilities,
+    cancel_processing_job, create_latex_pdf_build, create_pptx_import, create_typst_pptx_export,
+    download_processing_artifact, get_processing_job, list_processing_jobs,
+    processing_capabilities, project_processing_capabilities,
 };
 pub(crate) use worker_http::{
     acquire_worker_claims, complete_worker_claim, create_worker_artifact_ticket,

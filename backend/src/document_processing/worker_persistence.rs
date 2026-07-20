@@ -4,6 +4,7 @@ use super::config::AuthenticatedWorker;
 use super::model::{
     processing_retry_delay, ProcessingJobState, ProcessingOperation, ProcessingPhase,
 };
+use super::operation_contract::ArtifactSizeClass;
 use super::persistence::store_blob;
 use super::worker_protocol::{
     ClaimHeartbeatResponse, ClaimHeartbeatState, CompletedArtifactInput, IssuedTransfer,
@@ -536,7 +537,7 @@ pub(super) async fn try_claim(
             claim_id,
             "download",
             "input",
-            "application/vnd.toss.project-bundle+zip",
+            operation.contract().input_media_type,
             None,
             Some(input_size),
             input_size,
@@ -788,22 +789,19 @@ pub(super) async fn create_artifact_transfer(
     let job_id: Uuid = row.try_get("job_id").map_err(ClaimError::Persistence)?;
     let operation: ProcessingOperation =
         row.try_get("operation").map_err(ClaimError::Persistence)?;
-    let valid_declaration = match operation {
-        ProcessingOperation::LatexCompilePdfV1 => match (request.role, request.media_type) {
-            ("pdf", "application/pdf") => {
-                request.filename.ends_with(".pdf")
-                    && request.size_bytes > 0
-                    && request.size_bytes <= config.max_output_bytes
-            }
-            ("log", "text/plain") => {
-                request.filename.ends_with(".log")
-                    && request.size_bytes > 0
-                    && request.size_bytes <= config.max_diagnostic_bytes
-            }
-            _ => false,
-        },
-        ProcessingOperation::TypstExportPptxV1 | ProcessingOperation::PptxImportTypstV1 => false,
-    };
+    let valid_declaration = operation
+        .contract()
+        .artifact(request.role)
+        .is_some_and(|artifact| {
+            let max_bytes = match artifact.size_class {
+                ArtifactSizeClass::Output => config.max_output_bytes,
+                ArtifactSizeClass::Diagnostic => config.max_diagnostic_bytes,
+            };
+            request.media_type == artifact.media_type
+                && request.filename.ends_with(artifact.filename_suffix)
+                && request.size_bytes > 0
+                && request.size_bytes <= max_bytes
+        });
     if !valid_declaration
         || request.filename.is_empty()
         || request.filename.len() > 160
@@ -1030,14 +1028,14 @@ pub(super) async fn complete_claim(
     claim_id: Uuid,
     artifacts: &[CompletedArtifactInput],
 ) -> Result<CompleteClaimOutcome, ClaimError> {
-    if artifacts.is_empty() || artifacts.len() > 3 {
+    if artifacts.is_empty() {
         return Ok(CompleteClaimOutcome::Invalid);
     }
     let now = Utc::now();
     let mut transaction = db.begin().await.map_err(ClaimError::Persistence)?;
     let row = sqlx::query(
         "select attempts.id as attempt_id, attempts.job_id, attempts.state as attempt_state,
-                attempts.lease_expires_at, jobs.state, jobs.current_claim_id,
+                attempts.lease_expires_at, jobs.operation, jobs.state, jobs.current_claim_id,
                 jobs.cancellation_requested
          from processing_attempts attempts
          join processing_jobs jobs on jobs.id = attempts.job_id
@@ -1064,6 +1062,8 @@ pub(super) async fn complete_claim(
         .try_get("lease_expires_at")
         .map_err(ClaimError::Persistence)?;
     let state: ProcessingJobState = row.try_get("state").map_err(ClaimError::Persistence)?;
+    let operation: ProcessingOperation =
+        row.try_get("operation").map_err(ClaimError::Persistence)?;
     let current_claim_id: Option<Uuid> = row
         .try_get("current_claim_id")
         .map_err(ClaimError::Persistence)?;
@@ -1089,9 +1089,12 @@ pub(super) async fn complete_claim(
         return Ok(CompleteClaimOutcome::Lost);
     }
     let mut roles = std::collections::HashSet::new();
-    let mut has_pdf = false;
+    let contract = operation.contract();
+    if artifacts.len() > contract.artifacts.len() {
+        return Ok(CompleteClaimOutcome::Invalid);
+    }
     for artifact in artifacts {
-        if !roles.insert(artifact.role.as_str()) {
+        if !roles.insert(artifact.role.as_str()) || contract.artifact(&artifact.role).is_none() {
             return Ok(CompleteClaimOutcome::Invalid);
         }
         let digest = match hex::decode(&artifact.sha256) {
@@ -1119,9 +1122,12 @@ pub(super) async fn complete_claim(
         if !matched {
             return Ok(CompleteClaimOutcome::Invalid);
         }
-        has_pdf |= artifact.role == "pdf";
     }
-    if !has_pdf {
+    if contract
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.required && !roles.contains(artifact.role))
+    {
         return Ok(CompleteClaimOutcome::Invalid);
     }
     if delivery_replay {

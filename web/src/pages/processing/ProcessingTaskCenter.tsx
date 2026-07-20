@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "@/pages/processing/styles.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Download, ListTodo, LoaderCircle, X } from "lucide-react";
+import { Ban, Download, FolderOpen, ListTodo, LoaderCircle, X } from "lucide-react";
 import { UiBadge, UiButton, UiEmptyState, UiIconButton } from "@/components/ui";
 import {
   cancelProcessingJob,
@@ -55,11 +55,13 @@ function saveBlob(blob: Blob, filename: string) {
 export function ProcessingTaskCenter({
   userId,
   projects,
+  onOpenProject,
   locale,
   t
 }: {
   userId: string;
   projects: Project[];
+  onOpenProject: (projectId: string) => Promise<void>;
   locale: UiLocale;
   t: Translator;
 }) {
@@ -67,6 +69,8 @@ export function ProcessingTaskCenter({
   const [open, setOpen] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
+  const [openProjectError, setOpenProjectError] = useState<string | null>(null);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const queryKey = processingJobsQueryKey(userId);
   const jobsQuery = useQuery({
@@ -94,6 +98,8 @@ export function ProcessingTaskCenter({
     setOpen(false);
     setDownloadError(null);
     setDownloadingArtifactId(null);
+    setOpenProjectError(null);
+    setOpeningProjectId(null);
   }, [userId]);
 
   useEffect(() => {
@@ -162,6 +168,21 @@ export function ProcessingTaskCenter({
       setDownloadError(error instanceof Error ? error.message : t("processing.downloadFailed"));
     } finally {
       setDownloadingArtifactId(null);
+    }
+  }
+
+  async function openResultProject(projectId: string) {
+    setOpeningProjectId(projectId);
+    setOpenProjectError(null);
+    try {
+      await onOpenProject(projectId);
+      setOpen(false);
+    } catch (error) {
+      setOpenProjectError(
+        error instanceof Error ? error.message : t("processing.openProjectFailed")
+      );
+    } finally {
+      setOpeningProjectId(null);
     }
   }
 
@@ -287,29 +308,47 @@ export function ProcessingTaskCenter({
                         <time dateTime={job.updated_at}>
                           {dateFormatter.format(new Date(job.updated_at))}
                         </time>
-                        {canCancelProcessingJob(job) && (
-                          <UiButton
-                            size="sm"
-                            variant="ghost"
-                            disabled={cancelMutation.isPending}
-                            onClick={() => {
-                              cancelMutation.reset();
-                              cancelMutation.mutate(job.id);
-                            }}
-                          >
-                            <Ban size={14} aria-hidden />
-                            {t("common.cancel")}
-                          </UiButton>
-                        )}
+                        <div className="processing-task-actions">
+                          {job.state === "succeeded" && job.result_project_id && (
+                            <UiButton
+                              size="sm"
+                              variant="primary"
+                              disabled={openingProjectId === job.result_project_id}
+                              onClick={() => void openResultProject(job.result_project_id!)}
+                            >
+                              {openingProjectId === job.result_project_id ? (
+                                <LoaderCircle className="spin" size={14} aria-hidden />
+                              ) : (
+                                <FolderOpen size={14} aria-hidden />
+                              )}
+                              {t("processing.openProject")}
+                            </UiButton>
+                          )}
+                          {canCancelProcessingJob(job) && (
+                            <UiButton
+                              size="sm"
+                              variant="ghost"
+                              disabled={cancelMutation.isPending}
+                              onClick={() => {
+                                cancelMutation.reset();
+                                cancelMutation.mutate(job.id);
+                              }}
+                            >
+                              <Ban size={14} aria-hidden />
+                              {t("common.cancel")}
+                            </UiButton>
+                          )}
+                        </div>
                       </footer>
                     </article>
                   ))}
                 </div>
               )}
-              {(downloadError || cancelMutation.error) && (
+              {(downloadError || openProjectError || cancelMutation.error) && (
                 <nve-alert status="danger">
                   <span>
                     {downloadError ??
+                      openProjectError ??
                       (cancelMutation.error instanceof Error
                         ? cancelMutation.error.message
                         : t("processing.cancelFailed"))}

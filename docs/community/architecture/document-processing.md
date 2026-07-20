@@ -32,10 +32,10 @@ code_paths:
 # Document processing architecture
 
 This page describes the implemented Document Processing foundation. Community
-currently ships one durable operation, `latex.compile.pdf/v1`, plus its public
-job API, internal worker protocol, global task center, SDK, and optional native
-TeX Live worker image. The reserved PPTX operation identifiers describe the
-extension boundary; they are not enabled Community endpoints or processors.
+owns the generic LaTeX build and PPTX import/export contracts, public API,
+finalizers, task center, and worker SDK. Its default distribution enables only
+`latex.compile.pdf/v1` and ships only the optional TeX Live processor; a
+deployment may bind reviewed processors to the generic PPTX operations.
 
 ## Outcomes and non-goals
 
@@ -120,8 +120,8 @@ The registry recognizes these versioned identifiers:
 | Operation | Class | Input | Result | Community status |
 | --- | --- | --- | --- | --- |
 | `latex.compile.pdf/v1` | project build | LaTeX `project-bundle/v1` | PDF and optional log | Implemented and distribution-enabled |
-| `typst.export.pptx/v1` | project export | Typst project bundle | PPTX and conversion report | Reserved; no public endpoint or Community processor |
-| `pptx.import.typst/v1` | file import | PPTX input blob | Typst Workspace bundle and report | Reserved; no public endpoint or Community processor |
+| `typst.export.pptx/v1` | project export | `typst-project-bundle/v1` | PPTX and conversion report | Contract and endpoint implemented; disabled by the default distribution; no Community processor yet |
+| `pptx.import.typst/v1` | file import | `pptx-input/v1` | Typst Workspace bundle and report | Contract and endpoint implemented; disabled by the default distribution; no Community processor yet |
 
 Reserving a public operation does not enable it. Distribution policy first
 allows an operation; a worker identity in the deployment TOML then enables it;
@@ -215,16 +215,20 @@ resource. The current public surface is:
 
 ```text
 POST /v1/projects/{project_id}/builds
+POST /v1/projects/{project_id}/exports/pptx
+POST /v1/imports/pptx?filename=...&mode=...
 GET  /v1/processing/capabilities
+GET  /v1/projects/{project_id}/processing/capabilities
 GET  /v1/processing/jobs
 GET  /v1/processing/jobs/{job_id}
 POST /v1/processing/jobs/{job_id}/cancel
 GET  /v1/processing/jobs/{job_id}/artifacts/{artifact_id}
 ```
 
-Future export, import, and explicit retry commands must use their own semantic
-endpoints and enter the generated OpenAPI only when their owning behavior
-exists. They are not generic operation-submission routes.
+PPTX import accepts the presentation media type as a bounded raw request body;
+PPTX export accepts a closed conversion mode. These remain semantic commands,
+not a generic operation-submission route. An explicit retry command, if added,
+must create a new linked job rather than reopen a terminal job.
 
 Creation accepts an `Idempotency-Key`. Its uniqueness scope includes the actor
 and command endpoint. A concurrent duplicate returns the original job rather
@@ -233,9 +237,10 @@ command digest; reusing a key with different operation, project, input, or
 options returns a conflict. Keys expire under deployment policy and are not
 permanent business identifiers.
 
-Large file imports first create a bounded temporary processing input, stream
-its content, verify its declared media type and digest, and reference the
-completed input when creating a job. Unreferenced inputs expire automatically.
+The current PPTX import path buffers within the deployment request and
+processing-input limits, validates the OPC package before reservation, and
+stores the immutable bytes with their digest before queueing. A streaming
+upload path is not currently implemented.
 
 ## Project input capture
 
@@ -260,9 +265,12 @@ without holding the editor still for the duration of a build.
 
 The manifest includes schema, project type, entry path, operation-relevant
 settings, Workspace version, content generation, and sorted file records with
-kind, length, and SHA-256. The `input_digest` covers the canonical manifest and
-all file content. It is distinct from the browser's local `CompileWorld` and
-from a user-created named snapshot.
+kind, length, and SHA-256. A Typst processing bundle additionally carries the
+exact reachable `@local` and `@preview` package closure. Dynamic package
+imports are rejected because they cannot produce a coherent immutable input.
+The `input_digest` covers the canonical manifest and all file and package
+content. It is distinct from the browser's local `CompileWorld` and from a
+user-created named snapshot.
 
 Job identifiers, queue timestamps, and other volatile submission metadata do
 not enter the content digest. If a processor consumes a source epoch, that
@@ -291,10 +299,10 @@ Current deployment-local limits cover:
 
 FIFO creation time is the baseline among jobs eligible for a compatible
 processor, with per-requester and per-project active limits preventing one
-account or project from occupying every slot. There is currently one enabled
-Community operation, so per-operation admission partitions are not implemented.
-They must be added before enabling operations with materially different
-resource classes. Priority is not user-controlled.
+account or project from occupying every slot. Admission is not partitioned by
+operation; a deployment should not combine materially different resource
+classes behind one quota without first adding an explicit partition. Priority
+is not user-controlled.
 
 Capacity has no replicated free-slot field. Session registration owns each
 processor's slot ceiling, Core owns the count of unexpired running claims, and
@@ -323,6 +331,12 @@ capability projection. Their live state is:
 
 An absent operation is not enabled by this deployment. It is not represented
 as a third `unavailable` worker-health state.
+
+Project capability queries add applicability to the same projection. A
+configured project operation is `inapplicable` when its project type or exact
+package policy is not satisfied; live worker health cannot make an
+inapplicable project eligible. Submission captures a fresh coherent snapshot
+and rechecks the policy, so the query is guidance rather than authorization.
 
 A waiting operation may accept a bounded, expiring job while workers are
 temporarily offline. The frontend presents that condition before submission
@@ -359,9 +373,9 @@ channel. Lease expiry is the final fence when a process does not cooperate.
 The worker claim closes when delivery is accepted. Finalization uses a separate
 random Core ownership token and lease because blob validation cannot hold a
 database row lock. Every publication step compares that token, and terminal
-commit is unique per job. Workspace project provisioning uses the processing
-job ID as its idempotency key, so recovery after a crash returns the project
-already created by that job instead of creating a second one.
+commit is unique per job. Import provisioning creates the Workspace project
+and records `result_project_id` in the same transaction; a crash therefore
+commits both or neither, and recovery cannot create a second visible project.
 
 ## Failure and retry policy
 

@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import "@/pages/projects.css";
 import { useNavigate } from "react-router-dom";
-import { Archive, ArrowRight, Copy, Download, LayoutTemplate, Pencil, Plus } from "lucide-react";
+import {
+  Archive,
+  ArrowRight,
+  Copy,
+  Download,
+  FileUp,
+  LayoutTemplate,
+  Pencil,
+  Plus
+} from "lucide-react";
 import { ProviderBrandMark } from "@/components/ProviderBrandMark";
 import {
   UiBadge,
@@ -24,6 +33,8 @@ import { formatDateTime, type Translator, type UiLocale } from "@/lib/i18n";
 import type { ProjectType } from "@/lib/deploymentCapabilities";
 import type { ProjectCopyDialogState, ProjectRenameDialogState } from "@/types/project-ui";
 import { ExternalGitImportDialog } from "@/pages/projects/ExternalGitImportDialog";
+import { PptxImportDialog } from "@/pages/projects/PptxImportDialog";
+import { usePptxImport } from "@/pages/processing/usePptxImport";
 import { useProjectCatalog } from "@/projects/projectCatalog";
 
 function ProjectThumbnail({
@@ -258,6 +269,7 @@ export function ProjectsPage({
   organizations,
   enabledProjectTypes,
   externalGitProviders,
+  processingUserId,
   refreshProjects,
   locale,
   t
@@ -266,6 +278,7 @@ export function ProjectsPage({
   organizations: OrganizationMembership[];
   enabledProjectTypes: ProjectType[];
   externalGitProviders: ExternalGitProvider[];
+  processingUserId?: string;
   refreshProjects: () => Promise<void>;
   locale: UiLocale;
   t: Translator;
@@ -285,7 +298,12 @@ export function ProjectsPage({
   const [renameDialog, setRenameDialog] = useState<ProjectRenameDialogState | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [externalGitImportDialogOpen, setExternalGitImportDialogOpen] = useState(false);
+  const [pptxImportDialogOpen, setPptxImportDialogOpen] = useState(false);
+  const pptxImport = usePptxImport({
+    userId: processingUserId ?? null,
+    enabled: !!processingUserId
+  });
   const latexEnabled = enabledProjectTypes.includes("latex");
   const showProjectType = enabledProjectTypes.length > 1;
   const nameIssue = nameValidationRequested ? newProjectNameIssue(name, projects) : null;
@@ -417,7 +435,7 @@ export function ProjectsPage({
               {externalGitProviders.length > 0 && (
                 <UiButton
                   variant="ghost"
-                  onClick={() => setImportDialogOpen(true)}
+                  onClick={() => setExternalGitImportDialogOpen(true)}
                   data-provider-brand={
                     externalGitProviders.length === 1
                       ? externalGitProviders[0]?.brand
@@ -439,6 +457,18 @@ export function ProjectsPage({
                         ? externalGitProviders[0]?.display_name ?? t("externalGit.providerGeneric")
                         : t("externalGit.providerGeneric")
                   })}
+                </UiButton>
+              )}
+              {pptxImport.visible && (
+                <UiButton
+                  variant="ghost"
+                  onClick={() => {
+                    pptxImport.reset();
+                    setPptxImportDialogOpen(true);
+                  }}
+                >
+                  <FileUp size={16} aria-hidden />
+                  {t("processing.importPptx")}
                 </UiButton>
               )}
               <UiButton variant="ghost" onClick={() => navigate("/gallery")}>
@@ -619,18 +649,30 @@ export function ProjectsPage({
       )}
       {externalGitProviders.length > 0 && (
         <ExternalGitImportDialog
-          open={importDialogOpen}
+          open={externalGitImportDialogOpen}
           providers={externalGitProviders}
           enabledProjectTypes={enabledProjectTypes}
           onClose={() => {
-            setImportDialogOpen(false);
+            setExternalGitImportDialogOpen(false);
             void refreshProjects();
           }}
           onComplete={async (projectId) => {
             await refreshProjects();
-            setImportDialogOpen(false);
+            setExternalGitImportDialogOpen(false);
             navigate(`/project/${projectId}`);
           }}
+          t={t}
+        />
+      )}
+      {pptxImport.visible && (
+        <PptxImportDialog
+          open={pptxImportDialogOpen}
+          state={pptxImport.state}
+          reason={pptxImport.reason}
+          pending={pptxImport.pending}
+          error={pptxImport.error}
+          onClose={() => setPptxImportDialogOpen(false)}
+          onSubmit={(file, mode) => pptxImport.submit({ file, mode })}
           t={t}
         />
       )}

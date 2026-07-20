@@ -1,8 +1,14 @@
 //! Coherent Workspace capture and deterministic `project-bundle/v1` creation.
 
 use super::persistence::{pin_project_assets, release_project_asset_pins};
+use super::ProcessingOperation;
 use crate::collaboration::{CollaborationContext, FlushProjectCollaborationError};
+use crate::distribution::DistributionConfig;
 use crate::object_storage::ObjectStorage;
+use crate::typst_runtime::{
+    analyze_project_dependencies, resolve_processing_package_closure,
+    ResolveProcessingPackagesError, ResolvedTypstPackage,
+};
 use crate::workspace::{
     load_project_content_asset_bytes, lock_processing_project_snapshot,
     lock_project_content_exclusively, LatexEngine, LoadProjectContentAssetError,
@@ -15,15 +21,16 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::io::Write;
+use std::path::Path;
 use thiserror::Error;
 use uuid::Uuid;
 
-const PROJECT_BUNDLE_SCHEMA: &str = "project-bundle/v1";
 const MAX_PROJECT_FILES: usize = 4096;
 const ASSET_READ_CONCURRENCY: usize = 8;
 
 pub(super) struct CapturedProjectBundle {
     pub schema: &'static str,
+    pub media_type: &'static str,
     pub bytes: Vec<u8>,
     pub digest: [u8; 32],
     pub workspace_version: i64,
@@ -32,6 +39,18 @@ pub(super) struct CapturedProjectBundle {
     pub project_type: ProjectType,
     pub entry_file_path: String,
     pub latex_engine: Option<LatexEngine>,
+}
+
+pub(super) struct TypstProjectBundleCapture<'a> {
+    pub db: &'a PgPool,
+    pub storage: Option<&'a ObjectStorage>,
+    pub collaboration: &'a CollaborationContext,
+    pub distribution: &'a DistributionConfig,
+    pub builtin_dir: &'a Path,
+    pub operation: ProcessingOperation,
+    pub job_id: Uuid,
+    pub project_id: Uuid,
+    pub max_input_bytes: i64,
 }
 
 #[derive(Debug, Error)]
@@ -46,6 +65,10 @@ pub(super) enum CaptureProjectBundleError {
     TooManyFiles,
     #[error("project input exceeds the configured processing limit")]
     TooLarge,
+    #[error("project does not satisfy the processing operation policy")]
+    OperationInapplicable,
+    #[error(transparent)]
+    Package(#[from] ResolveProcessingPackagesError),
     #[error("collaboration state could not be captured")]
     Collaboration(#[source] FlushProjectCollaborationError),
     #[error("Workspace capture failed")]
@@ -86,12 +109,30 @@ struct ProjectBundleManifest {
     content_generation: i64,
     source_epoch: i64,
     files: Vec<ProjectBundleFile>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    packages: Vec<ProjectBundlePackage>,
 }
 
 #[derive(Serialize)]
 struct ProjectBundleFile {
     path: String,
     kind: &'static str,
+    size_bytes: usize,
+    sha256: String,
+}
+
+#[derive(Serialize)]
+struct ProjectBundlePackage {
+    namespace: String,
+    name: String,
+    version: String,
+    archive_sha256: String,
+    files: Vec<ProjectBundlePackageFile>,
+}
+
+#[derive(Serialize)]
+struct ProjectBundlePackageFile {
+    path: String,
     size_bytes: usize,
     sha256: String,
 }
@@ -110,6 +151,67 @@ pub(super) async fn capture_project_bundle(
     project_id: Uuid,
     max_input_bytes: i64,
 ) -> Result<CapturedProjectBundle, CaptureProjectBundleError> {
+    let snapshot = capture_project_snapshot(db, collaboration, job_id, project_id).await?;
+    let contract = ProcessingOperation::LatexCompilePdfV1.contract();
+    let result = materialize_bundle(
+        storage,
+        snapshot,
+        Vec::new(),
+        contract.input_schema,
+        contract.input_media_type,
+        max_input_bytes,
+    )
+    .await;
+    release_pins(db, job_id).await;
+    result
+}
+
+pub(super) async fn capture_typst_project_bundle(
+    capture: TypstProjectBundleCapture<'_>,
+) -> Result<CapturedProjectBundle, CaptureProjectBundleError> {
+    let TypstProjectBundleCapture {
+        db,
+        storage,
+        collaboration,
+        distribution,
+        builtin_dir,
+        operation,
+        job_id,
+        project_id,
+        max_input_bytes,
+    } = capture;
+    let snapshot = capture_project_snapshot(db, collaboration, job_id, project_id).await?;
+    let dependencies = analyze_project_dependencies(&snapshot.entry_file_path, &snapshot.documents);
+    let result = if !distribution.processing_operation_applicable(operation, Some(&dependencies)) {
+        Err(CaptureProjectBundleError::OperationInapplicable)
+    } else {
+        match resolve_processing_package_closure(builtin_dir, &dependencies, max_input_bytes).await
+        {
+            Ok(packages) => {
+                let contract = operation.contract();
+                materialize_bundle(
+                    storage,
+                    snapshot,
+                    packages,
+                    contract.input_schema,
+                    contract.input_media_type,
+                    max_input_bytes,
+                )
+                .await
+            }
+            Err(error) => Err(error.into()),
+        }
+    };
+    release_pins(db, job_id).await;
+    result
+}
+
+async fn capture_project_snapshot(
+    db: &PgPool,
+    collaboration: &CollaborationContext,
+    job_id: Uuid,
+    project_id: Uuid,
+) -> Result<ProjectContentSnapshot, CaptureProjectBundleError> {
     let mut transaction = db
         .begin()
         .await
@@ -140,17 +242,21 @@ pub(super) async fn capture_project_bundle(
     for change in changes {
         collaboration.workspace_changed(project_id, change).await;
     }
+    Ok(snapshot)
+}
 
-    let result = materialize_bundle(storage, snapshot, max_input_bytes).await;
+async fn release_pins(db: &PgPool, job_id: Uuid) {
     if let Err(error) = release_project_asset_pins(db, job_id).await {
         tracing::warn!(%job_id, %error, "processing input asset pins could not be released");
     }
-    result
 }
 
 async fn materialize_bundle(
     storage: Option<&ObjectStorage>,
     snapshot: ProjectContentSnapshot,
+    packages: Vec<ResolvedTypstPackage>,
+    schema: &'static str,
+    media_type: &'static str,
     max_input_bytes: i64,
 ) -> Result<CapturedProjectBundle, CaptureProjectBundleError> {
     let asset_files = futures::stream::iter(snapshot.assets)
@@ -175,7 +281,17 @@ async fn materialize_bundle(
         })
         .chain(asset_files)
         .collect::<Vec<_>>();
-    if files.len() > MAX_PROJECT_FILES {
+    let package_file_count = packages
+        .iter()
+        .try_fold(0_usize, |total, package| {
+            total.checked_add(package.files.len())
+        })
+        .ok_or(CaptureProjectBundleError::TooManyFiles)?;
+    if files
+        .len()
+        .checked_add(package_file_count)
+        .is_none_or(|count| count > MAX_PROJECT_FILES)
+    {
         return Err(CaptureProjectBundleError::TooManyFiles);
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
@@ -192,16 +308,24 @@ async fn materialize_bundle(
     {
         return Err(CaptureProjectBundleError::EntryFileNotFound);
     }
-    let expanded_bytes = files.iter().try_fold(0_i64, |total, file| {
-        i64::try_from(file.bytes.len())
-            .ok()
-            .and_then(|size| total.checked_add(size))
-    });
+    let expanded_bytes = files
+        .iter()
+        .map(|file| file.bytes.len())
+        .chain(
+            packages
+                .iter()
+                .flat_map(|package| package.files.iter().map(|file| file.bytes.len())),
+        )
+        .try_fold(0_i64, |total, size| {
+            i64::try_from(size)
+                .ok()
+                .and_then(|size| total.checked_add(size))
+        });
     if expanded_bytes.is_none_or(|size| size > max_input_bytes) {
         return Err(CaptureProjectBundleError::TooLarge);
     }
     let manifest = ProjectBundleManifest {
-        schema: PROJECT_BUNDLE_SCHEMA,
+        schema,
         project_type: snapshot.project_type,
         entry_file_path: snapshot.entry_file_path.clone(),
         latex_engine: snapshot.latex_engine,
@@ -217,17 +341,36 @@ async fn materialize_bundle(
                 sha256: hex::encode(Sha256::digest(&file.bytes)),
             })
             .collect(),
+        packages: packages
+            .iter()
+            .map(|package| ProjectBundlePackage {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+                version: package.version.clone(),
+                archive_sha256: package.archive_sha256.clone(),
+                files: package
+                    .files
+                    .iter()
+                    .map(|file| ProjectBundlePackageFile {
+                        path: file.path.clone(),
+                        size_bytes: file.bytes.len(),
+                        sha256: hex::encode(Sha256::digest(&file.bytes)),
+                    })
+                    .collect(),
+            })
+            .collect(),
     };
     let manifest_bytes =
         serde_json::to_vec(&manifest).map_err(CaptureProjectBundleError::Manifest)?;
-    let bytes =
-        build_bundle_zip(&manifest_bytes, files).map_err(CaptureProjectBundleError::Archive)?;
+    let bytes = build_bundle_zip(&manifest_bytes, files, packages)
+        .map_err(CaptureProjectBundleError::Archive)?;
     if i64::try_from(bytes.len()).map_or(true, |size| size > max_input_bytes) {
         return Err(CaptureProjectBundleError::TooLarge);
     }
     let digest = Sha256::digest(&bytes).into();
     Ok(CapturedProjectBundle {
-        schema: PROJECT_BUNDLE_SCHEMA,
+        schema,
+        media_type,
         bytes,
         digest,
         workspace_version: snapshot.workspace_version,
@@ -242,6 +385,7 @@ async fn materialize_bundle(
 fn build_bundle_zip(
     manifest: &[u8],
     files: Vec<BundleFile>,
+    packages: Vec<ResolvedTypstPackage>,
 ) -> Result<Vec<u8>, BundleArchiveError> {
     let cursor = std::io::Cursor::new(Vec::<u8>::new());
     let mut zip = zip::ZipWriter::new(cursor);
@@ -253,6 +397,15 @@ fn build_bundle_zip(
     for file in files {
         let archive_path = format!("project/{}", file.path);
         write_entry(&mut zip, &archive_path, &file.bytes, options)?;
+    }
+    for package in packages {
+        for file in package.files {
+            let archive_path = format!(
+                "packages/{}/{}/{}/{}",
+                package.namespace, package.name, package.version, file.path
+            );
+            write_entry(&mut zip, &archive_path, &file.bytes, options)?;
+        }
     }
     zip.finish()
         .map(|cursor| cursor.into_inner())
@@ -291,8 +444,8 @@ mod tests {
             }]
         };
         assert_eq!(
-            build_bundle_zip(br#"{"schema":"project-bundle/v1"}"#, files())?,
-            build_bundle_zip(br#"{"schema":"project-bundle/v1"}"#, files())?
+            build_bundle_zip(br#"{"schema":"project-bundle/v1"}"#, files(), Vec::new())?,
+            build_bundle_zip(br#"{"schema":"project-bundle/v1"}"#, files(), Vec::new())?
         );
         Ok(())
     }

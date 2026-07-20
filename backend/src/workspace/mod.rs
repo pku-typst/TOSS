@@ -15,6 +15,7 @@ mod file_policy;
 mod files_http;
 mod files_persistence;
 mod http_error;
+mod import_assets;
 mod pdf_artifacts;
 mod pdf_artifacts_http;
 mod pdf_artifacts_persistence;
@@ -89,6 +90,10 @@ pub(crate) use file_policy::{
 pub(crate) use files_http::{
     create_project_file, delete_project_file, get_project_tree, move_project_file,
     CreateProjectFileInput, MoveProjectFileInput,
+};
+pub(crate) use import_assets::{
+    stage_workspace_import_assets, StageWorkspaceImportAssetsError, StagedWorkspaceImportAssets,
+    WorkspaceImportAsset,
 };
 pub(crate) use pdf_artifacts::PdfArtifact;
 pub(crate) use pdf_artifacts_http::{

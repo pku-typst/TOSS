@@ -64,6 +64,7 @@ import { useWorkspaceGuestSession } from "@/pages/workspace/hooks/useWorkspaceGu
 import { useWorkspacePreviewThumbnail } from "@/pages/workspace/hooks/useWorkspacePreviewThumbnail";
 import { useWorkspaceSourceNavigation } from "@/pages/workspace/hooks/useWorkspaceSourceNavigation";
 import { useBackgroundLatexBuild } from "@/pages/processing/useBackgroundLatexBuild";
+import { usePptxExport } from "@/pages/processing/usePptxExport";
 import {
   deriveWorkspacePermissions
 } from "@/pages/workspace/access";
@@ -382,6 +383,14 @@ function ResolvedWorkspacePage({
   });
 
   const isRevisionMode = !!activeRevisionId;
+  const pptxExport = usePptxExport({
+    projectId,
+    userId: authUser?.user_id ?? null,
+    enabled:
+      featureAvailability.backgroundProcessing &&
+      projectType === "typst" &&
+      !isRevisionMode
+  });
   const {
     error: fileActionError,
     filesDropActive,
@@ -1389,6 +1398,7 @@ function ResolvedWorkspacePage({
               onJumpToPage={jumpToPreviewPage}
               onDownloadPdf={downloadCompiledPdf}
               backgroundBuild={backgroundLatexBuild}
+              pptxExport={pptxExport}
               onJumpToDiagnostic={jumpToDiagnostic}
               t={t}
             />

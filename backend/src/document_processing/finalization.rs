@@ -1,13 +1,25 @@
 //! Core-owned result publication, lease recovery, and lifecycle maintenance.
 
 use super::model::{processing_retry_delay, ProcessingJobState, ProcessingOperation};
+use super::operation_contract::{ArtifactSizeClass, FinalizationKind};
+use super::pptx::validate_pptx;
+use super::workspace_bundle::validate_workspace_bundle;
+use super::workspace_bundle::ValidatedWorkspaceBundle;
 use super::{DocumentProcessingContext, ProcessingConfig};
 use crate::access::{ensure_project_role_for_user, AccessNeed, ProjectAuthorizationError};
+use crate::audit::record_event;
 use crate::process_lifecycle::DrainSignal;
+use crate::workspace::{
+    mark_project_dirty, provision_project, stage_workspace_import_assets, CreateProjectGraph,
+    ProjectName, ProjectType, StagedWorkspaceImportAssets, WorkspaceImportAsset,
+};
 use chrono::{DateTime, Utc};
+use serde_json::Value;
 use sha2::Digest;
 use sqlx::{PgPool, Row};
+use std::collections::HashSet;
 use std::time::Duration;
+use thiserror::Error;
 use uuid::Uuid;
 
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
@@ -21,6 +33,7 @@ struct FinalizationLease {
     requester_user_id: Uuid,
     project_id: Option<Uuid>,
     cache_source_job_id: Option<Uuid>,
+    normalized_options: Value,
 }
 
 struct StagedArtifact {
@@ -34,20 +47,50 @@ struct StagedArtifact {
     content: Vec<u8>,
 }
 
+struct WorkspacePublication<'a> {
+    lease: &'a FinalizationLease,
+    staged: &'a [StagedArtifact],
+    bundle: &'a ValidatedWorkspaceBundle,
+    project_name: &'a ProjectName,
+    staged_assets: &'a StagedWorkspaceImportAssets,
+    project_id: Uuid,
+    now: DateTime<Utc>,
+}
+
 enum ValidationFailure {
     AccessRevoked,
     ArtifactSet,
     PdfInvalid,
+    PptxInvalid,
     DiagnosticInvalid,
+    WorkspaceInvalid,
+}
+
+enum ValidatedFinalization {
+    Artifacts,
+    Workspace {
+        bundle: ValidatedWorkspaceBundle,
+        project_name: crate::workspace::ProjectName,
+    },
+}
+
+#[derive(Debug, Error)]
+enum FinalizationError {
+    #[error(transparent)]
+    Persistence(#[from] sqlx::Error),
+    #[error(transparent)]
+    WorkspaceAssets(#[from] crate::workspace::StageWorkspaceImportAssetsError),
 }
 
 impl ValidationFailure {
     const fn class(&self) -> &'static str {
         match self {
             Self::AccessRevoked => "authorization",
-            Self::ArtifactSet | Self::PdfInvalid | Self::DiagnosticInvalid => {
-                "internal_contract_violation"
-            }
+            Self::ArtifactSet
+            | Self::PdfInvalid
+            | Self::PptxInvalid
+            | Self::DiagnosticInvalid
+            | Self::WorkspaceInvalid => "internal_contract_violation",
         }
     }
 
@@ -56,7 +99,9 @@ impl ValidationFailure {
             Self::AccessRevoked => "project_access_revoked",
             Self::ArtifactSet => "artifact_set_invalid",
             Self::PdfInvalid => "pdf_invalid",
+            Self::PptxInvalid => "pptx_invalid",
             Self::DiagnosticInvalid => "diagnostic_invalid",
+            Self::WorkspaceInvalid => "workspace_bundle_invalid",
         }
     }
 
@@ -65,7 +110,9 @@ impl ValidationFailure {
             Self::AccessRevoked => "Project access was revoked before result publication",
             Self::ArtifactSet => "Processor output did not match the operation contract",
             Self::PdfInvalid => "Processor output was not a valid PDF artifact",
+            Self::PptxInvalid => "Processor output was not a valid PPTX artifact",
             Self::DiagnosticInvalid => "Processor diagnostic output was invalid",
+            Self::WorkspaceInvalid => "Processor output was not a valid Workspace bundle",
         }
     }
 }
@@ -86,7 +133,7 @@ pub(crate) fn spawn_processing_maintenance(
                 if drain.is_triggered() {
                     return;
                 }
-                match finalize_one(&context.db, &context.config).await {
+                match finalize_one(&context).await {
                     Ok(true) => {}
                     Ok(false) => break,
                     Err(error) => {
@@ -271,18 +318,24 @@ async fn maintain_lifecycle(db: &PgPool) -> Result<(), sqlx::Error> {
     transaction.commit().await
 }
 
-async fn finalize_one(db: &PgPool, config: &ProcessingConfig) -> Result<bool, sqlx::Error> {
-    let Some(lease) = acquire_finalization_lease(db, config).await? else {
+async fn finalize_one(context: &DocumentProcessingContext) -> Result<bool, FinalizationError> {
+    let Some(lease) = acquire_finalization_lease(&context.db, &context.config).await? else {
         return Ok(false);
     };
-    let staged = load_staged_artifacts(db, &lease).await?;
-    let validation = validate_finalization(db, &lease, &staged, config).await;
+    let staged = load_staged_artifacts(&context.db, &lease).await?;
+    let validation = validate_finalization(&context.db, &lease, &staged, &context.config).await;
     match validation {
-        Ok(()) => publish_artifacts(db, &lease, &staged).await?,
-        Err(FinalizationCheckError::Rejected(failure)) => {
-            reject_artifacts(db, &lease, failure).await?
+        Ok(ValidatedFinalization::Artifacts) => {
+            publish_artifacts(&context.db, &lease, &staged).await?
         }
-        Err(FinalizationCheckError::Unavailable(error)) => return Err(error),
+        Ok(ValidatedFinalization::Workspace {
+            bundle,
+            project_name,
+        }) => publish_workspace(context, &lease, &staged, bundle, project_name).await?,
+        Err(FinalizationCheckError::Rejected(failure)) => {
+            reject_artifacts(&context.db, &lease, failure).await?
+        }
+        Err(FinalizationCheckError::Unavailable(error)) => return Err(error.into()),
     }
     Ok(true)
 }
@@ -296,7 +349,8 @@ async fn acquire_finalization_lease(
     let expires_at = now + config.finalization_lease;
     let mut transaction = db.begin().await?;
     let row = sqlx::query(
-        "select id, operation, requester_user_id, project_id, cache_source_job_id
+        "select id, operation, requester_user_id, project_id, cache_source_job_id,
+                normalized_options
          from processing_jobs
          where state = 'finalizing'
            and (finalization_token is null or finalization_expires_at <= $1)
@@ -318,6 +372,7 @@ async fn acquire_finalization_lease(
         requester_user_id: row.try_get("requester_user_id")?,
         project_id: row.try_get("project_id")?,
         cache_source_job_id: row.try_get("cache_source_job_id")?,
+        normalized_options: row.try_get("normalized_options")?,
     };
     sqlx::query(
         "update processing_jobs
@@ -405,7 +460,7 @@ async fn validate_finalization(
     lease: &FinalizationLease,
     staged: &[StagedArtifact],
     config: &ProcessingConfig,
-) -> Result<(), FinalizationCheckError> {
+) -> Result<ValidatedFinalization, FinalizationCheckError> {
     if let Some(project_id) = lease.project_id {
         match ensure_project_role_for_user(
             db,
@@ -429,53 +484,128 @@ async fn validate_finalization(
             }
         }
     }
-    if lease.operation != ProcessingOperation::LatexCompilePdfV1 {
-        return Err(FinalizationCheckError::Rejected(
-            ValidationFailure::ArtifactSet,
-        ));
-    }
-    let mut pdf_count = 0;
-    let mut log_count = 0;
+    let contract = lease.operation.contract();
+    let mut roles = HashSet::with_capacity(staged.len());
     for artifact in staged {
+        let Some(artifact_contract) = contract.artifact(&artifact.role) else {
+            return Err(FinalizationCheckError::Rejected(
+                ValidationFailure::ArtifactSet,
+            ));
+        };
+        let limit = match artifact_contract.size_class {
+            ArtifactSizeClass::Output => config.max_output_bytes,
+            ArtifactSizeClass::Diagnostic => config.max_diagnostic_bytes,
+        };
         if artifact.size_bytes != i64::try_from(artifact.content.len()).unwrap_or(i64::MAX)
             || artifact.sha256 != sha2::Sha256::digest(&artifact.content).as_slice()
+            || artifact.size_bytes <= 0
+            || artifact.size_bytes > limit
+            || artifact.media_type != artifact_contract.media_type
+            || !artifact
+                .filename
+                .ends_with(artifact_contract.filename_suffix)
+            || !roles.insert(artifact.role.as_str())
         {
             return Err(FinalizationCheckError::Rejected(
                 ValidationFailure::ArtifactSet,
             ));
         }
-        match (artifact.role.as_str(), artifact.media_type.as_str()) {
-            ("pdf", "application/pdf") => {
-                pdf_count += 1;
-                if artifact.size_bytes > config.max_output_bytes || !valid_pdf(&artifact.content) {
-                    return Err(FinalizationCheckError::Rejected(
-                        ValidationFailure::PdfInvalid,
-                    ));
-                }
-            }
-            ("log", "text/plain") => {
-                log_count += 1;
-                if artifact.size_bytes > config.max_diagnostic_bytes
-                    || std::str::from_utf8(&artifact.content).is_err()
-                {
-                    return Err(FinalizationCheckError::Rejected(
-                        ValidationFailure::DiagnosticInvalid,
-                    ));
-                }
-            }
-            _ => {
-                return Err(FinalizationCheckError::Rejected(
-                    ValidationFailure::ArtifactSet,
-                ));
-            }
-        }
     }
-    if pdf_count != 1 || log_count > 1 || staged.len() != pdf_count + log_count {
+    if contract
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.required && !roles.contains(artifact.role))
+    {
         return Err(FinalizationCheckError::Rejected(
             ValidationFailure::ArtifactSet,
         ));
     }
-    Ok(())
+    let output_expansion_limit = u64::try_from(config.max_output_bytes)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(4);
+    let validated = match contract.finalization {
+        FinalizationKind::PdfArtifacts => {
+            if !staged
+                .iter()
+                .find(|artifact| artifact.role == "pdf")
+                .is_some_and(|artifact| valid_pdf(&artifact.content))
+            {
+                return Err(FinalizationCheckError::Rejected(
+                    ValidationFailure::PdfInvalid,
+                ));
+            }
+            if staged
+                .iter()
+                .find(|artifact| artifact.role == "log")
+                .is_some_and(|artifact| std::str::from_utf8(&artifact.content).is_err())
+            {
+                return Err(FinalizationCheckError::Rejected(
+                    ValidationFailure::DiagnosticInvalid,
+                ));
+            }
+            ValidatedFinalization::Artifacts
+        }
+        FinalizationKind::PptxArtifacts => {
+            if !staged
+                .iter()
+                .find(|artifact| artifact.role == "pptx")
+                .is_some_and(|artifact| {
+                    validate_pptx(&artifact.content, output_expansion_limit).is_ok()
+                })
+            {
+                return Err(FinalizationCheckError::Rejected(
+                    ValidationFailure::PptxInvalid,
+                ));
+            }
+            validate_report(staged, "pptx-export-report/v1")?;
+            ValidatedFinalization::Artifacts
+        }
+        FinalizationKind::TypstWorkspace => {
+            let bundle = staged
+                .iter()
+                .find(|artifact| artifact.role == "workspace")
+                .and_then(|artifact| {
+                    validate_workspace_bundle(&artifact.content, output_expansion_limit).ok()
+                })
+                .ok_or(FinalizationCheckError::Rejected(
+                    ValidationFailure::WorkspaceInvalid,
+                ))?;
+            validate_report(staged, "pptx-import-report/v1")?;
+            let project_name = lease
+                .normalized_options
+                .get("project_name")
+                .and_then(Value::as_str)
+                .and_then(|value| crate::workspace::ProjectName::parse(value).ok())
+                .ok_or(FinalizationCheckError::Rejected(
+                    ValidationFailure::WorkspaceInvalid,
+                ))?;
+            ValidatedFinalization::Workspace {
+                bundle,
+                project_name,
+            }
+        }
+    };
+    Ok(validated)
+}
+
+fn validate_report(
+    staged: &[StagedArtifact],
+    expected_schema: &str,
+) -> Result<(), FinalizationCheckError> {
+    let valid = staged
+        .iter()
+        .find(|artifact| artifact.role == "report")
+        .and_then(|artifact| serde_json::from_slice::<serde_json::Value>(&artifact.content).ok())
+        .is_some_and(|report| {
+            report.get("schema").and_then(Value::as_str) == Some(expected_schema)
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(FinalizationCheckError::Rejected(
+            ValidationFailure::DiagnosticInvalid,
+        ))
+    }
 }
 
 async fn publish_artifacts(
@@ -485,53 +615,12 @@ async fn publish_artifacts(
 ) -> Result<(), sqlx::Error> {
     let now = Utc::now();
     let mut transaction = db.begin().await?;
-    let locked: bool = sqlx::query_scalar(
-        "select exists(
-             select 1 from processing_jobs
-             where id = $1 and state = 'finalizing' and finalization_token = $2
-               and finalization_expires_at > $3
-             for update
-         )",
-    )
-    .bind(lease.job_id)
-    .bind(lease.token)
-    .bind(now)
-    .fetch_one(&mut *transaction)
-    .await?;
+    let locked = lock_finalization(&mut transaction, lease, now).await?;
     if !locked {
         transaction.rollback().await?;
         return Ok(());
     }
-    for artifact in staged {
-        sqlx::query(
-            "insert into processing_artifacts (
-                 id, job_id, blob_id, role, media_type, filename,
-                 size_bytes, sha256, created_at
-             ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             on conflict (job_id, role) do nothing",
-        )
-        .bind(Uuid::new_v4())
-        .bind(lease.job_id)
-        .bind(artifact.blob_id)
-        .bind(&artifact.role)
-        .bind(&artifact.media_type)
-        .bind(&artifact.filename)
-        .bind(artifact.size_bytes)
-        .bind(&artifact.sha256)
-        .bind(now)
-        .execute(&mut *transaction)
-        .await?;
-        if let Some(transfer_id) = artifact.transfer_id {
-            sqlx::query(
-                "update processing_transfers set state = 'consumed', updated_at = $2
-                 where id = $1",
-            )
-            .bind(transfer_id)
-            .bind(now)
-            .execute(&mut *transaction)
-            .await?;
-        }
-    }
+    publish_staged_artifacts(&mut transaction, lease.job_id, staged, now).await?;
     let result = sqlx::query(
         "update processing_jobs
          set state = 'succeeded', phase = 'complete',
@@ -548,6 +637,198 @@ async fn publish_artifacts(
         transaction.commit().await?;
     } else {
         transaction.rollback().await?;
+    }
+    Ok(())
+}
+
+async fn publish_workspace(
+    context: &DocumentProcessingContext,
+    lease: &FinalizationLease,
+    staged: &[StagedArtifact],
+    mut bundle: ValidatedWorkspaceBundle,
+    project_name: ProjectName,
+) -> Result<(), FinalizationError> {
+    let project_id = Uuid::new_v4();
+    let import_assets = bundle
+        .assets
+        .drain(..)
+        .map(|asset| WorkspaceImportAsset {
+            path: asset.path,
+            content_type: asset.media_type,
+            bytes: asset.bytes,
+        })
+        .collect();
+    let staged_assets = stage_workspace_import_assets(
+        &context.db,
+        context.storage.as_ref(),
+        project_id,
+        import_assets,
+    )
+    .await?;
+    let now = Utc::now();
+    let mut transaction = match context.db.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            staged_assets
+                .cleanup(&context.db, context.storage.as_ref())
+                .await;
+            return Err(error.into());
+        }
+    };
+    let publish = publish_workspace_transaction(
+        &mut transaction,
+        &WorkspacePublication {
+            lease,
+            staged,
+            bundle: &bundle,
+            project_name: &project_name,
+            staged_assets: &staged_assets,
+            project_id,
+            now,
+        },
+    )
+    .await;
+    let published = match publish {
+        Ok(published) => published,
+        Err(error) => {
+            let _ = transaction.rollback().await;
+            staged_assets
+                .cleanup(&context.db, context.storage.as_ref())
+                .await;
+            return Err(error.into());
+        }
+    };
+    if !published {
+        let rollback = transaction.rollback().await;
+        staged_assets
+            .cleanup(&context.db, context.storage.as_ref())
+            .await;
+        rollback?;
+        return Ok(());
+    }
+    if let Err(error) = transaction.commit().await {
+        // PostgreSQL commit errors are outcome-ambiguous. Recheck references
+        // before removing staged objects so a successful commit is preserved.
+        staged_assets
+            .cleanup_if_unreferenced(&context.db, context.storage.as_ref())
+            .await;
+        return Err(error.into());
+    }
+    record_event(
+        &context.db,
+        Some(lease.requester_user_id),
+        "project.import.pptx",
+        serde_json::json!({"job_id": lease.job_id, "project_id": project_id}),
+    )
+    .await;
+    Ok(())
+}
+
+async fn publish_workspace_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    publication: &WorkspacePublication<'_>,
+) -> Result<bool, sqlx::Error> {
+    if !lock_finalization(transaction, publication.lease, publication.now).await? {
+        return Ok(false);
+    }
+    let project = CreateProjectGraph {
+        project_id: publication.project_id,
+        owner_user_id: publication.lease.requester_user_id,
+        name: publication.project_name,
+        project_type: ProjectType::Typst,
+        entry_file_path: &publication.bundle.entry_file_path,
+        latex_engine: None,
+        directories: &publication.bundle.directories,
+        documents: &publication.bundle.documents,
+        assets: &publication.staged_assets.assets,
+        created_at: publication.now,
+    };
+    provision_project(transaction, &project).await?;
+    mark_project_dirty(
+        transaction,
+        publication.project_id,
+        Some(publication.lease.requester_user_id),
+        None,
+    )
+    .await?;
+    publish_staged_artifacts(
+        transaction,
+        publication.lease.job_id,
+        publication.staged,
+        publication.now,
+    )
+    .await?;
+    let updated = sqlx::query(
+        "update processing_jobs
+         set state = 'succeeded', phase = 'complete', result_project_id = $3,
+             finalization_token = null, finalization_expires_at = null,
+             updated_at = $4, completed_at = $4
+         where id = $1 and state = 'finalizing' and finalization_token = $2",
+    )
+    .bind(publication.lease.job_id)
+    .bind(publication.lease.token)
+    .bind(publication.project_id)
+    .bind(publication.now)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(updated.rows_affected() == 1)
+}
+
+async fn lock_finalization(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    lease: &FinalizationLease,
+    now: DateTime<Utc>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "select exists(
+             select 1 from processing_jobs
+             where id = $1 and state = 'finalizing' and finalization_token = $2
+               and finalization_expires_at > $3
+             for update
+         )",
+    )
+    .bind(lease.job_id)
+    .bind(lease.token)
+    .bind(now)
+    .fetch_one(&mut **transaction)
+    .await
+}
+
+async fn publish_staged_artifacts(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    staged: &[StagedArtifact],
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    for artifact in staged {
+        sqlx::query(
+            "insert into processing_artifacts (
+                 id, job_id, blob_id, role, media_type, filename,
+                 size_bytes, sha256, created_at
+             ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             on conflict (job_id, role) do nothing",
+        )
+        .bind(Uuid::new_v4())
+        .bind(job_id)
+        .bind(artifact.blob_id)
+        .bind(&artifact.role)
+        .bind(&artifact.media_type)
+        .bind(&artifact.filename)
+        .bind(artifact.size_bytes)
+        .bind(&artifact.sha256)
+        .bind(now)
+        .execute(&mut **transaction)
+        .await?;
+        if let Some(transfer_id) = artifact.transfer_id {
+            sqlx::query(
+                "update processing_transfers set state = 'consumed', updated_at = $2
+                 where id = $1",
+            )
+            .bind(transfer_id)
+            .bind(now)
+            .execute(&mut **transaction)
+            .await?;
+        }
     }
     Ok(())
 }
@@ -593,7 +874,9 @@ fn valid_pdf(content: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document_processing::workspace_bundle::WorkspaceBundleAsset;
     use crate::document_processing::ProcessingConfigFile;
+    use crate::workspace::WorkspaceDocument;
     use std::path::Path;
 
     async fn migrated_test_pool() -> Result<Option<PgPool>, Box<dyn std::error::Error + Send + Sync>>
@@ -703,6 +986,126 @@ mod tests {
         .await?;
         assert_eq!(state, "failed");
         assert_eq!(token, None);
+        sqlx::query("delete from users where id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn workspace_publication_creates_the_result_project_atomically(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let Some(pool) = migrated_test_pool().await? else {
+            return Ok(());
+        };
+        let user_id = Uuid::new_v4();
+        let job_id = Uuid::new_v4();
+        let token = Uuid::new_v4();
+        let now = Utc::now();
+        let username = format!("importer-{}", user_id.simple());
+        sqlx::query(
+            "insert into users (id, email, username, display_name, created_at)
+             values ($1, $2, $3, 'PPTX importer', $4)",
+        )
+        .bind(user_id)
+        .bind(format!("{user_id}@example.test"))
+        .bind(username.chars().take(32).collect::<String>())
+        .bind(now)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "insert into processing_jobs (
+                 id, operation, requester_user_id, project_id,
+                 idempotency_scope, idempotency_key, command_digest,
+                 normalized_options, options_digest, state, phase,
+                 max_attempts, finalization_token, finalization_expires_at,
+                 next_attempt_at, created_at, updated_at,
+                 queue_expires_at, retained_until
+             ) values (
+                 $1, 'pptx.import.typst/v1', $2, null,
+                 'workspace-publication', $3, $4,
+                 $5, $4, 'finalizing', 'validating_result',
+                 3, $6, $7, $8, $8, $8, $7, $7
+             )",
+        )
+        .bind(job_id)
+        .bind(user_id)
+        .bind(Uuid::new_v4().to_string())
+        .bind(vec![0_u8; 32])
+        .bind(serde_json::json!({"project_name": "Imported deck"}))
+        .bind(token)
+        .bind(now + chrono::Duration::days(1))
+        .bind(now)
+        .execute(&pool)
+        .await?;
+        let config = ProcessingConfig::from_config(ProcessingConfigFile::default(), Path::new("."))
+            .map_err(std::io::Error::other)?;
+        let context = DocumentProcessingContext::new(pool.clone(), None, config);
+        let lease = FinalizationLease {
+            job_id,
+            token,
+            operation: ProcessingOperation::PptxImportTypstV1,
+            requester_user_id: user_id,
+            project_id: None,
+            cache_source_job_id: None,
+            normalized_options: serde_json::json!({"project_name": "Imported deck"}),
+        };
+        let bundle = ValidatedWorkspaceBundle {
+            entry_file_path: "slides.typ".to_string(),
+            directories: vec!["media".to_string()],
+            documents: vec![WorkspaceDocument {
+                path: "slides.typ".to_string(),
+                content: "= Imported deck".to_string(),
+            }],
+            assets: vec![WorkspaceBundleAsset {
+                path: "media/source.txt.bin".to_string(),
+                media_type: "application/octet-stream".to_string(),
+                bytes: b"source".to_vec(),
+            }],
+        };
+        let project_name = ProjectName::parse("Imported deck").map_err(std::io::Error::other)?;
+
+        publish_workspace(&context, &lease, &[], bundle, project_name).await?;
+
+        let (state, result_project_id) = sqlx::query_as::<_, (String, Option<Uuid>)>(
+            "select state, result_project_id from processing_jobs where id = $1",
+        )
+        .bind(job_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(state, "succeeded");
+        let result_project_id = result_project_id
+            .ok_or_else(|| std::io::Error::other("result project was not recorded"))?;
+        let (owner_user_id, name, project_type) = sqlx::query_as::<_, (Uuid, String, ProjectType)>(
+            "select owner_user_id, name, project_type from projects where id = $1",
+        )
+        .bind(result_project_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(owner_user_id, user_id);
+        assert_eq!(name, "Imported deck");
+        assert_eq!(project_type, ProjectType::Typst);
+        let document_count: i64 =
+            sqlx::query_scalar("select count(*) from documents where project_id = $1")
+                .bind(result_project_id)
+                .fetch_one(&pool)
+                .await?;
+        let asset_count: i64 =
+            sqlx::query_scalar("select count(*) from project_assets where project_id = $1")
+                .bind(result_project_id)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(document_count, 1);
+        assert_eq!(asset_count, 1);
+        sqlx::query("delete from audit_events where actor_user_id = $1")
+            .bind(user_id)
+            .execute(&pool)
+            .await?;
+        sqlx::query("delete from projects where id = $1")
+            .bind(result_project_id)
+            .execute(&pool)
+            .await?;
         sqlx::query("delete from users where id = $1")
             .bind(user_id)
             .execute(&pool)

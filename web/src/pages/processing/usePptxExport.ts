@@ -1,18 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createLatexPdfBuild,
-  getProcessingCapabilities,
-  type ProcessingCapabilityState,
-  type ProcessingJobList
+  createTypstPptxExport,
+  getProjectProcessingCapabilities,
+  type ProcessingJobList,
+  type PptxConversionMode,
+  type ProjectProcessingCapabilityState
 } from "@/lib/api";
 import {
   openProcessingTaskCenter,
-  processingCapabilitiesQueryKey,
   processingJobsQueryKey,
+  projectProcessingCapabilitiesQueryKey,
   withProcessingJob
 } from "@/pages/processing/model";
 
-export function useBackgroundLatexBuild({
+export function usePptxExport({
   projectId,
   userId,
   enabled
@@ -22,45 +23,46 @@ export function useBackgroundLatexBuild({
   enabled: boolean;
 }) {
   const queryClient = useQueryClient();
+  const queryKey = projectProcessingCapabilitiesQueryKey(
+    userId ?? "anonymous",
+    projectId
+  );
   const capabilityQuery = useQuery({
-    queryKey: processingCapabilitiesQueryKey(userId ?? "anonymous"),
-    queryFn: getProcessingCapabilities,
+    queryKey,
+    queryFn: () => getProjectProcessingCapabilities(projectId),
     enabled: enabled && !!userId,
     staleTime: 10_000,
     refetchInterval: enabled && userId ? 15_000 : false
   });
   const capability = capabilityQuery.data?.capabilities.find(
-    (candidate) => candidate.operation === "latex.compile.pdf/v1"
+    (candidate) => candidate.operation === "typst.export.pptx/v1"
   );
   const mutation = useMutation({
-    mutationFn: () => createLatexPdfBuild(projectId),
+    mutationFn: (mode: PptxConversionMode) =>
+      createTypstPptxExport(projectId, mode),
     onSuccess: (job) => {
       if (!userId) return;
       queryClient.setQueryData<ProcessingJobList>(
         processingJobsQueryKey(userId),
         (current) => withProcessingJob(current, job)
       );
-      void queryClient.invalidateQueries({
-        queryKey: processingCapabilitiesQueryKey(userId)
-      });
+      void queryClient.invalidateQueries({ queryKey });
       openProcessingTaskCenter();
     }
   });
   const inScope = enabled && !!userId;
-  const visible =
-    inScope &&
-    (capabilityQuery.isPending || capabilityQuery.isError || capability !== undefined);
 
   return {
-    visible,
+    visible: inScope && capability !== undefined,
     state: (capability?.state ??
       (capabilityQuery.isPending ? "loading" : "error")) as
-      | ProcessingCapabilityState
+      | ProjectProcessingCapabilityState
       | "loading"
       | "error",
     reason: capability?.reason ?? null,
-    submit: mutation.mutate,
+    submit: mutation.mutateAsync,
     pending: mutation.isPending,
-    error: mutation.error instanceof Error ? mutation.error.message : null
+    error: mutation.error instanceof Error ? mutation.error.message : null,
+    reset: mutation.reset
   };
 }

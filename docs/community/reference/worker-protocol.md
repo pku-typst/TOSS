@@ -252,6 +252,23 @@ In that case it moves the job to Core-owned finalization, returns no claim for
 that acquisition, and the agent immediately polls again. No worker attempt is
 created.
 
+## Typed processor inputs
+
+The SDK verifies transfer size and SHA-256 before materializing one closed
+input variant:
+
+- `project-bundle/v1` contains a project tree and manifest;
+- `typst-project-bundle/v1` additionally contains the exact verified Typst
+  package closure below `packages/{namespace}/{name}/{version}`;
+- `pptx-input/v1` contains the already validated presentation bytes.
+
+Archive paths, file kinds, counts, expanded bytes, manifest records, entry
+files, package identities, and every declared digest are rechecked before a
+processor receives the input. Binary input is never written under a
+server-supplied filename by the SDK; the processor chooses its private sandbox
+path. A processor receives exactly one typed input variant and cannot access
+the transfer credential used to obtain it.
+
 ## Lease and heartbeat
 
 Claim heartbeat supplies one of the protocol's closed phases (`processing` or
@@ -387,10 +404,13 @@ The public worker SDK owns protocol mechanics:
 - idempotent completion, failure, and release;
 - bounded retry for transport requests.
 
-Processor implementations receive a typed request, verified input directory,
-empty output directory, resource limits, and cancellation token. They do not
-receive the HTTP client or service credential. The SDK must not expose an
-arbitrary server-provided shell command executor.
+One agent may register several processors. Their declared per-operation slot
+ceilings share one local semaphore whose size is the largest declared ceiling,
+so a multi-operation runtime cannot accidentally multiply its process budget.
+Processor implementations receive a typed request, verified input, resource
+limits, and cancellation token. They do not receive the HTTP client or service
+credential. The SDK must not expose an arbitrary server-provided shell command
+executor.
 
 ## Conformance tests
 

@@ -102,7 +102,10 @@ export {
 export {
   cancelProcessingJob,
   createLatexPdfBuild,
+  createPptxImport,
+  createTypstPptxExport,
   downloadProcessingArtifact,
   getProcessingCapabilities,
+  getProjectProcessingCapabilities,
   listProcessingJobs
 } from "@/lib/api/processing";

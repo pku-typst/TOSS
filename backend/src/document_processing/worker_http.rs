@@ -730,21 +730,11 @@ fn validate_artifact_declaration(
     {
         return Err(invalid_request("filename is not a safe artifact basename"));
     }
-    let limit = match (input.role.as_str(), input.media_type.as_str()) {
-        ("pdf", "application/pdf") if input.filename.ends_with(".pdf") => {
-            state.processing.config.max_output_bytes
-        }
-        ("log", "text/plain") if input.filename.ends_with(".log") => {
-            state.processing.config.max_diagnostic_bytes
-        }
-        _ => {
-            return Err(WorkerApiError::new(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "artifact_rejected",
-                "Artifact role, media type, or filename is not allowed",
-            ))
-        }
-    };
+    let limit = state
+        .processing
+        .config
+        .max_output_bytes
+        .max(state.processing.config.max_diagnostic_bytes);
     if input.size_bytes <= 0 || input.size_bytes > limit {
         return Err(WorkerApiError::new(
             StatusCode::PAYLOAD_TOO_LARGE,

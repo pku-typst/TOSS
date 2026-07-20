@@ -15,10 +15,11 @@ use crate::app_state::AppState;
 use crate::collaboration::{project_ws_handler, realtime_auth, ws_handler};
 use crate::document_processing::{
     acquire_worker_claims, cancel_processing_job, complete_worker_claim, create_latex_pdf_build,
-    create_worker_artifact_ticket, create_worker_session, download_processing_artifact,
-    download_worker_transfer, drain_worker_session, fail_worker_claim, get_processing_job,
-    heartbeat_worker_claim, heartbeat_worker_session, list_processing_jobs,
-    processing_capabilities, release_worker_claim, upload_worker_transfer,
+    create_pptx_import, create_typst_pptx_export, create_worker_artifact_ticket,
+    create_worker_session, download_processing_artifact, download_worker_transfer,
+    drain_worker_session, fail_worker_claim, get_processing_job, heartbeat_worker_claim,
+    heartbeat_worker_session, list_processing_jobs, processing_capabilities,
+    project_processing_capabilities, release_worker_claim, upload_worker_transfer,
 };
 use crate::experience::{
     experience_config, help_content, product_favicon, product_touch_icon, spa_index,
@@ -184,7 +185,16 @@ pub(super) fn build_router() -> Router<AppState> {
             "/v1/projects/{project_id}/builds",
             post(create_latex_pdf_build),
         )
+        .route(
+            "/v1/projects/{project_id}/exports/pptx",
+            post(create_typst_pptx_export),
+        )
+        .route("/v1/imports/pptx", post(create_pptx_import))
         .route("/v1/processing/capabilities", get(processing_capabilities))
+        .route(
+            "/v1/projects/{project_id}/processing/capabilities",
+            get(project_processing_capabilities),
+        )
         .route("/v1/processing/jobs", get(list_processing_jobs))
         .route("/v1/processing/jobs/{job_id}", get(get_processing_job))
         .route(

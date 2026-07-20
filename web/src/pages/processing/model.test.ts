@@ -5,7 +5,9 @@ import {
   isProcessingJobActive,
   processingCapabilitiesQueryKey,
   processingJobsQueryKey,
-  processingJobsRefetchInterval
+  processingJobsRefetchInterval,
+  projectProcessingCapabilitiesQueryKey,
+  withProcessingJob
 } from "@/pages/processing/model";
 
 function job(
@@ -16,6 +18,7 @@ function job(
     id: "job-1",
     operation: "latex.compile.pdf/v1",
     project_id: "project-1",
+    result_project_id: null,
     state,
     phase: state === "succeeded" ? "complete" : "waiting_for_worker",
     cancellation_requested: cancellationRequested,
@@ -57,5 +60,19 @@ describe("processing task lifecycle", () => {
     expect(processingCapabilitiesQueryKey("user-a")).not.toEqual(
       processingCapabilitiesQueryKey("user-b")
     );
+    expect(projectProcessingCapabilitiesQueryKey("user-a", "project-1")).not.toEqual(
+      projectProcessingCapabilitiesQueryKey("user-a", "project-2")
+    );
+  });
+
+  it("places an updated job first without duplicating it", () => {
+    const original = job("queued");
+    const updated = { ...original, state: "running" as const };
+    const other = { ...original, id: "job-2" };
+
+    expect(withProcessingJob({ jobs: [original, other] }, updated).jobs).toEqual([
+      updated,
+      other
+    ]);
   });
 });

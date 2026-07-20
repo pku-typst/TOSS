@@ -480,6 +480,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/imports/pptx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_pptx_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/latex/texlive/{path}": {
         parameters: {
             query?: never;
@@ -901,6 +917,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/exports/pptx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_typst_pptx_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/external-git/branches": {
         parameters: {
             query?: never;
@@ -1184,6 +1218,24 @@ export interface paths {
             cookie?: never;
         };
         get: operations["download_latest_pdf_artifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/processing/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["project_processing_capabilities"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1742,6 +1794,9 @@ export interface components {
             token: string;
             token_prefix: string;
         };
+        CreatePptxExportInput: {
+            mode?: components["schemas"]["PptxConversionMode"];
+        };
         CreateProjectCopyInput: {
             name: string;
         };
@@ -2118,6 +2173,8 @@ export interface components {
         PersonalAccessTokenListResponse: {
             tokens: components["schemas"]["PersonalAccessTokenInfo"][];
         };
+        /** @enum {string} */
+        PptxConversionMode: "editable" | "fidelity";
         ProcessingArtifact: {
             download_url: string;
             filename: string;
@@ -2169,6 +2226,8 @@ export interface components {
             processor_contract: string | null;
             /** Format: uuid */
             project_id: string | null;
+            /** Format: uuid */
+            result_project_id: string | null;
             state: components["schemas"]["ProcessingJobState"];
             /** Format: date-time */
             updated_at: string;
@@ -2282,6 +2341,16 @@ export interface components {
         };
         /** @enum {string} */
         ProjectPermission: "read" | "write";
+        ProjectProcessingCapabilities: {
+            capabilities: components["schemas"]["ProjectProcessingCapability"][];
+        };
+        ProjectProcessingCapability: {
+            operation: components["schemas"]["ProcessingOperation"];
+            reason: string | null;
+            state: components["schemas"]["ProjectProcessingCapabilityState"];
+        };
+        /** @enum {string} */
+        ProjectProcessingCapabilityState: "available" | "waiting" | "inapplicable";
         /** @enum {string} */
         ProjectRole: "Owner" | "ReadWrite" | "ReadOnly";
         ProjectRoleBinding: {
@@ -3626,6 +3695,44 @@ export interface operations {
             };
         };
     };
+    create_pptx_import: {
+        parameters: {
+            query: {
+                filename: string;
+                mode?: string;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation": number[];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJob"];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     latex_texlive: {
         parameters: {
             query?: never;
@@ -4677,6 +4784,43 @@ export interface operations {
             };
         };
     };
+    create_typst_pptx_export: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePptxExportInput"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessingJob"];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     linked_external_git_branches: {
         parameters: {
             query?: {
@@ -5266,6 +5410,37 @@ export interface operations {
                 };
                 content: {
                     "application/pdf": number[];
+                };
+            };
+            /** @description Error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    project_processing_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectProcessingCapabilities"];
                 };
             };
             /** @description Error response */

@@ -1,14 +1,13 @@
 //! Session, slot, lease, transfer, and closed-outcome orchestration.
 
 use crate::client::{ClientError, CoreClient};
-use crate::input::{verify_and_extract, ProjectBundleManifest, VerifiedInput};
+use crate::input::{verify_input, BinaryInput, ProcessorInput, ProjectInput};
 use crate::protocol::*;
 use async_trait::async_trait;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -19,6 +18,7 @@ use url::Url;
 use uuid::Uuid;
 
 const MAX_SLOTS: i32 = 16;
+const MAX_ARTIFACTS: usize = 16;
 const CLAIM_RENEWAL_MARGIN: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
@@ -30,14 +30,28 @@ pub struct ProcessorDescriptor {
 }
 
 pub struct ProcessorRequest {
-    _input: VerifiedInput,
     pub job_id: Uuid,
     pub attempt: i32,
     pub claim_id: Uuid,
-    pub project_dir: PathBuf,
-    pub manifest: ProjectBundleManifest,
+    pub input: ProcessorInput,
     pub options: Value,
     pub limits: WorkerClaimLimits,
+}
+
+impl ProcessorRequest {
+    pub fn project(&self) -> Option<&ProjectInput> {
+        match &self.input {
+            ProcessorInput::Project(input) => Some(input),
+            ProcessorInput::Binary(_) => None,
+        }
+    }
+
+    pub fn binary(&self) -> Option<&BinaryInput> {
+        match &self.input {
+            ProcessorInput::Project(_) => None,
+            ProcessorInput::Binary(input) => Some(input),
+        }
+    }
 }
 
 pub struct ProcessorArtifact {
@@ -134,15 +148,41 @@ pub async fn run_agent<P: Processor>(
     config: AgentConfig,
     processor: Arc<P>,
 ) -> Result<(), AgentError> {
-    let descriptor = processor.descriptor();
-    validate_descriptor(&descriptor)?;
+    let processor: Arc<dyn Processor> = processor;
+    run_agent_with_processors(config, vec![processor]).await
+}
+
+pub async fn run_agent_with_processors(
+    config: AgentConfig,
+    processors: Vec<Arc<dyn Processor>>,
+) -> Result<(), AgentError> {
+    if processors.is_empty() {
+        return Err(AgentError::Configuration(
+            "at least one processor is required".to_string(),
+        ));
+    }
+    let mut registry = HashMap::with_capacity(processors.len());
+    let mut descriptors = Vec::with_capacity(processors.len());
+    let mut shared_slots = 0_i32;
+    for processor in processors {
+        let descriptor = processor.descriptor();
+        validate_descriptor(&descriptor)?;
+        shared_slots = shared_slots.max(descriptor.slots);
+        let key = processor_key(&descriptor.operation, &descriptor.processor_contract);
+        if registry.insert(key, processor).is_some() {
+            return Err(AgentError::Configuration(
+                "processor operation and contract pairs must be unique".to_string(),
+            ));
+        }
+        descriptors.push(descriptor);
+    }
     let client = CoreClient::new(config.core_url, config.worker_token)?;
     let session = client
         .create_session(&CreateWorkerSessionInput {
             request_id: Uuid::new_v4(),
             worker_instance: config.worker_instance,
             protocol_versions: vec![PROTOCOL_VERSION],
-            processors: vec![advertisement(&descriptor)],
+            processors: descriptors.iter().map(advertisement).collect(),
         })
         .await?;
     if session.protocol_version != PROTOCOL_VERSION {
@@ -150,18 +190,18 @@ pub async fn run_agent<P: Processor>(
     }
     info!(
         session_id = %session.session_id,
-        operation = descriptor.operation,
-        slots = descriptor.slots,
+        processors = descriptors.len(),
+        shared_slots,
         "processing worker session established"
     );
 
-    let semaphore = Arc::new(Semaphore::new(descriptor.slots as usize));
+    let semaphore = Arc::new(Semaphore::new(shared_slots as usize));
     let (session_stop_tx, session_stop_rx) = watch::channel(false);
     let (session_lost_tx, mut session_lost_rx) = watch::channel(false);
     let session_task = tokio::spawn(session_heartbeat_loop(
         client.clone(),
         session.session_id,
-        descriptor.clone(),
+        descriptors.clone(),
         Duration::from_secs(session.heartbeat_interval_seconds.max(1) as u64),
         session_stop_rx,
         session_lost_tx,
@@ -201,11 +241,14 @@ pub async fn run_agent<P: Processor>(
         let acquire_input = AcquireClaimsInput {
             request_id: Uuid::new_v4(),
             session_id: session.session_id,
-            offers: vec![WorkerProcessorOffer {
-                operation: descriptor.operation.clone(),
-                processor_contract: descriptor.processor_contract.clone(),
-                slots: 1,
-            }],
+            offers: descriptors
+                .iter()
+                .map(|descriptor| WorkerProcessorOffer {
+                    operation: descriptor.operation.clone(),
+                    processor_contract: descriptor.processor_contract.clone(),
+                    slots: 1,
+                })
+                .collect(),
             wait_seconds: session.max_long_poll_seconds,
         };
         let acquire = client.acquire_claims(&acquire_input);
@@ -249,8 +292,23 @@ pub async fn run_agent<P: Processor>(
                         .await;
                 }
                 if let Some(claim) = first {
+                    let key = processor_key(&claim.operation, &claim.processor_contract);
+                    let Some(claim_processor) = registry.get(&key).cloned() else {
+                        warn!(claim_id = %claim.claim_id, "Core granted a claim outside the processor registry");
+                        let _ = client
+                            .release_claim(
+                                claim.claim_id,
+                                &ReleaseClaimInput {
+                                    session_id: session.session_id,
+                                    request_id: Uuid::new_v4(),
+                                    reason: Some("processor_registry_mismatch".to_string()),
+                                },
+                            )
+                            .await;
+                        drop(permit);
+                        continue;
+                    };
                     let claim_client = client.clone();
-                    let claim_processor = Arc::clone(&processor);
                     let heartbeat_interval =
                         Duration::from_secs((session.heartbeat_interval_seconds.max(3) / 2) as u64);
                     claims.spawn(async move {
@@ -322,10 +380,10 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-async fn process_claim<P: Processor>(
+async fn process_claim(
     client: CoreClient,
     session_id: Uuid,
-    processor: Arc<P>,
+    processor: Arc<dyn Processor>,
     claim: WorkerClaim,
     heartbeat_interval: Duration,
 ) {
@@ -352,10 +410,10 @@ enum ExecuteClaimError {
     Client(#[from] ClientError),
 }
 
-async fn execute_claim<P: Processor>(
+async fn execute_claim(
     client: &CoreClient,
     session_id: Uuid,
-    processor: &P,
+    processor: &dyn Processor,
     claim: &WorkerClaim,
     lease: &mut LeaseGuard,
 ) -> Result<(), ExecuteClaimError> {
@@ -383,7 +441,7 @@ async fn execute_claim<P: Processor>(
         release_cancelled(client, session_id, claim).await;
         return Err(ExecuteClaimError::Cancelled);
     }
-    let input = match verify_and_extract(&content, &claim.input) {
+    let input = match verify_input(&content, &claim.input) {
         Ok(input) => input,
         Err(error) => {
             warn!(?error, claim_id = %claim.claim_id, "processing input was rejected");
@@ -393,8 +451,8 @@ async fn execute_claim<P: Processor>(
                 claim,
                 ProcessorFailure::new(
                     WorkerFailureClass::InvalidInput,
-                    "project_bundle_invalid",
-                    "The immutable project bundle is invalid",
+                    "processing_input_invalid",
+                    "The immutable processing input is invalid",
                 ),
             )
             .await;
@@ -470,11 +528,9 @@ async fn execute_claim<P: Processor>(
     Ok(())
 }
 
-fn processor_request(claim: &WorkerClaim, input: VerifiedInput) -> ProcessorRequest {
+fn processor_request(claim: &WorkerClaim, input: ProcessorInput) -> ProcessorRequest {
     ProcessorRequest {
-        project_dir: input.project_dir.clone(),
-        manifest: input.manifest.clone(),
-        _input: input,
+        input,
         job_id: claim.job_id,
         attempt: claim.attempt,
         claim_id: claim.claim_id,
@@ -487,7 +543,7 @@ fn validate_artifacts(
     artifacts: Vec<ProcessorArtifact>,
     limits: &WorkerClaimLimits,
 ) -> Result<Vec<ProcessorArtifact>, ProcessorFailure> {
-    if artifacts.is_empty() || artifacts.len() > 3 {
+    if artifacts.is_empty() || artifacts.len() > MAX_ARTIFACTS {
         return Err(contract_failure(
             "Processor returned an invalid artifact count",
         ));
@@ -497,7 +553,7 @@ fn validate_artifacts(
     for artifact in &artifacts {
         let size = i64::try_from(artifact.content.len()).unwrap_or(i64::MAX);
         total = total.saturating_add(size);
-        let role_limit = if artifact.role == "log" {
+        let role_limit = if matches!(artifact.role.as_str(), "log" | "report") {
             limits.diagnostic_bytes
         } else {
             limits.output_bytes
@@ -747,7 +803,7 @@ async fn heartbeat_before_lease_deadline<T>(
 async fn session_heartbeat_loop(
     client: CoreClient,
     session_id: Uuid,
-    descriptor: ProcessorDescriptor,
+    descriptors: Vec<ProcessorDescriptor>,
     interval: Duration,
     mut stop_rx: watch::Receiver<bool>,
     lost_tx: watch::Sender<bool>,
@@ -765,11 +821,14 @@ async fn session_heartbeat_loop(
                     session_id,
                     &WorkerSessionHeartbeatInput {
                         request_id: Uuid::new_v4(),
-                        processors: vec![WorkerProcessorHealth {
-                            operation: descriptor.operation.clone(),
-                            processor_contract: descriptor.processor_contract.clone(),
-                            healthy: true,
-                        }],
+                        processors: descriptors
+                            .iter()
+                            .map(|descriptor| WorkerProcessorHealth {
+                                operation: descriptor.operation.clone(),
+                                processor_contract: descriptor.processor_contract.clone(),
+                                healthy: true,
+                            })
+                            .collect(),
                     },
                 ).await {
                     Ok(_) => failures = 0,
@@ -794,6 +853,10 @@ fn advertisement(descriptor: &ProcessorDescriptor) -> WorkerProcessorAdvertiseme
         runtime_version: descriptor.runtime_version.clone(),
         slots: descriptor.slots,
     }
+}
+
+fn processor_key(operation: &str, processor_contract: &str) -> (String, String) {
+    (operation.to_string(), processor_contract.to_string())
 }
 
 fn validate_descriptor(descriptor: &ProcessorDescriptor) -> Result<(), AgentError> {

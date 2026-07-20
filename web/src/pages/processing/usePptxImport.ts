@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createLatexPdfBuild,
+  createPptxImport,
   getProcessingCapabilities,
   type ProcessingCapabilityState,
-  type ProcessingJobList
+  type ProcessingJobList,
+  type PptxConversionMode
 } from "@/lib/api";
 import {
   openProcessingTaskCenter,
@@ -12,12 +13,10 @@ import {
   withProcessingJob
 } from "@/pages/processing/model";
 
-export function useBackgroundLatexBuild({
-  projectId,
+export function usePptxImport({
   userId,
   enabled
 }: {
-  projectId: string;
   userId: string | null;
   enabled: boolean;
 }) {
@@ -30,10 +29,11 @@ export function useBackgroundLatexBuild({
     refetchInterval: enabled && userId ? 15_000 : false
   });
   const capability = capabilityQuery.data?.capabilities.find(
-    (candidate) => candidate.operation === "latex.compile.pdf/v1"
+    (candidate) => candidate.operation === "pptx.import.typst/v1"
   );
   const mutation = useMutation({
-    mutationFn: () => createLatexPdfBuild(projectId),
+    mutationFn: ({ file, mode }: { file: File; mode: PptxConversionMode }) =>
+      createPptxImport(file, mode),
     onSuccess: (job) => {
       if (!userId) return;
       queryClient.setQueryData<ProcessingJobList>(
@@ -46,21 +46,18 @@ export function useBackgroundLatexBuild({
       openProcessingTaskCenter();
     }
   });
-  const inScope = enabled && !!userId;
-  const visible =
-    inScope &&
-    (capabilityQuery.isPending || capabilityQuery.isError || capability !== undefined);
 
   return {
-    visible,
+    visible: enabled && !!userId && capability !== undefined,
     state: (capability?.state ??
       (capabilityQuery.isPending ? "loading" : "error")) as
       | ProcessingCapabilityState
       | "loading"
       | "error",
     reason: capability?.reason ?? null,
-    submit: mutation.mutate,
+    submit: mutation.mutateAsync,
     pending: mutation.isPending,
-    error: mutation.error instanceof Error ? mutation.error.message : null
+    error: mutation.error instanceof Error ? mutation.error.message : null,
+    reset: mutation.reset
   };
 }

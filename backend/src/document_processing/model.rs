@@ -21,12 +21,46 @@ text_enum! {
     }
 }
 
+text_enum! {
+    #[derive(Default)]
+    #[schema(rename_all = "snake_case")]
+    pub enum PptxConversionMode {
+        Editable => "editable",
+        #[default]
+        Fidelity => "fidelity",
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct CreatePptxExportInput {
+    #[serde(default)]
+    pub mode: PptxConversionMode,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct CreatePptxImportInput {
+    pub filename: String,
+    #[serde(default = "editable_pptx_mode")]
+    pub mode: PptxConversionMode,
+}
+
+fn editable_pptx_mode() -> PptxConversionMode {
+    PptxConversionMode::Editable
+}
+
 impl ProcessingOperation {
     pub(crate) const fn project_type(self) -> Option<crate::workspace::ProjectType> {
         match self {
             Self::LatexCompilePdfV1 => Some(crate::workspace::ProjectType::Latex),
             Self::TypstExportPptxV1 => Some(crate::workspace::ProjectType::Typst),
             Self::PptxImportTypstV1 => None,
+        }
+    }
+
+    pub(crate) const fn result_project_type(self) -> Option<crate::workspace::ProjectType> {
+        match self {
+            Self::PptxImportTypstV1 => Some(crate::workspace::ProjectType::Typst),
+            Self::LatexCompilePdfV1 | Self::TypstExportPptxV1 => None,
         }
     }
 }
@@ -99,6 +133,8 @@ pub(crate) struct ProcessingJob {
     pub operation: ProcessingOperation,
     #[schema(required)]
     pub project_id: Option<Uuid>,
+    #[schema(required)]
+    pub result_project_id: Option<Uuid>,
     pub state: ProcessingJobState,
     pub phase: ProcessingPhase,
     pub cancellation_requested: bool,
@@ -134,4 +170,26 @@ pub(crate) struct ProcessingCapability {
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct ProcessingCapabilities {
     pub capabilities: Vec<ProcessingCapability>,
+}
+
+text_enum! {
+    #[schema(rename_all = "snake_case")]
+    pub enum ProjectProcessingCapabilityState {
+        Available => "available",
+        Waiting => "waiting",
+        Inapplicable => "inapplicable",
+    }
+}
+
+#[derive(Clone, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct ProjectProcessingCapability {
+    pub operation: ProcessingOperation,
+    pub state: ProjectProcessingCapabilityState,
+    #[schema(required)]
+    pub reason: Option<String>,
+}
+
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct ProjectProcessingCapabilities {
+    pub capabilities: Vec<ProjectProcessingCapability>,
 }

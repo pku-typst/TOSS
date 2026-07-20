@@ -194,18 +194,33 @@ are base64 encoded and the resulting bytes are currently stored in PostgreSQL.
 ## Durable document processing
 
 - `GET /v1/processing/capabilities`
+- `GET /v1/projects/{project_id}/processing/capabilities`
 - `POST /v1/projects/{project_id}/builds`
+- `POST /v1/projects/{project_id}/exports/pptx`
+- `POST /v1/imports/pptx?filename={filename}&mode={editable|fidelity}`
 - `GET /v1/processing/jobs`
 - `GET /v1/processing/jobs/{job_id}`
 - `POST /v1/processing/jobs/{job_id}/cancel`
 - `GET /v1/processing/jobs/{job_id}/artifacts/{artifact_id}`
 
-Community currently enables only `latex.compile.pdf/v1`. Build submission
-requires authentication, current project read access, a LaTeX project, a
-configured worker identity, and an `Idempotency-Key`; it returns `202` for a new
-durable job and the existing job for an exact replay. The capability response
-contains only deployment-configured operations and distinguishes `available`
-from configured-but-offline `waiting`. An absent operation is not enabled.
+The default Community distribution enables only `latex.compile.pdf/v1`.
+Community also defines generic PPTX import/export routes and finalizers for
+deployments that allow those operations and configure compatible processors.
+Every submission requires authentication and an `Idempotency-Key`; project
+commands additionally require current read access and a matching project type.
+A new job returns `202`, while an exact replay returns the existing job.
+
+The global capability response contains only distribution-allowed,
+deployment-configured operations and distinguishes `available` from
+configured-but-offline `waiting`. The project capability route also returns
+`inapplicable` when an operation's exact project/package policy is not met.
+Submission rechecks that policy against the captured snapshot. An absent
+operation is not enabled.
+
+PPTX import uses a bounded raw PPTX body and creates a new Typst project only
+after Core validates the worker's Workspace bundle. Its terminal job exposes
+`result_project_id`. PPTX export snapshots a Typst project and publishes a
+downloadable PPTX artifact; processors cannot mutate the source project.
 
 Job lists are requester-owned and recheck current project access. Cancellation
 is allowed during preparation, queueing, and active execution, but not after
