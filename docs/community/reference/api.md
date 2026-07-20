@@ -197,7 +197,7 @@ are base64 encoded and the resulting bytes are currently stored in PostgreSQL.
 - `GET /v1/projects/{project_id}/processing/capabilities`
 - `POST /v1/projects/{project_id}/builds`
 - `POST /v1/projects/{project_id}/exports/pptx`
-- `POST /v1/imports/pptx?filename={filename}&mode={editable|fidelity}`
+- `POST /v1/imports/pptx?filename={filename}&input_profile={profile}`
 - `GET /v1/processing/jobs`
 - `GET /v1/processing/jobs/{job_id}`
 - `POST /v1/processing/jobs/{job_id}/cancel`
@@ -217,10 +217,13 @@ configured-but-offline `waiting`. The project capability route also returns
 Submission rechecks that policy against the captured snapshot. An absent
 operation is not enabled.
 
-PPTX import uses a bounded raw PPTX body and creates a new Typst project only
-after Core validates the worker's Workspace bundle. Its terminal job exposes
-`result_project_id`. PPTX export snapshots a Typst project and publishes a
-downloadable PPTX artifact; processors cannot mutate the source project.
+PPTX import uses a bounded raw PPTX body. A distribution may advertise a closed
+set of input profiles through processing capabilities; clients omit
+`input_profile` when none are configured. Import creates a new Typst project
+only after Core validates the worker's Workspace bundle, and its terminal job
+exposes `result_project_id`. PPTX export accepts no body, snapshots a Typst
+project, and publishes a downloadable PPTX artifact; processors cannot mutate
+the source project.
 
 Job lists are requester-owned and recheck current project access. Cancellation
 is allowed during preparation, queueing, and active execution, but not after

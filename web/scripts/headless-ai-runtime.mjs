@@ -23,6 +23,29 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function parseJsonObject(raw, label) {
+  assert(typeof raw === "string", `${label} is not JSON text`);
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${label} is not valid JSON`, { cause: error });
+  }
+  assert(value !== null && typeof value === "object" && !Array.isArray(value), `${label} is not a JSON object`);
+  return value;
+}
+
+function workspaceContextFromPrompt(prompt) {
+  assert(typeof prompt === "string", "system prompt is unavailable");
+  const opening = "<workspace_context>\n";
+  const closing = "\n</workspace_context>";
+  const start = prompt.indexOf(opening);
+  const end = prompt.indexOf(closing, start + opening.length);
+  assert(start >= 0 && end > start, "system prompt has no Workspace context envelope");
+  assert(prompt.indexOf(opening, start + opening.length) < 0, "system prompt repeats the Workspace context envelope");
+  return parseJsonObject(prompt.slice(start + opening.length, end), "Workspace context");
+}
+
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -619,7 +642,7 @@ async function verifyBrowserBoundary(projectId, provider) {
     }
     const firstResponseIndex = provider.kind === "mock" ? 1 : 0;
     const secondResponseIndex = firstResponseIndex + 1;
-    const firstResponse = await waitForAssistant(firstResponseIndex, "first pi Runtime response");
+    await waitForAssistant(firstResponseIndex, "first pi Runtime response");
     if (provider.kind === "mock") {
       await page.locator('.ai-token-usage[data-source="provider"]').waitFor({ timeout: 5_000 });
       assert(
@@ -638,10 +661,6 @@ async function verifyBrowserBoundary(projectId, provider) {
         request.body.reasoning?.summary === "auto" &&
         !("reasoning_effort" in request.body)
       )), "the exact Provider JSON was not applied to every request");
-      assert(
-        firstResponse.includes("reviewed metadata patch was accepted"),
-        "unexpected mock tool-assisted response"
-      );
       await page.locator(".cm-content").waitFor({ timeout: 10_000 });
       assert(
         (await page.locator(".cm-content").innerText()).includes("title: [AI Runtime Smoke]"),
@@ -656,7 +675,6 @@ async function verifyBrowserBoundary(projectId, provider) {
     await page.locator('[data-action="send-prompt"]').click();
     const secondResponse = await waitForAssistant(secondResponseIndex, "second pi Runtime response");
     if (provider.kind === "mock") {
-      assert(secondResponse.includes("Mock provider turn 5 completed."), "unexpected mock second response");
       assert(
         await assistantMessages.nth(secondResponseIndex).locator(".katex").count() >= 2,
         "assistant response did not render inline and display math with KaTeX"
@@ -703,11 +721,12 @@ async function verifyBrowserBoundary(projectId, provider) {
       const systemPrompt = provider.requests[0].body.messages.find(
         (message) => message.role === "system"
       )?.content;
+      const initialWorkspaceContext = workspaceContextFromPrompt(systemPrompt);
       assert(
-        typeof systemPrompt === "string" &&
-          systemPrompt.includes('"project_name":') &&
-          systemPrompt.includes('"active_path": "main.typ"') &&
-          systemPrompt.includes('"compilation":'),
+        typeof initialWorkspaceContext.project_name === "string" &&
+          initialWorkspaceContext.active_path === "main.typ" &&
+          initialWorkspaceContext.compilation !== null &&
+          typeof initialWorkspaceContext.compilation === "object",
         "turn-start Workspace state was not injected into the system prompt"
       );
       const collapsedActivity = page.locator('.ai-activity-trigger[aria-expanded="false"]');
@@ -722,10 +741,11 @@ async function verifyBrowserBoundary(projectId, provider) {
         "pi Agent did not feed the Workspace result back into its tool loop"
       );
       const toolMessage = provider.requests[1].body.messages.find((message) => message.role === "tool");
+      const readResult = parseJsonObject(toolMessage?.content, "Workspace read result");
       assert(
-        typeof toolMessage?.content === "string" &&
-          toolMessage.content.includes('"path":"main.typ"') &&
-          toolMessage.content.includes('"numbered_content":"1 | '),
+        readResult.path === "main.typ" &&
+          typeof readResult.numbered_content === "string" &&
+          readResult.numbered_content.startsWith("1 | "),
         "Workspace tool result did not contain line-numbered main.typ source"
       );
       assert(
@@ -736,10 +756,16 @@ async function verifyBrowserBoundary(projectId, provider) {
       const failedPatchToolMessage = provider.requests[2].body.messages.findLast(
         (message) => message.role === "tool"
       );
+      const failedPatchResult = parseJsonObject(
+        failedPatchToolMessage?.content,
+        "failed patch result"
+      );
       assert(
-        typeof failedPatchToolMessage?.content === "string" &&
-          failedPatchToolMessage.content.includes('\"status\":\"compile_failed\"') &&
-          failedPatchToolMessage.content.includes('\"severity\":\"error\"'),
+        failedPatchResult.status === "compile_failed" &&
+          failedPatchResult.verification?.status === "failed" &&
+          failedPatchResult.verification.diagnostics?.some(
+            (diagnostic) => diagnostic.severity === "error"
+          ),
         "candidate compiler diagnostics did not return to the model"
       );
       assert(
@@ -750,20 +776,23 @@ async function verifyBrowserBoundary(projectId, provider) {
       const pendingPatchToolMessage = provider.requests[3].body.messages.findLast(
         (message) => message.role === "tool"
       );
+      const pendingPatchResult = parseJsonObject(
+        pendingPatchToolMessage?.content,
+        "pending patch result"
+      );
       assert(
-        typeof pendingPatchToolMessage?.content === "string" &&
-          pendingPatchToolMessage.content.includes('\"status\":\"review_pending\"') &&
-          pendingPatchToolMessage.content.includes('\"status\":\"passed\"') &&
-          !pendingPatchToolMessage.content.includes('\"status\":\"accepted\"'),
+        pendingPatchResult.status === "review_pending" &&
+          pendingPatchResult.verification?.status === "passed" &&
+          typeof pendingPatchResult.review_id === "string" &&
+          !("decision" in pendingPatchResult),
         "the completed edit turn did not retain its review-pending tool result"
       );
       const postReviewSystemPrompt = provider.requests[3].body.messages.find(
         (message) => message.role === "system"
       )?.content;
+      const postReviewWorkspaceContext = workspaceContextFromPrompt(postReviewSystemPrompt);
       assert(
-        typeof postReviewSystemPrompt === "string" &&
-          postReviewSystemPrompt.includes('"last_edit_review": {') &&
-          postReviewSystemPrompt.includes('"decision": "accepted"'),
+        postReviewWorkspaceContext.last_edit_review?.decision === "accepted",
         "the accepted Workspace review was not exposed in the next turn snapshot"
       );
       assert(
@@ -797,11 +826,7 @@ async function verifyBrowserBoundary(projectId, provider) {
     if (provider.kind === "mock") {
       await page.locator('.ai-composer [name="prompt"]').fill("Start an isolated conversation.");
       await page.locator('[data-action="send-prompt"]').click();
-      const isolatedResponse = await waitForAssistant(0, "isolated conversation response");
-      assert(
-        isolatedResponse.includes("Typst documentation query completed."),
-        "unexpected isolated-conversation response"
-      );
+      await waitForAssistant(0, "isolated conversation response");
       assert(
         provider.requests[5].body.messages.map((message) => message.role).join(",") ===
           "system,user",
@@ -815,12 +840,14 @@ async function verifyBrowserBoundary(projectId, provider) {
       const typstDocsToolMessage = provider.requests[6].body.messages.findLast(
         (message) => message.role === "tool"
       );
+      const typstDocsResult = parseJsonObject(
+        typstDocsToolMessage?.content,
+        "Typst documentation result"
+      );
       assert(
-        typeof typstDocsToolMessage?.content === "string" &&
-          typstDocsToolMessage.content.includes('"version":"0.15.0"') &&
-          typstDocsToolMessage.content.includes('"results":[') &&
-          typstDocsToolMessage.content.includes('"name":"math.equation"') &&
-          !typstDocsToolMessage.content.includes("typst_docs_unavailable"),
+        typstDocsResult.version === "0.15.0" &&
+          Array.isArray(typstDocsResult.results) &&
+          typstDocsResult.results.some((result) => result.name === "math.equation"),
         `local Typst documentation query did not return its pinned search results: ${
           JSON.stringify({ content: typstDocsToolMessage?.content, browserErrors })
         }`

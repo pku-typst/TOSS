@@ -1761,16 +1761,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePptxExportInput"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "202": {
             "description": "Successful response",
@@ -1819,7 +1809,7 @@
             }
           },
           {
-            "name": "mode",
+            "name": "input_profile",
             "in": "query",
             "required": false,
             "schema": {
@@ -2523,7 +2513,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemplatePublication"
+                  "$ref": "#/components/schemas/TemplateStatus"
                 }
               }
             }
@@ -5135,7 +5125,7 @@
           "template_not_found",
           "template_organization_grant_not_found",
           "template_organization_membership_required",
-          "template_publication_required",
+          "template_required",
           "template_service_unavailable",
           "template_thumbnail_not_found",
           "template_thumbnail_unavailable",
@@ -5544,14 +5534,6 @@
               "null"
             ],
             "format": "date-time"
-          }
-        }
-      },
-      "CreatePptxExportInput": {
-        "type": "object",
-        "properties": {
-          "mode": {
-            "$ref": "#/components/schemas/PptxConversionMode"
           }
         }
       },
@@ -7106,13 +7088,6 @@
           }
         }
       },
-      "PptxConversionMode": {
-        "type": "string",
-        "enum": [
-          "editable",
-          "fidelity"
-        ]
-      },
       "ProcessingArtifact": {
         "type": "object",
         "required": [
@@ -7169,6 +7144,7 @@
         "required": [
           "operation",
           "state",
+          "input_profile_selector",
           "healthy_sessions",
           "active_slots",
           "active_jobs",
@@ -7181,6 +7157,16 @@
           },
           "state": {
             "$ref": "#/components/schemas/ProcessingCapabilityState"
+          },
+          "input_profile_selector": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProcessingInputProfileSelector"
+              }
+            ]
           },
           "healthy_sessions": {
             "type": "integer",
@@ -7229,6 +7215,47 @@
           },
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "ProcessingInputProfile": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "description": {
+            "$ref": "#/components/schemas/LocalizedText"
+          }
+        }
+      },
+      "ProcessingInputProfileSelector": {
+        "type": "object",
+        "required": [
+          "label",
+          "default_profile",
+          "profiles"
+        ],
+        "properties": {
+          "label": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "default_profile": {
+            "type": "string"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProcessingInputProfile"
+            }
           }
         }
       },
@@ -8733,7 +8760,15 @@
           }
         }
       },
-      "TemplatePublication": {
+      "TemplateSource": {
+        "type": "string",
+        "enum": [
+          "builtin",
+          "personal",
+          "shared"
+        ]
+      },
+      "TemplateStatus": {
         "type": "object",
         "required": [
           "project_id",
@@ -8753,14 +8788,6 @@
             "format": "date-time"
           }
         }
-      },
-      "TemplateSource": {
-        "type": "string",
-        "enum": [
-          "builtin",
-          "personal",
-          "shared"
-        ]
       },
       "TemporaryShareLoginInput": {
         "type": "object",

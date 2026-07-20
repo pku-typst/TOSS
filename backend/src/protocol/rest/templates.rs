@@ -1,7 +1,7 @@
 use super::ApiErrorResponse;
 use crate::access::TemplateOrganizationGrant;
 use crate::templates::{
-    CreateBuiltinTemplateProjectInput, TemplateGalleryResponse, TemplatePublication,
+    CreateBuiltinTemplateProjectInput, TemplateGalleryResponse, TemplateStatus,
     UpdateProjectTemplateInput,
 };
 use crate::workspace::Project;
@@ -38,7 +38,7 @@ json_operation!(
     "templates",
     UpdateProjectTemplateInput,
     200,
-    TemplatePublication
+    TemplateStatus
 );
 json_array_operation!(
     list_template_organization_access,

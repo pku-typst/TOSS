@@ -671,8 +671,12 @@ export function ProjectsPage({
           reason={pptxImport.reason}
           pending={pptxImport.pending}
           error={pptxImport.error}
+          inputProfileSelector={pptxImport.inputProfileSelector}
+          locale={locale}
           onClose={() => setPptxImportDialogOpen(false)}
-          onSubmit={(file, mode) => pptxImport.submit({ file, mode })}
+          onSubmit={(file, inputProfile) =>
+            pptxImport.submit({ file, inputProfile })
+          }
           t={t}
         />
       )}

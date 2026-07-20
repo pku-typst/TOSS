@@ -172,7 +172,9 @@ build time.
 
 - Put deterministic TypeScript behavior in Vitest and user/browser workflows
   in Playwright.
-- Put user-facing strings in the locale catalogs and run `npm run check:i18n`.
+- Put user-facing strings in the locale catalogs. Keep catalog-key alignment as
+  a structural unit test; do not scan source text or pin prose in regression
+  tests.
 - Use the design tokens and components described in `web/DESIGN.md`.
 - Keep distribution-specific identity in configuration returned by the server,
   not in public-core UI branches.

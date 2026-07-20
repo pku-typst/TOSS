@@ -22,7 +22,7 @@ import type {
   Revision,
   RevisionTransfer,
   RevisionsResponse,
-  TemplatePublication,
+  TemplateStatus,
   UpdateDocumentInput,
   UpdateProjectTemplateInput,
   UploadAssetInput,
@@ -405,7 +405,7 @@ export async function updateProjectTemplate(projectId: string, isTemplate: boole
     headers: authHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(input)
   });
-  return parseJsonOrThrow<TemplatePublication>(response, "api.updateTemplate");
+  return parseJsonOrThrow<TemplateStatus>(response, "api.updateTemplate");
 }
 
 export async function downloadProjectArchive(projectId: string) {

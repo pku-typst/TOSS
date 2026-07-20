@@ -50,7 +50,7 @@ describe("document processing API", () => {
     });
   });
 
-  it("submits PPTX export options to the project operation endpoint", async () => {
+  it("submits PPTX export without converter-specific options", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(responseJob), {
         status: 202,
@@ -60,18 +60,18 @@ describe("document processing API", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("crypto", { randomUUID: () => "request-id-2" });
 
-    await createTypstPptxExport("project/with spaces", "fidelity");
+    await createTypstPptxExport("project/with spaces");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/v1/projects/project%2Fwith%20spaces/exports/pptx");
-    expect(init.body).toBe('{"mode":"fidelity"}');
+    expect(init.body).toBeUndefined();
     expect(init.headers).toMatchObject({
-      "content-type": "application/json",
       "idempotency-key": "request-id-2"
     });
+    expect(init.headers).not.toHaveProperty("content-type");
   });
 
-  it("uploads a raw PPTX body with filename and mode in the query", async () => {
+  it("uploads a raw PPTX body with an optional distribution profile", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(responseJob), {
         status: 202,
@@ -84,15 +84,34 @@ describe("document processing API", () => {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
 
-    await createPptxImport(file, "editable");
+    await createPptxImport(file, "profile-a");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/v1/imports/pptx?filename=deck+%26+notes.pptx&mode=editable");
+    expect(url).toBe(
+      "/v1/imports/pptx?filename=deck+%26+notes.pptx&input_profile=profile-a"
+    );
     expect(init.body).toBe(file);
     expect(init.headers).toMatchObject({
       "content-type": file.type,
       "idempotency-key": "request-id-3"
     });
+  });
+
+  it("omits the PPTX import profile when the distribution defines none", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(responseJob), {
+        status: 202,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "request-id-4" });
+    const file = new File(["pptx"], "deck.pptx", { type: "application/octet-stream" });
+
+    await createPptxImport(file, null);
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/v1/imports/pptx?filename=deck.pptx");
   });
 
   it("loads project-scoped processing applicability", async () => {

@@ -101,8 +101,8 @@ may grant organization roles but cannot silently downgrade an existing owner.
 A signed-in user redeeming a share link receives a durable project role. A
 named temporary guest receives a scoped, expiring project session. Revoking a
 link prevents new redemption; it does not silently revoke an authenticated
-role already granted through that link. Publishing a project as a template
-revokes its temporary guest sessions in the publication transaction.
+role already granted through that link. Marking a project as a template
+revokes its temporary guest sessions in the template-status transaction.
 
 ## Bootstrap administration
 

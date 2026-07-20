@@ -1,4 +1,4 @@
-//! HTTP transport for published-template organization grants.
+//! HTTP transport for organization grants on projects marked as templates.
 
 use super::http_error::template_service_unavailable;
 use super::organization_grants;

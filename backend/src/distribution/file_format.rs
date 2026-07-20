@@ -255,6 +255,8 @@ pub(super) struct DocumentProcessingFile {
     pub(super) allowed_operations: Vec<ProcessingOperation>,
     #[serde(default)]
     pub(super) operation_policies: Vec<ProcessingOperationPolicyFile>,
+    #[serde(default)]
+    pub(super) input_profiles: Vec<ProcessingInputProfilesFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -263,6 +265,23 @@ pub(super) struct ProcessingOperationPolicyFile {
     pub(super) operation: ProcessingOperation,
     #[serde(default)]
     pub(super) required_typst_packages: Vec<TypstPackageRequirementFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProcessingInputProfilesFile {
+    pub(super) operation: ProcessingOperation,
+    pub(super) label: LocalizedTextFile,
+    pub(super) default_profile: String,
+    pub(super) profiles: Vec<ProcessingInputProfileFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProcessingInputProfileFile {
+    pub(super) id: String,
+    pub(super) label: LocalizedTextFile,
+    pub(super) description: LocalizedTextFile,
 }
 
 #[derive(Debug, Deserialize)]

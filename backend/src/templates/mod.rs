@@ -1,4 +1,4 @@
-//! Template discovery, publication, grants, and built-in instantiation.
+//! Template discovery, project status, grants, and built-in instantiation.
 
 mod builtin_http;
 mod builtin_instantiation;
@@ -8,8 +8,8 @@ mod gallery_model;
 mod http_error;
 mod organization_grants;
 mod organization_grants_http;
-mod publication;
-mod publication_http;
+mod template_status;
+mod template_status_http;
 
 pub(crate) use builtin_http::{
     create_project_from_builtin_template, get_builtin_template_thumbnail,
@@ -21,5 +21,5 @@ pub(crate) use organization_grants_http::{
     delete_project_template_organization_access, list_project_template_organization_access,
     upsert_project_template_organization_access,
 };
-pub(crate) use publication::TemplatePublication;
-pub(crate) use publication_http::{update_project_template, UpdateProjectTemplateInput};
+pub(crate) use template_status::TemplateStatus;
+pub(crate) use template_status_http::{update_project_template, UpdateProjectTemplateInput};

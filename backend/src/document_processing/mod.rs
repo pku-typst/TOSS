@@ -19,8 +19,8 @@ pub(crate) use config::{ProcessingConfig, ProcessingConfigFile};
 pub(crate) use context::DocumentProcessingContext;
 pub(crate) use finalization::spawn_processing_maintenance;
 pub(crate) use model::{
-    CreatePptxExportInput, ProcessingCapabilities, ProcessingJob, ProcessingJobList,
-    ProcessingOperation, ProjectProcessingCapabilities,
+    ProcessingCapabilities, ProcessingInputProfile, ProcessingInputProfileSelector, ProcessingJob,
+    ProcessingJobList, ProcessingOperation, ProjectProcessingCapabilities,
 };
 pub(crate) use public_http::{
     cancel_processing_job, create_latex_pdf_build, create_pptx_import, create_typst_pptx_export,

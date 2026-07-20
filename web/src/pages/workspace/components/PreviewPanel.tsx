@@ -324,6 +324,12 @@ export function PreviewPanel({
                 <span>{backgroundBuild.error}</span>
               </nve-alert>
             )}
+            {pptxExport.error && (
+              <nve-alert className="preview-runtime-status" status="danger">
+                <strong>{t("processing.submitFailed")}</strong>
+                <span>{pptxExport.error}</span>
+              </nve-alert>
+            )}
             {hasPreviewPage && workspaceSyncPending && (
               <nve-alert className="preview-runtime-status" status="pending">
                 <strong>{t("preview.loadingProject")}</strong>

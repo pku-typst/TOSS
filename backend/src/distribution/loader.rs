@@ -2,15 +2,20 @@
 
 use super::ai_assistant::load_ai_assistant;
 use super::experience_content::load_experience;
-use super::file_format::{DistributionFile, ProcessingOperationPolicyFile};
+use super::file_format::{
+    DistributionFile, ProcessingInputProfilesFile, ProcessingOperationPolicyFile,
+};
 use super::template_catalog::load_builtin_templates;
 use super::{
     is_hex_color, read_template, resolve_distribution_file, resolve_path, validate_localized_text,
-    CheckpointBranchPrefix, DistributionConfig, DocumentProcessingDistributionConfig,
-    FrontendFeature, FrontendFeaturesConfig, GitConfig, ProcessingOperationPolicy, ProductAsset,
-    ProductConfig, CONFIG_SCHEMA_VERSION, MAX_PRODUCT_ASSET_BYTES,
+    validate_slug, CheckpointBranchPrefix, DistributionConfig,
+    DocumentProcessingDistributionConfig, FrontendFeature, FrontendFeaturesConfig, GitConfig,
+    ProcessingOperationInputProfiles, ProcessingOperationPolicy, ProductAsset, ProductConfig,
+    CONFIG_SCHEMA_VERSION, MAX_PRODUCT_ASSET_BYTES,
 };
-use crate::document_processing::ProcessingOperation;
+use crate::document_processing::{
+    ProcessingInputProfile, ProcessingInputProfileSelector, ProcessingOperation,
+};
 use crate::typst_runtime::TypstPackageRequirement;
 use crate::workspace::ProjectType;
 use std::collections::HashSet;
@@ -133,6 +138,10 @@ impl DistributionConfig {
             file.document_processing.operation_policies,
             &processing_operations,
         )?;
+        let processing_input_profiles = validate_processing_input_profiles(
+            file.document_processing.input_profiles,
+            &processing_operations,
+        )?;
 
         let builtin_dir = resolve_path(base_dir, &file.typst.builtin_dir, "typst.builtin_dir")?;
         let catalog_path = builtin_dir.join("catalog.json");
@@ -197,6 +206,7 @@ impl DistributionConfig {
             document_processing: DocumentProcessingDistributionConfig {
                 allowed_operations: processing_operations,
                 operation_policies: processing_operation_policies,
+                input_profiles: processing_input_profiles,
             },
             experience,
             typst_builtin_dir: Some(builtin_dir),
@@ -356,6 +366,90 @@ fn validate_processing_operation_policies(
     Ok(policies)
 }
 
+fn validate_processing_input_profiles(
+    values: Vec<ProcessingInputProfilesFile>,
+    allowed_operations: &[ProcessingOperation],
+) -> Result<Vec<ProcessingOperationInputProfiles>, String> {
+    const MAX_PROFILES_PER_OPERATION: usize = 8;
+
+    let mut configured = Vec::with_capacity(values.len());
+    let mut operations = HashSet::new();
+    for value in values {
+        if !allowed_operations.contains(&value.operation) {
+            return Err(format!(
+                "document_processing.input_profiles cannot configure disabled operation {}",
+                value.operation
+            ));
+        }
+        if value.operation != ProcessingOperation::PptxImportTypstV1 {
+            return Err(format!(
+                "document_processing.input_profiles are not supported for {}",
+                value.operation
+            ));
+        }
+        if !operations.insert(value.operation) {
+            return Err(format!(
+                "document_processing.input_profiles repeats operation {}",
+                value.operation
+            ));
+        }
+        if value.profiles.is_empty() || value.profiles.len() > MAX_PROFILES_PER_OPERATION {
+            return Err(format!(
+                "document_processing.input_profiles for {} must contain between 1 and {MAX_PROFILES_PER_OPERATION} profiles",
+                value.operation
+            ));
+        }
+
+        let label =
+            validate_localized_text(value.label, "document_processing.input_profiles.label", 80)?;
+        let default_profile = value.default_profile.trim().to_string();
+        validate_slug(
+            &default_profile,
+            "document_processing.input_profiles.default_profile",
+        )?;
+        let mut profile_ids = HashSet::new();
+        let mut profiles = Vec::with_capacity(value.profiles.len());
+        for profile in value.profiles {
+            let id = profile.id.trim().to_string();
+            validate_slug(&id, "document_processing.input_profiles.profiles.id")?;
+            if !profile_ids.insert(id.clone()) {
+                return Err(format!(
+                    "document_processing.input_profiles for {} repeats profile {id}",
+                    value.operation
+                ));
+            }
+            let field = format!(
+                "document_processing.input_profiles.{}.profiles.{id}",
+                value.operation
+            );
+            profiles.push(ProcessingInputProfile {
+                id,
+                label: validate_localized_text(profile.label, &format!("{field}.label"), 80)?,
+                description: validate_localized_text(
+                    profile.description,
+                    &format!("{field}.description"),
+                    240,
+                )?,
+            });
+        }
+        if !profile_ids.contains(&default_profile) {
+            return Err(format!(
+                "document_processing.input_profiles for {} has an unknown default profile {default_profile}",
+                value.operation
+            ));
+        }
+        configured.push(ProcessingOperationInputProfiles {
+            operation: value.operation,
+            selector: ProcessingInputProfileSelector {
+                label,
+                default_profile,
+                profiles,
+            },
+        });
+    }
+    Ok(configured)
+}
+
 fn validate_id(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 48
@@ -384,4 +478,63 @@ fn validate_email_domain(value: &str) -> Result<(), String> {
         return Err("git.fallback_email_domain must be a lowercase DNS-style domain".to_string());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_processing_input_profiles;
+    use crate::distribution::file_format::{
+        LocalizedTextFile, ProcessingInputProfileFile, ProcessingInputProfilesFile,
+    };
+    use crate::document_processing::ProcessingOperation;
+
+    fn localized(value: &str) -> LocalizedTextFile {
+        LocalizedTextFile {
+            en: value.to_string(),
+            zh_cn: value.to_string(),
+        }
+    }
+
+    fn profiles(operation: ProcessingOperation) -> ProcessingInputProfilesFile {
+        ProcessingInputProfilesFile {
+            operation,
+            label: localized("Profile"),
+            default_profile: "profile-a".to_string(),
+            profiles: vec![
+                ProcessingInputProfileFile {
+                    id: "profile-a".to_string(),
+                    label: localized("Profile A"),
+                    description: localized("First profile"),
+                },
+                ProcessingInputProfileFile {
+                    id: "profile-b".to_string(),
+                    label: localized("Profile B"),
+                    description: localized("Second profile"),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn pptx_import_profiles_are_closed_distribution_values() -> Result<(), String> {
+        let configured = validate_processing_input_profiles(
+            vec![profiles(ProcessingOperation::PptxImportTypstV1)],
+            &[ProcessingOperation::PptxImportTypstV1],
+        )?;
+
+        assert_eq!(configured.len(), 1);
+        let configured = configured.first().ok_or("profile set is missing")?;
+        assert_eq!(configured.selector.default_profile, "profile-a");
+        assert_eq!(configured.selector.profiles.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn input_profiles_cannot_change_another_operation_contract() {
+        assert!(validate_processing_input_profiles(
+            vec![profiles(ProcessingOperation::TypstExportPptxV1)],
+            &[ProcessingOperation::TypstExportPptxV1],
+        )
+        .is_err());
+    }
 }

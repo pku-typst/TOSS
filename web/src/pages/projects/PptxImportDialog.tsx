@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { UiButton, UiDialog, UiInput, UiSelect } from "@/components/ui";
-import type { PptxConversionMode } from "@/lib/api";
-import type { Translator } from "@/lib/i18n";
+import type { ProcessingInputProfileSelector } from "@/lib/api";
+import { localizedText } from "@/lib/experience";
+import type { Translator, UiLocale } from "@/lib/i18n";
 import { processingCapabilityReasonLabel } from "@/pages/processing/model";
 
 const PPTX_MEDIA_TYPE =
@@ -14,6 +15,8 @@ export function PptxImportDialog({
   reason,
   pending,
   error,
+  inputProfileSelector,
+  locale,
   onClose,
   onSubmit,
   t
@@ -23,24 +26,30 @@ export function PptxImportDialog({
   reason: string | null;
   pending: boolean;
   error: string | null;
+  inputProfileSelector: ProcessingInputProfileSelector | null;
+  locale: UiLocale;
   onClose: () => void;
-  onSubmit: (file: File, mode: PptxConversionMode) => Promise<unknown>;
+  onSubmit: (file: File, inputProfile: string | null) => Promise<unknown>;
   t: Translator;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [mode, setMode] = useState<PptxConversionMode>("editable");
+  const initialProfile = inputProfileSelector?.default_profile ?? null;
+  const [inputProfile, setInputProfile] = useState<string | null>(initialProfile);
+  const selectedProfile = inputProfileSelector?.profiles.find(
+    (profile) => profile.id === inputProfile
+  );
 
   useEffect(() => {
     if (!open) {
       setFile(null);
-      setMode("editable");
     }
-  }, [open]);
+    setInputProfile(initialProfile);
+  }, [initialProfile, open]);
 
   async function submit() {
     if (!file) return;
     try {
-      await onSubmit(file, mode);
+      await onSubmit(file, inputProfile);
       onClose();
     } catch {
       // The mutation exposes its localized API error in the dialog.
@@ -74,21 +83,26 @@ export function PptxImportDialog({
           accept={`.pptx,${PPTX_MEDIA_TYPE}`}
           onChange={(event) => setFile(event.target.files?.item(0) ?? null)}
         />
-        <UiSelect
-          label={t("processing.conversionMode")}
-          value={mode}
-          onChange={(event) =>
-            setMode(event.target.value === "fidelity" ? "fidelity" : "editable")
-          }
-        >
-          <option value="editable">{t("processing.mode.editable")}</option>
-          <option value="fidelity">{t("processing.mode.fidelity")}</option>
-        </UiSelect>
-        <span nve-text="label muted">
-          {mode === "editable"
-            ? t("processing.mode.editableHint")
-            : t("processing.mode.fidelityHint")}
-        </span>
+        {inputProfileSelector && inputProfileSelector.profiles.length > 1 && (
+          <>
+            <UiSelect
+              label={localizedText(inputProfileSelector.label, locale)}
+              value={inputProfile ?? ""}
+              onChange={(event) => setInputProfile(event.target.value)}
+            >
+              {inputProfileSelector.profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {localizedText(profile.label, locale)}
+                </option>
+              ))}
+            </UiSelect>
+            {selectedProfile && (
+              <span nve-text="label muted">
+                {localizedText(selectedProfile.description, locale)}
+              </span>
+            )}
+          </>
+        )}
         {state === "waiting" && (
           <nve-alert status="pending">
             <span>{processingCapabilityReasonLabel(reason, t)}</span>

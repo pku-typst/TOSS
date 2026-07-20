@@ -216,7 +216,7 @@ resource. The current public surface is:
 ```text
 POST /v1/projects/{project_id}/builds
 POST /v1/projects/{project_id}/exports/pptx
-POST /v1/imports/pptx?filename=...&mode=...
+POST /v1/imports/pptx?filename=...&input_profile=...
 GET  /v1/processing/capabilities
 GET  /v1/projects/{project_id}/processing/capabilities
 GET  /v1/processing/jobs
@@ -225,10 +225,12 @@ POST /v1/processing/jobs/{job_id}/cancel
 GET  /v1/processing/jobs/{job_id}/artifacts/{artifact_id}
 ```
 
-PPTX import accepts the presentation media type as a bounded raw request body;
-PPTX export accepts a closed conversion mode. These remain semantic commands,
-not a generic operation-submission route. An explicit retry command, if added,
-must create a new linked job rather than reopen a terminal job.
+PPTX import accepts the presentation media type as a bounded raw request body
+and may select a distribution-declared input profile. The profile values and
+labels belong to the distribution, not Core. PPTX export has no request body or
+user-selectable mode. These remain semantic commands, not a generic
+operation-submission route. An explicit retry command, if added, must create a
+new linked job rather than reopen a terminal job.
 
 Creation accepts an `Idempotency-Key`. Its uniqueness scope includes the actor
 and command endpoint. A concurrent duplicate returns the original job rather
@@ -239,8 +241,9 @@ permanent business identifiers.
 
 The current PPTX import path buffers within the deployment request and
 processing-input limits, validates the OPC package before reservation, and
-stores the immutable bytes with their digest before queueing. A streaming
-upload path is not currently implemented.
+stores the immutable bytes with their digest before queueing. Successful
+finalization atomically publishes a new project; it never mutates an existing
+project. A streaming upload path is not currently implemented.
 
 ## Project input capture
 

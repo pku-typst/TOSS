@@ -10,6 +10,7 @@ mod experience;
 mod external_repositories;
 mod http_response;
 mod latex_runtime;
+mod localized_text;
 mod native_process;
 mod object_cleanup;
 mod object_storage;

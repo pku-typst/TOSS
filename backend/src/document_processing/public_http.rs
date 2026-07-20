@@ -1,8 +1,8 @@
 //! Browser/user HTTP edge for durable processing commands and task queries.
 
 use super::model::{
-    CreatePptxExportInput, CreatePptxImportInput, ProcessingCapabilities, ProcessingCapability,
-    ProcessingCapabilityState, ProcessingJob, ProcessingJobList, ProcessingOperation,
+    CreatePptxImportInput, ProcessingCapabilities, ProcessingCapability, ProcessingCapabilityState,
+    ProcessingInputProfileSelector, ProcessingJob, ProcessingJobList, ProcessingOperation,
     ProjectProcessingCapabilities, ProjectProcessingCapability, ProjectProcessingCapabilityState,
 };
 use super::persistence::{
@@ -113,14 +113,10 @@ pub(crate) async fn create_typst_pptx_export(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(project_id): Path<Uuid>,
-    Json(input): Json<CreatePptxExportInput>,
 ) -> Result<impl IntoResponse, ApiError> {
     let operation = ProcessingOperation::TypstExportPptxV1;
-    let initial_options = serde_json::to_value(&input).map_err(|error| {
-        processing_unavailable("processing options could not be encoded", error)
-    })?;
     let reserved =
-        match begin_project_job(&state, &headers, project_id, operation, &initial_options).await? {
+        match begin_project_job(&state, &headers, project_id, operation, &json!({})).await? {
             ProjectJobStart::Existing(response) => return Ok(response),
             ProjectJobStart::Reserved(reserved) => reserved,
         };
@@ -143,7 +139,6 @@ pub(crate) async fn create_typst_pptx_export(
     .await?;
     ensure_captured_project_type(&state, reserved.job_id, &bundle, ProjectType::Typst).await?;
     let options = json!({
-        "mode": input.mode,
         "entry_file_path": bundle.entry_file_path,
         "source_epoch": bundle.source_epoch,
     });
@@ -161,6 +156,12 @@ pub(crate) async fn create_pptx_import(
     require_pptx_content_type(&headers)?;
     let actor = required_request_user_id(&state.db, &headers).await?;
     let (filename, project_name) = normalize_import_filename(&input.filename)?;
+    let input_profile = resolve_input_profile(
+        state
+            .distribution
+            .processing_input_profile_selector(operation),
+        input.input_profile.as_deref(),
+    )?;
     let size_bytes = i64::try_from(body.len()).unwrap_or(i64::MAX);
     if body.is_empty() || size_bytes > state.processing.config.max_input_bytes {
         return Err(ApiError::new(
@@ -182,11 +183,14 @@ pub(crate) async fn create_pptx_import(
         return Err(pptx_input_error(error));
     }
     let input_digest: [u8; 32] = Sha256::digest(&body).into();
-    let options = json!({
-        "filename": filename,
-        "project_name": project_name,
-        "mode": input.mode,
-    });
+    let mut options = serde_json::Map::from_iter([
+        ("filename".to_string(), Value::String(filename)),
+        ("project_name".to_string(), Value::String(project_name)),
+    ]);
+    if let Some(input_profile) = input_profile {
+        options.insert("input_profile".to_string(), Value::String(input_profile));
+    }
+    let options = Value::Object(options);
     let command = json!({
         "operation": operation,
         "input_sha256": hex::encode(input_digest),
@@ -551,9 +555,13 @@ pub(crate) async fn processing_capabilities(
         } else {
             (ProcessingCapabilityState::Available, None)
         };
+        let input_profile_selector = state
+            .distribution
+            .processing_input_profile_selector(operation);
         capabilities.push(ProcessingCapability {
             operation,
             state: capability_state,
+            input_profile_selector: input_profile_selector.cloned(),
             healthy_sessions: stats.healthy_sessions,
             active_slots: stats.active_slots,
             active_jobs: stats.active_jobs,
@@ -758,6 +766,38 @@ fn normalize_import_filename(raw: &str) -> Result<(String, String), ApiError> {
     Ok((filename.to_string(), project_name.as_str().to_string()))
 }
 
+fn resolve_input_profile(
+    configured: Option<&ProcessingInputProfileSelector>,
+    requested: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let requested = requested.map(str::trim);
+    if requested.is_some_and(str::is_empty) {
+        return Err(invalid_input_profile());
+    }
+    let Some(configured) = configured else {
+        return if requested.is_none() {
+            Ok(None)
+        } else {
+            Err(invalid_input_profile())
+        };
+    };
+    let selected = requested.unwrap_or(&configured.default_profile);
+    configured
+        .profiles
+        .iter()
+        .find(|profile| profile.id == selected)
+        .map(|profile| Some(profile.id.clone()))
+        .ok_or_else(invalid_input_profile)
+}
+
+fn invalid_input_profile() -> ApiError {
+    ApiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        ApiErrorCode::ProcessingOperationInvalid,
+        "The requested processing input profile is unavailable",
+    )
+}
+
 fn pptx_input_error(error: PptxValidationError) -> ApiError {
     match error {
         PptxValidationError::Limit => ApiError::new(
@@ -955,4 +995,65 @@ fn processing_unavailable(
         "Background processing is unavailable",
     )
     .with_diagnostic(context, error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_input_profile;
+    use crate::document_processing::{ProcessingInputProfile, ProcessingInputProfileSelector};
+    use crate::localized_text::LocalizedText;
+
+    fn text(value: &str) -> LocalizedText {
+        LocalizedText {
+            en: value.to_string(),
+            zh_cn: value.to_string(),
+        }
+    }
+
+    fn selector() -> ProcessingInputProfileSelector {
+        ProcessingInputProfileSelector {
+            label: text("Profile"),
+            default_profile: "profile-a".to_string(),
+            profiles: vec![
+                ProcessingInputProfile {
+                    id: "profile-a".to_string(),
+                    label: text("Profile A"),
+                    description: text("First profile"),
+                },
+                ProcessingInputProfile {
+                    id: "profile-b".to_string(),
+                    label: text("Profile B"),
+                    description: text("Second profile"),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn input_profile_uses_the_validated_distribution_default() {
+        let configured = selector();
+
+        assert!(matches!(
+            resolve_input_profile(Some(&configured), None),
+            Ok(Some(profile)) if profile == "profile-a"
+        ));
+    }
+
+    #[test]
+    fn input_profile_accepts_only_a_configured_value() {
+        let configured = selector();
+
+        assert!(matches!(
+            resolve_input_profile(Some(&configured), Some(" profile-b ")),
+            Ok(Some(profile)) if profile == "profile-b"
+        ));
+        assert!(resolve_input_profile(Some(&configured), Some("unknown")).is_err());
+        assert!(resolve_input_profile(Some(&configured), Some(" ")).is_err());
+    }
+
+    #[test]
+    fn input_profile_is_absent_when_the_distribution_defines_none() {
+        assert!(matches!(resolve_input_profile(None, None), Ok(None)));
+        assert!(resolve_input_profile(None, Some("profile-a")).is_err());
+    }
 }

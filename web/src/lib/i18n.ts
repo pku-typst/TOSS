@@ -81,19 +81,11 @@ const messages: Record<UiLocale, Record<string, string>> = {
     "processing.buildWaiting": "Queue background PDF build; worker is temporarily offline",
     "processing.exportPptx": "Export PPTX",
     "processing.exportPptxWaiting": "Queue PPTX export; converter is temporarily offline",
-    "processing.exportPptxTitle": "Export PowerPoint presentation",
-    "processing.exportPptxDescription": "Convert an immutable snapshot of the current project to PPTX.",
-    "processing.exportPptxAction": "Export PPTX",
     "processing.importPptx": "Import PPTX",
     "processing.importPptxTitle": "Import PowerPoint presentation",
     "processing.importPptxDescription": "Convert a PPTX file into a new Typst project.",
     "processing.importPptxAction": "Import PPTX",
     "processing.pptxFile": "PowerPoint file",
-    "processing.conversionMode": "Conversion mode",
-    "processing.mode.editable": "Editable",
-    "processing.mode.editableHint": "Favor editable slide elements; visual details may change.",
-    "processing.mode.fidelity": "High fidelity",
-    "processing.mode.fidelityHint": "Favor visual fidelity; some content may be less editable.",
     "processing.reason.workerOffline": "The converter is temporarily offline. The task will wait for capacity.",
     "processing.reason.requiredPackageMissing": "This project does not use the package required by this converter.",
     "processing.reason.dynamicDependency": "Package eligibility cannot be verified because this project uses a dynamic import.",
@@ -914,7 +906,7 @@ const messages: Record<UiLocale, Record<string, string>> = {
     "api.error.templateOrganizationGrantNotFound":
       "Template organization access was not found",
     "api.error.templateOrganizationMembershipRequired": "Organization membership is required",
-    "api.error.templatePublicationRequired": "Publish the project as a template first",
+    "api.error.templateRequired": "Mark the project as a template before granting organization access",
     "api.error.templateServiceUnavailable": "Template service is unavailable",
     "api.error.templateThumbnailNotFound": "Template thumbnail was not found",
     "api.error.templateThumbnailUnavailable": "Template thumbnail service is unavailable",
@@ -999,19 +991,11 @@ const messages: Record<UiLocale, Record<string, string>> = {
     "processing.buildWaiting": "排队后台构建；Worker 暂时离线",
     "processing.exportPptx": "导出 PPTX",
     "processing.exportPptxWaiting": "排队导出 PPTX；转换服务暂时离线",
-    "processing.exportPptxTitle": "导出 PowerPoint 演示文稿",
-    "processing.exportPptxDescription": "将当前项目的不可变快照转换为 PPTX。",
-    "processing.exportPptxAction": "导出 PPTX",
     "processing.importPptx": "导入 PPTX",
     "processing.importPptxTitle": "导入 PowerPoint 演示文稿",
     "processing.importPptxDescription": "将 PPTX 文件转换为新的 Typst 项目。",
     "processing.importPptxAction": "导入 PPTX",
     "processing.pptxFile": "PowerPoint 文件",
-    "processing.conversionMode": "转换模式",
-    "processing.mode.editable": "便于编辑",
-    "processing.mode.editableHint": "优先保留可编辑的幻灯片元素，视觉细节可能有所变化。",
-    "processing.mode.fidelity": "高保真",
-    "processing.mode.fidelityHint": "优先保持视觉效果，部分内容可能不易编辑。",
     "processing.reason.workerOffline": "转换服务暂时离线，任务会等待可用容量。",
     "processing.reason.requiredPackageMissing": "当前项目没有使用此转换器要求的 Typst 包。",
     "processing.reason.dynamicDependency": "项目使用了动态导入，无法验证所需 Typst 包。",
@@ -1821,7 +1805,7 @@ const messages: Record<UiLocale, Record<string, string>> = {
     "api.error.templateNotFound": "模板不存在",
     "api.error.templateOrganizationGrantNotFound": "模板的组织访问授权不存在",
     "api.error.templateOrganizationMembershipRequired": "需要先加入该组织",
-    "api.error.templatePublicationRequired": "请先将项目发布为模板",
+    "api.error.templateRequired": "请先将项目标记为模板，再授权组织使用",
     "api.error.templateServiceUnavailable": "模板服务暂不可用",
     "api.error.templateThumbnailNotFound": "模板缩略图不存在",
     "api.error.templateThumbnailUnavailable": "模板缩略图服务暂不可用",
@@ -1865,6 +1849,13 @@ export function writeStoredLocale(locale: UiLocale) {
 
 export function translate(locale: UiLocale, key: string, values?: TranslationValues) {
   const template = messages[locale][key] ?? messages.en[key] ?? key;
+  return interpolateTranslation(template, values);
+}
+
+export function interpolateTranslation(
+  template: string,
+  values?: TranslationValues
+) {
   if (!values) return template;
   return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, name: string) => {
     const value = values[name];
@@ -1964,7 +1955,7 @@ const apiErrorMessageKeys: Partial<Record<ApiErrorCode, string>> = {
   template_not_found: "api.error.templateNotFound",
   template_organization_grant_not_found: "api.error.templateOrganizationGrantNotFound",
   template_organization_membership_required: "api.error.templateOrganizationMembershipRequired",
-  template_publication_required: "api.error.templatePublicationRequired",
+  template_required: "api.error.templateRequired",
   template_service_unavailable: "api.error.templateServiceUnavailable",
   template_thumbnail_not_found: "api.error.templateThumbnailNotFound",
   template_thumbnail_unavailable: "api.error.templateThumbnailUnavailable"

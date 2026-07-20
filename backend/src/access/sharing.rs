@@ -214,8 +214,8 @@ pub(crate) async fn create_temporary_share_login(
         .await
         .map_err(|source| CreateTemporaryShareLoginError::ShareLinkLookup { source })?
         .ok_or(CreateTemporaryShareLoginError::NotFound)?;
-    // Template publication locks the project before revoking guest sessions. Keep the same
-    // project-then-link order so admission and publication cannot race or deadlock.
+    // A template-status change locks the project before revoking guest sessions. Keep the same
+    // project-then-link order so admission and that status change cannot race or deadlock.
     let is_template = lock_project_template_status(&mut transaction, project_id)
         .await
         .map_err(

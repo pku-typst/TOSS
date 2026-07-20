@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   UI_LOCALE_STORAGE_KEY,
   apiStatusMessage,
+  interpolateTranslation,
   localizeApiErrorDetail,
   localizeClientError,
   readStoredLocale,
@@ -19,14 +20,17 @@ describe("translation catalogs", () => {
     expect(translationKeys("zh-CN")).toEqual(translationKeys("en"));
   });
 
-  it("translates and interpolates named values", () => {
-    expect(translate("en", "preview.pageIndicator", { current: 2, total: 3 })).toBe("page 2/3");
-    expect(translate("zh-CN", "preview.pageIndicator", { current: 2, total: 3 })).toBe("第 2/3 页");
+  it("interpolates supplied values and preserves missing placeholders", () => {
+    expect(
+      interpolateTranslation("{first}/{second}/{missing}", {
+        first: "a",
+        second: 2
+      })
+    ).toBe("a/2/{missing}");
   });
 
-  it("falls back to English and preserves missing interpolation values", () => {
+  it("returns an unknown translation key as the fallback", () => {
     expect(translate("zh-CN", "missing.key")).toBe("missing.key");
-    expect(translate("en", "workspace.actionsFor")).toBe("Actions for {name}");
   });
 });
 
@@ -60,8 +64,12 @@ describe("locale persistence", () => {
 
 describe("localized errors", () => {
   it("localizes HTTP status fallbacks", () => {
-    expect(apiStatusMessage("zh-CN", 403)).toBe("没有权限");
-    expect(apiStatusMessage("en", 404)).toBe("Resource not found");
+    expect(apiStatusMessage("zh-CN", 403)).toBe(
+      translate("zh-CN", "api.status.forbidden")
+    );
+    expect(apiStatusMessage("en", 404)).toBe(
+      translate("en", "api.status.notFound")
+    );
   });
 
   it("localizes semantic API codes and hides unknown English details in Chinese", () => {
@@ -72,13 +80,13 @@ describe("localized errors", () => {
         "Server wording may change",
         401
       )
-    ).toBe("邮箱或密码不正确");
+    ).toBe(translate("zh-CN", "api.error.authCredentialsInvalid"));
     expect(
-      localizeApiErrorDetail("zh-CN", "template_publication_required", "Server wording", 409)
-    ).toBe("请先将项目发布为模板");
+      localizeApiErrorDetail("zh-CN", "template_required", "Server wording", 409)
+    ).toBe(translate("zh-CN", "api.error.templateRequired"));
     expect(
       localizeApiErrorDetail("zh-CN", "project_content_changed", "Server wording", 409)
-    ).toBe("项目内容已变更，请刷新后重试");
+    ).toBe(translate("zh-CN", "api.error.projectContentChanged"));
     expect(
       localizeApiErrorDetail(
         "zh-CN",
@@ -86,18 +94,20 @@ describe("localized errors", () => {
         "Server wording",
         428
       )
-    ).toBe("请连接或重新授权外部 Git 提供商");
-    expect(localizeApiErrorDetail("zh-CN", null, "Database exploded", 500)).toBe("服务器错误");
+    ).toBe(translate("zh-CN", "api.error.externalGitAuthorizationRequired"));
+    expect(localizeApiErrorDetail("zh-CN", null, "Database exploded", 500)).toBe(
+      apiStatusMessage("zh-CN", 500)
+    );
     expect(localizeApiErrorDetail("en", null, "Database exploded", 500)).toBe("Database exploded");
   });
 
   it("localizes known browser runtime errors", () => {
-    expect(localizeClientError("zh-CN", "PDF export failed")).toBe("PDF 导出失败");
-    expect(localizeClientError("zh-CN", "LaTeX compile file is too large")).toBe(
-      "LaTeX 编译文件过大"
+    const knownError = "PDF export failed";
+    const parameterizedError = "Canvas context is unavailable for Typst page 4";
+    expect(localizeClientError("zh-CN", knownError)).not.toBe(knownError);
+    expect(localizeClientError("zh-CN", parameterizedError)).not.toBe(
+      parameterizedError
     );
-    expect(localizeClientError("zh-CN", "Canvas context is unavailable for Typst page 4")).toBe(
-      "Typst 第 4 页的 Canvas 上下文不可用"
-    );
+    expect(localizeClientError("en", knownError)).toBe(knownError);
   });
 });

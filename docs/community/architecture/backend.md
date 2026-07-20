@@ -75,7 +75,7 @@ from operation markers under `backend/src/protocol/rest/`, grouped by context.
 | Versioning | Git repository metadata, dirty/flush state, contributors, and project worktrees |
 | External repositories | encrypted grants, OAuth attempts, project links, inbound jobs, checkpoint queues |
 | Document Processing | jobs, attempts, worker sessions, request fences, transfer tickets, input pins, blobs, and artifacts |
-| Templates | No private storage tables; it composes Workspace publication state, Access-owned template grants, and distribution-owned built-in sources |
+| Templates | No private storage tables; it composes Workspace template status, Access-owned template grants, and distribution-owned built-in sources |
 
 Audit writes are best effort. `audit_events` is an observability trail and
 must never be reconstructed into authoritative authorization, attribution, or
