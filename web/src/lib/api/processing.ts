@@ -9,7 +9,6 @@ import type {
   ProcessingCapabilities,
   ProcessingJob,
   ProcessingJobList,
-  PptxConversionMode,
   ProjectProcessingCapabilities
 } from "@/lib/api/types";
 
@@ -68,27 +67,26 @@ export async function createLatexPdfBuild(projectId: string) {
   return parseJsonOrThrow<ProcessingJob>(response, "processing.submitFailed");
 }
 
-export async function createTypstPptxExport(
-  projectId: string,
-  mode: PptxConversionMode
-) {
+export async function createTypstPptxExport(projectId: string) {
   const response = await fetch(
     apiUrl(`/v1/projects/${encodeURIComponent(projectId)}/exports/pptx`),
     {
       method: "POST",
       credentials: authCredentials(),
       headers: authHeaders({
-        "content-type": "application/json",
         "idempotency-key": crypto.randomUUID()
-      }),
-      body: JSON.stringify({ mode })
+      })
     }
   );
   return parseJsonOrThrow<ProcessingJob>(response, "processing.submitFailed");
 }
 
-export async function createPptxImport(file: File, mode: PptxConversionMode) {
-  const query = new URLSearchParams({ filename: file.name, mode });
+export async function createPptxImport(
+  file: File,
+  inputProfile: string | null
+) {
+  const query = new URLSearchParams({ filename: file.name });
+  if (inputProfile) query.set("input_profile", inputProfile);
   const response = await fetch(apiUrl(`/v1/imports/pptx?${query.toString()}`), {
     method: "POST",
     credentials: authCredentials(),

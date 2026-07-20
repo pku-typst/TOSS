@@ -330,39 +330,68 @@ export function aiRuntimeToolMessages(locale: AiRuntimeLocale) {
   };
 }
 
+type StaticAiSystemPromptPart = keyof typeof modelMessages.systemPrompt;
+
+export type AiSystemPromptPart =
+  | StaticAiSystemPromptPart
+  | "workspaceScope"
+  | "workspaceContext";
+
+export function aiSystemPromptPlan(
+  capabilities: AiWorkspaceCapabilities | null,
+  includeContext: boolean
+): AiSystemPromptPart[] {
+  const parts: AiSystemPromptPart[] = ["base"];
+  if (!capabilities || capabilities.tools.length === 0) {
+    parts.push("noWorkspaceTools");
+  } else {
+    const canEdit = capabilities.tools.some(
+      (tool) => tool === "apply_patch" || tool === "write_file"
+    );
+    parts.push(
+      "workspaceTools",
+      canEdit ? "editTool" : "readOnlyTools",
+      "workspaceScope"
+    );
+  }
+  if (includeContext) parts.push("contextSnapshot", "workspaceContext");
+  if (capabilities?.project_type === "typst") parts.push("typstDocs");
+  if (
+    capabilities?.tools.some(
+      (tool) =>
+        tool === "list_typst_package_files" ||
+        tool === "read_typst_package_file" ||
+        tool === "search_typst_package_text"
+    )
+  ) {
+    parts.push("typstPackages");
+  }
+  return parts;
+}
+
+export function serializeAiWorkspaceContext(context: AiWorkspaceContextSnapshot) {
+  return JSON.stringify(context, null, 2)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
+}
+
 export function aiSystemPrompt(
   _locale: AiRuntimeLocale,
   capabilities: AiWorkspaceCapabilities | null,
   context: AiWorkspaceContextSnapshot | null = null
 ) {
   const prompt = modelMessages.systemPrompt;
-  const sections: string[] = [prompt.base];
-  if (!capabilities || capabilities.tools.length === 0) {
-    sections.push(prompt.noWorkspaceTools);
-  } else {
-    const scope = `Current project type: ${capabilities.project_type}; view: ${capabilities.mode}; available tools: ${capabilities.tools.join(", ")}.`;
-    const mutation = capabilities.tools.some((tool) => (
-      tool === "apply_patch" || tool === "write_file"
-    ))
-      ? prompt.editTool
-      : prompt.readOnlyTools;
-    sections.push(prompt.workspaceTools, mutation, scope);
-  }
-  if (context) {
-    const serialized = JSON.stringify(context, null, 2)
-      .replaceAll("<", "\\u003c")
-      .replaceAll(">", "\\u003e")
-      .replaceAll("&", "\\u0026");
-    sections.push(
-      prompt.contextSnapshot,
-      `<workspace_context>\n${serialized}\n</workspace_context>`
-    );
-  }
-  if (capabilities?.project_type === "typst") sections.push(prompt.typstDocs);
-  if (capabilities?.tools.some((tool) => (
-    tool === "list_typst_package_files" ||
-    tool === "read_typst_package_file" ||
-    tool === "search_typst_package_text"
-  ))) sections.push(prompt.typstPackages);
+  const sections = aiSystemPromptPlan(capabilities, context !== null).map((part) => {
+    if (part === "workspaceScope") {
+      if (!capabilities) throw new Error("Workspace scope requires capabilities");
+      return `Current project type: ${capabilities.project_type}; view: ${capabilities.mode}; available tools: ${capabilities.tools.join(", ")}.`;
+    }
+    if (part === "workspaceContext") {
+      if (!context) throw new Error("Workspace context is unavailable");
+      return `<workspace_context>\n${serializeAiWorkspaceContext(context)}\n</workspace_context>`;
+    }
+    return prompt[part];
+  });
   return sections.join("\n\n");
 }

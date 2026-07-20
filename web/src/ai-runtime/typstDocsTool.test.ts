@@ -19,12 +19,13 @@ describe("Typst documentation Agent tool", () => {
     expect(createTypstDocsTools(null)).toEqual([]);
   });
 
-  it("keeps the model-visible tool contract in English and returns local results", async () => {
+  it("localizes only the host label and returns local results", async () => {
     const onQuery = vi.fn();
     const tool = createTypstDocsTools(typstCapabilities, "zh-CN", { onQuery })[0];
+    const englishTool = createTypstDocsTools(typstCapabilities, "en")[0];
 
-    expect(tool.label).toBe("查询 Typst 0.15 文档");
-    expect(tool.description).toContain("bundled Typst 0.15.0");
+    expect(tool.label).not.toBe(englishTool.label);
+    expect(tool.description).toBe(englishTool.description);
     const result = await tool.execute(
       "docs-call",
       { query: "document metadata", limit: 2 },

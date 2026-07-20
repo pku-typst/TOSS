@@ -91,7 +91,7 @@ configured.
 | Versioning | Local Git state, revisions, Workspace flushes, direct Git smart HTTP, and per-project Git locking |
 | External repositories | Provider grants and adapters, repository links, discovery, inbound jobs, and outbound checkpoints |
 | Identity and access | Accounts, sessions, OIDC, organizations, roles, grants, share links, guests, and personal access tokens |
-| Templates | Gallery discovery, built-in instantiation, personal-template publication, and template sharing policy |
+| Templates | Gallery discovery, built-in instantiation, personal-template status, and template sharing policy |
 | Experience | Product identity, landing and Help content, assets, and resource visibility |
 | Document Processing | Explicit durable jobs, immutable inputs, attempts/leases, worker capacity, staged and published artifacts, cancellation, and retention |
 

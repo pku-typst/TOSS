@@ -59,7 +59,7 @@ Use these terms consistently in code, UI copy, and documentation.
 | Project link | The association between one project, one provider instance, one external repository, and the platform user whose grant performs background work. |
 | Distribution | A versioned JSON configuration plus assets and content that selects product identity, supported project types, frontend build bounds, and allowed processing operations. |
 | Built-in template | An immutable project source loaded from the active distribution. Instantiation creates an independent project. |
-| Personal template | An ordinary project published to the Gallery by its owner. Copies are independent. |
+| Personal template | An ordinary project marked by its owner as a reusable template and listed in the Gallery. Copies are independent. |
 | Content epoch | A Workspace generation value used to reject writes from a client opened before destructive content replacement. |
 | Collaboration revision | The generation of one immutable document identity's Yjs state. It changes when authoritative replacement supersedes the stream. |
 | Access epoch | A project authorization generation used to invalidate realtime clients after grants change. |

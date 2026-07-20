@@ -82,7 +82,7 @@ pub enum ApiErrorCode {
     TemplateNotFound,
     TemplateOrganizationGrantNotFound,
     TemplateOrganizationMembershipRequired,
-    TemplatePublicationRequired,
+    TemplateRequired,
     TemplateServiceUnavailable,
     TemplateThumbnailNotFound,
     TemplateThumbnailUnavailable,

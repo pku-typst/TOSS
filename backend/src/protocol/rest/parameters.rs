@@ -122,7 +122,7 @@ fn add_operation_parameters(document: &mut utoipa::openapi::OpenApi) {
         &[
             header("Idempotency-Key", true, ParameterKind::String),
             query("filename", true, ParameterKind::String),
-            query("mode", false, ParameterKind::String),
+            query("input_profile", false, ParameterKind::String),
         ],
     );
     add_parameters(

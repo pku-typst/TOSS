@@ -1,4 +1,4 @@
-//! Personal-template publication lifecycle.
+//! Personal-template status lifecycle.
 
 use crate::access::{
     lock_project_access_mutation, revoke_all_template_organization_access,
@@ -11,14 +11,14 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(serde::Serialize, utoipa::ToSchema)]
-pub(crate) struct TemplatePublication {
+pub(crate) struct TemplateStatus {
     pub project_id: Uuid,
     pub is_template: bool,
     pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, Debug)]
-enum PublicationPersistenceStage {
+enum TemplateStatusPersistenceStage {
     Begin,
     LockProjectAccess,
     SetProjectClassification,
@@ -28,16 +28,16 @@ enum PublicationPersistenceStage {
 }
 
 #[derive(Debug, Error)]
-#[error("template publication persistence failed during {stage:?} for project {project_id}")]
-pub(super) struct PublicationPersistenceError {
-    stage: PublicationPersistenceStage,
+#[error("template status persistence failed during {stage:?} for project {project_id}")]
+pub(super) struct TemplateStatusPersistenceError {
+    stage: TemplateStatusPersistenceStage,
     project_id: Uuid,
     #[source]
     source: sqlx::Error,
 }
 
-impl PublicationPersistenceError {
-    fn new(stage: PublicationPersistenceStage, project_id: Uuid, source: sqlx::Error) -> Self {
+impl TemplateStatusPersistenceError {
+    fn new(stage: TemplateStatusPersistenceStage, project_id: Uuid, source: sqlx::Error) -> Self {
         Self {
             stage,
             project_id,
@@ -47,27 +47,31 @@ impl PublicationPersistenceError {
 }
 
 #[derive(Debug, Error)]
-pub(super) enum UpdateTemplatePublicationError {
+pub(super) enum UpdateTemplateStatusError {
     #[error("template project was not found")]
     ProjectNotFound,
     #[error(transparent)]
-    Persistence(#[from] PublicationPersistenceError),
+    Persistence(#[from] TemplateStatusPersistenceError),
 }
 
 pub(super) async fn update_project_template(
     db: &PgPool,
     project_id: Uuid,
     is_template: bool,
-) -> Result<TemplatePublication, UpdateTemplatePublicationError> {
+) -> Result<TemplateStatus, UpdateTemplateStatusError> {
     let updated_at = Utc::now();
     let mut transaction = db.begin().await.map_err(|source| {
-        PublicationPersistenceError::new(PublicationPersistenceStage::Begin, project_id, source)
+        TemplateStatusPersistenceError::new(
+            TemplateStatusPersistenceStage::Begin,
+            project_id,
+            source,
+        )
     })?;
     lock_project_access_mutation(&mut transaction, project_id)
         .await
         .map_err(|source| {
-            PublicationPersistenceError::new(
-                PublicationPersistenceStage::LockProjectAccess,
+            TemplateStatusPersistenceError::new(
+                TemplateStatusPersistenceStage::LockProjectAccess,
                 project_id,
                 source,
             )
@@ -75,19 +79,19 @@ pub(super) async fn update_project_template(
     let is_template = set_project_template_status(&mut transaction, project_id, is_template)
         .await
         .map_err(|source| {
-            PublicationPersistenceError::new(
-                PublicationPersistenceStage::SetProjectClassification,
+            TemplateStatusPersistenceError::new(
+                TemplateStatusPersistenceStage::SetProjectClassification,
                 project_id,
                 source,
             )
         })?
-        .ok_or(UpdateTemplatePublicationError::ProjectNotFound)?;
+        .ok_or(UpdateTemplateStatusError::ProjectNotFound)?;
     if is_template {
         revoke_project_temporary_sessions(&mut transaction, project_id)
             .await
             .map_err(|source| {
-                PublicationPersistenceError::new(
-                    PublicationPersistenceStage::RevokeTemporarySessions,
+                TemplateStatusPersistenceError::new(
+                    TemplateStatusPersistenceStage::RevokeTemporarySessions,
                     project_id,
                     source,
                 )
@@ -96,18 +100,22 @@ pub(super) async fn update_project_template(
         revoke_all_template_organization_access(&mut transaction, project_id)
             .await
             .map_err(|source| {
-                PublicationPersistenceError::new(
-                    PublicationPersistenceStage::ClearOrganizationAccess,
+                TemplateStatusPersistenceError::new(
+                    TemplateStatusPersistenceStage::ClearOrganizationAccess,
                     project_id,
                     source,
                 )
             })?;
     }
     transaction.commit().await.map_err(|source| {
-        PublicationPersistenceError::new(PublicationPersistenceStage::Commit, project_id, source)
+        TemplateStatusPersistenceError::new(
+            TemplateStatusPersistenceStage::Commit,
+            project_id,
+            source,
+        )
     })?;
 
-    Ok(TemplatePublication {
+    Ok(TemplateStatus {
         project_id,
         is_template,
         updated_at,
@@ -134,7 +142,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn publishing_a_template_revokes_existing_temporary_guest_sessions(
+    async fn marking_a_project_as_a_template_revokes_existing_temporary_guest_sessions(
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let Some(pool) = migrated_test_pool().await? else {
             return Ok(());
@@ -168,7 +176,7 @@ mod tests {
         )
         .bind(project_id)
         .bind(owner_user_id)
-        .bind("Guest session publication test")
+        .bind("Guest session template status test")
         .bind(now)
         .execute(&pool)
         .await?;
@@ -203,8 +211,8 @@ mod tests {
         .execute(&pool)
         .await?;
 
-        let publication = update_project_template(&pool, project_id, true).await?;
-        assert!(publication.is_template);
+        let status = update_project_template(&pool, project_id, true).await?;
+        assert!(status.is_template);
         let persisted = sqlx::query_as::<_, (bool, i64, i64)>(
             "select project.is_template,
                     (select count(*) from anonymous_share_sessions session

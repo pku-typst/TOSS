@@ -1,7 +1,6 @@
 use super::ApiErrorResponse;
 use crate::document_processing::{
-    CreatePptxExportInput, ProcessingCapabilities, ProcessingJob, ProcessingJobList,
-    ProjectProcessingCapabilities,
+    ProcessingCapabilities, ProcessingJob, ProcessingJobList, ProjectProcessingCapabilities,
 };
 
 json_operation!(
@@ -26,7 +25,6 @@ json_operation!(
     post,
     "/v1/projects/{project_id}/exports/pptx",
     "document-processing",
-    CreatePptxExportInput,
     202,
     ProcessingJob
 );

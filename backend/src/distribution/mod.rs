@@ -6,7 +6,7 @@ mod localized_text;
 mod source_files;
 pub(crate) mod template_catalog;
 
-use crate::document_processing::ProcessingOperation;
+use crate::document_processing::{ProcessingInputProfileSelector, ProcessingOperation};
 use crate::experience::{ExperienceResourceKind, ExperienceVisibility};
 use crate::text_enum::text_enum;
 use crate::typst_runtime::{TypstPackageRequirement, TypstProjectDependencies};
@@ -14,7 +14,7 @@ use crate::workspace::ProjectType;
 pub use ai_assistant::{AiAssistantConfig, AiConnectionPolicyKind, ManagedAiCatalogConfig};
 use experience_content::{ExperienceConfig, ExperienceResource, LandingConfig, LandingHighlight};
 use localized_text::validate_localized_text;
-pub use localized_text::LocalizedText;
+pub(crate) use localized_text::LocalizedText;
 use source_files::{read_template, resolve_distribution_file, resolve_path};
 use std::path::PathBuf;
 use template_catalog::{BuiltinTemplate, BuiltinTemplateFile};
@@ -139,12 +139,19 @@ pub struct FrontendFeaturesConfig {
 pub struct DocumentProcessingDistributionConfig {
     pub allowed_operations: Vec<ProcessingOperation>,
     pub operation_policies: Vec<ProcessingOperationPolicy>,
+    pub input_profiles: Vec<ProcessingOperationInputProfiles>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ProcessingOperationPolicy {
     pub operation: ProcessingOperation,
     pub required_typst_packages: Vec<TypstPackageRequirement>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcessingOperationInputProfiles {
+    pub operation: ProcessingOperation,
+    pub selector: ProcessingInputProfileSelector,
 }
 
 impl Default for DistributionConfig {
@@ -182,6 +189,7 @@ impl Default for DistributionConfig {
             document_processing: DocumentProcessingDistributionConfig {
                 allowed_operations: vec![ProcessingOperation::LatexCompilePdfV1],
                 operation_policies: Vec::new(),
+                input_profiles: Vec::new(),
             },
             experience: ExperienceConfig {
                 landing: LandingConfig {
@@ -290,6 +298,17 @@ impl DistributionConfig {
                 .iter()
                 .any(|package| requirement.matches(package))
         })
+    }
+
+    pub(crate) fn processing_input_profile_selector(
+        &self,
+        operation: ProcessingOperation,
+    ) -> Option<&ProcessingInputProfileSelector> {
+        self.document_processing
+            .input_profiles
+            .iter()
+            .find(|profiles| profiles.operation == operation)
+            .map(|profiles| &profiles.selector)
     }
 
     pub fn starter_content(&self, project_type: ProjectType) -> Option<&str> {

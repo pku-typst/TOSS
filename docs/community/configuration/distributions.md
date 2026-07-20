@@ -108,6 +108,12 @@ contracts, and live availability requires a compatible healthy session. Do
 not put worker identities, tokens, or implementation-specific configuration in
 the distribution file.
 
+`document_processing.input_profiles` may give PPTX import a small closed set of
+distribution-owned user choices, with localized labels and descriptions plus
+one default. Core validates the selected opaque profile ID and passes it to the
+bound processor; Community defines neither downstream profile IDs nor their
+conversion semantics. PPTX export has no input profiles.
+
 The frontend build reads `project_types`, `frontend_features`, and the AI
 connection-policy kind when AI is included; it does not parse
 `document_processing`. A Core-backed host build does not receive a managed

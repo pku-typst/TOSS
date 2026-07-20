@@ -32,7 +32,9 @@ export type ProcessingPhase = ApiSchema<"ProcessingPhase">;
 export type ProcessingCapabilityState = ApiSchema<"ProcessingCapabilityState">;
 export type ProjectProcessingCapabilityState =
   ApiSchema<"ProjectProcessingCapabilityState">;
-export type PptxConversionMode = ApiSchema<"PptxConversionMode">;
+export type ProcessingInputProfile = ApiSchema<"ProcessingInputProfile">;
+export type ProcessingInputProfileSelector =
+  ApiSchema<"ProcessingInputProfileSelector">;
 export type ProcessingArtifact = ApiSchema<"ProcessingArtifact">;
 export type ProcessingFailure = ApiSchema<"ProcessingFailure">;
 export type ProcessingJob = ApiSchema<"ProcessingJob">;
@@ -41,7 +43,6 @@ export type ProcessingCapability = ApiSchema<"ProcessingCapability">;
 export type ProcessingCapabilities = ApiSchema<"ProcessingCapabilities">;
 export type ProjectProcessingCapability = ApiSchema<"ProjectProcessingCapability">;
 export type ProjectProcessingCapabilities = ApiSchema<"ProjectProcessingCapabilities">;
-export type CreatePptxExportInput = ApiSchema<"CreatePptxExportInput">;
 
 export type OrganizationMembership = ApiSchema<"OrganizationMembership">;
 export type Organization = ApiSchema<"Organization">;
@@ -55,7 +56,7 @@ export type ProjectListResponse = ApiSchema<"ProjectListResponse">;
 export type ProjectTreeNode = ApiSchema<"ProjectFileNode">;
 export type ProjectTreeResponse = ApiSchema<"ProjectTreeResponse">;
 export type ProjectSettings = ApiSchema<"ProjectSettings">;
-export type TemplatePublication = ApiSchema<"TemplatePublication">;
+export type TemplateStatus = ApiSchema<"TemplateStatus">;
 export type TemplateOrganizationGrant = ApiSchema<"TemplateOrganizationGrant">;
 
 export type LocalizedText = ApiSchema<"LocalizedText">;

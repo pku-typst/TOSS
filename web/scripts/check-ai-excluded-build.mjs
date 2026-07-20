@@ -57,23 +57,21 @@ try {
   if (assets.some((name) => name.startsWith("KaTeX_"))) {
     throw new Error("AI-excluded build contains KaTeX font assets");
   }
-  const forbiddenModules = [
-    "src/features/ai/styles.css",
-    "src/features/ai/AssistantPanel.tsx",
-    "src/features/ai/AiSettingsSection.tsx",
-    "src/pages/workspace/candidateCompilation.ts",
-    "src/lib/candidateRuntime.ts",
-    "src/ai-runtime/typstDocsSearch.ts"
+  const forbiddenModulePrefixes = [
+    "src/ai-runtime/",
+    "src/features/ai/"
   ];
-  const includedForbiddenModule = forbiddenModules.find((module) => bundledModules.has(module));
+  const forbiddenModules = [
+    "src/pages/workspace/candidateCompilation.ts",
+    "src/lib/candidateRuntime.ts"
+  ];
+  const includedForbiddenModule = [...bundledModules].find(
+    (module) =>
+      forbiddenModules.includes(module) ||
+      forbiddenModulePrefixes.some((prefix) => module.startsWith(prefix))
+  );
   if (includedForbiddenModule) {
     throw new Error(`AI-excluded build contains AI-only module ${includedForbiddenModule}`);
-  }
-  for (const name of assets.filter((asset) => asset.endsWith(".js"))) {
-    const source = await fs.readFile(path.join(outputDir, "assets", name), "utf8");
-    if (source.includes("query_typst_docs")) {
-      throw new Error(`AI-excluded build contains the Typst docs tool in ${name}`);
-    }
   }
   try {
     await fs.access(path.join(outputDir, "_ai-runtime"));

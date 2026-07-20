@@ -1,4 +1,4 @@
-//! Organization visibility grants for published personal templates.
+//! Organization visibility grants for projects marked as personal templates.
 
 use crate::access::{
     grant_template_organization_access, list_template_organization_grants,
@@ -51,8 +51,8 @@ impl GrantTemplateOrganizationAccessPersistenceError {
 pub(super) enum GrantTemplateOrganizationAccessError {
     #[error("template project was not found")]
     ProjectNotFound,
-    #[error("project is not published as a template")]
-    ProjectNotPublished,
+    #[error("project is not marked as a template")]
+    ProjectNotTemplate,
     #[error("the actor is not a member of the organization")]
     OrganizationMembershipRequired,
     #[error(transparent)]
@@ -106,7 +106,7 @@ pub(super) async fn upsert_project_template_organization_access(
             )
         })? {
         Some(true) => {}
-        Some(false) => return Err(GrantTemplateOrganizationAccessError::ProjectNotPublished),
+        Some(false) => return Err(GrantTemplateOrganizationAccessError::ProjectNotTemplate),
         None => return Err(GrantTemplateOrganizationAccessError::ProjectNotFound),
     }
     let actor_is_member =

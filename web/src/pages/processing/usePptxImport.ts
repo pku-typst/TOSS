@@ -3,8 +3,7 @@ import {
   createPptxImport,
   getProcessingCapabilities,
   type ProcessingCapabilityState,
-  type ProcessingJobList,
-  type PptxConversionMode
+  type ProcessingJobList
 } from "@/lib/api";
 import {
   openProcessingTaskCenter,
@@ -32,8 +31,13 @@ export function usePptxImport({
     (candidate) => candidate.operation === "pptx.import.typst/v1"
   );
   const mutation = useMutation({
-    mutationFn: ({ file, mode }: { file: File; mode: PptxConversionMode }) =>
-      createPptxImport(file, mode),
+    mutationFn: ({
+      file,
+      inputProfile
+    }: {
+      file: File;
+      inputProfile: string | null;
+    }) => createPptxImport(file, inputProfile),
     onSuccess: (job) => {
       if (!userId) return;
       queryClient.setQueryData<ProcessingJobList>(
@@ -55,6 +59,7 @@ export function usePptxImport({
       | "loading"
       | "error",
     reason: capability?.reason ?? null,
+    inputProfileSelector: capability?.input_profile_selector ?? null,
     submit: mutation.mutateAsync,
     pending: mutation.isPending,
     error: mutation.error instanceof Error ? mutation.error.message : null,

@@ -3,7 +3,6 @@ import {
   createTypstPptxExport,
   getProjectProcessingCapabilities,
   type ProcessingJobList,
-  type PptxConversionMode,
   type ProjectProcessingCapabilityState
 } from "@/lib/api";
 import {
@@ -38,8 +37,7 @@ export function usePptxExport({
     (candidate) => candidate.operation === "typst.export.pptx/v1"
   );
   const mutation = useMutation({
-    mutationFn: (mode: PptxConversionMode) =>
-      createTypstPptxExport(projectId, mode),
+    mutationFn: () => createTypstPptxExport(projectId),
     onSuccess: (job) => {
       if (!userId) return;
       queryClient.setQueryData<ProcessingJobList>(

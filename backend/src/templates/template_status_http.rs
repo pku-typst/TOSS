@@ -1,6 +1,6 @@
-//! HTTP transport for the personal-template publication lifecycle.
+//! HTTP transport for the personal-template status lifecycle.
 
-use super::publication::{self, TemplatePublication};
+use super::template_status::{self, TemplateStatus};
 use crate::access::{ensure_project_role, AccessNeed};
 use crate::app_state::AppState;
 use crate::audit::record_event;
@@ -20,11 +20,11 @@ pub(crate) async fn update_project_template(
     headers: HeaderMap,
     Path(project_id): Path<Uuid>,
     Json(input): Json<UpdateProjectTemplateInput>,
-) -> Result<Json<TemplatePublication>, ApiError> {
+) -> Result<Json<TemplateStatus>, ApiError> {
     let actor = ensure_project_role(&state.db, &headers, project_id, AccessNeed::Manage).await?;
     let revokes_temporary_access = input.is_template;
     let status =
-        publication::update_project_template(&state.db, project_id, input.is_template).await?;
+        template_status::update_project_template(&state.db, project_id, input.is_template).await?;
     if revokes_temporary_access {
         state.collaboration.access_changed(project_id).await;
     }

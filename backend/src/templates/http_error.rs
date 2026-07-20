@@ -5,7 +5,7 @@ use super::gallery_listing::ListTemplateGalleryError;
 use super::organization_grants::{
     GrantTemplateOrganizationAccessError, RevokeTemplateOrganizationAccessError,
 };
-use super::publication::UpdateTemplatePublicationError;
+use super::template_status::UpdateTemplateStatusError;
 use crate::http_response::ApiError;
 use crate::protocol::ApiErrorCode;
 use axum::http::StatusCode;
@@ -21,11 +21,11 @@ impl From<ListTemplateGalleryError> for ApiError {
     }
 }
 
-impl From<UpdateTemplatePublicationError> for ApiError {
-    fn from(source: UpdateTemplatePublicationError) -> Self {
+impl From<UpdateTemplateStatusError> for ApiError {
+    fn from(source: UpdateTemplateStatusError) -> Self {
         match source {
-            UpdateTemplatePublicationError::ProjectNotFound => template_not_found(),
-            failure @ UpdateTemplatePublicationError::Persistence(_) => {
+            UpdateTemplateStatusError::ProjectNotFound => template_not_found(),
+            failure @ UpdateTemplateStatusError::Persistence(_) => {
                 template_service_unavailable(failure)
             }
         }
@@ -36,10 +36,10 @@ impl From<GrantTemplateOrganizationAccessError> for ApiError {
     fn from(source: GrantTemplateOrganizationAccessError) -> Self {
         match source {
             GrantTemplateOrganizationAccessError::ProjectNotFound => template_not_found(),
-            GrantTemplateOrganizationAccessError::ProjectNotPublished => Self::new(
+            GrantTemplateOrganizationAccessError::ProjectNotTemplate => Self::new(
                 StatusCode::CONFLICT,
-                ApiErrorCode::TemplatePublicationRequired,
-                "Publish the project as a template before sharing it with an organization",
+                ApiErrorCode::TemplateRequired,
+                "Mark the project as a template before granting organization access",
             ),
             GrantTemplateOrganizationAccessError::OrganizationMembershipRequired => Self::new(
                 StatusCode::FORBIDDEN,
@@ -110,7 +110,7 @@ pub(super) fn template_service_unavailable(
         ApiErrorCode::TemplateServiceUnavailable,
         "Template service is unavailable",
     )
-    .with_diagnostic("template publication service failed", source)
+    .with_diagnostic("template service failed", source)
 }
 
 #[cfg(test)]
@@ -118,11 +118,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn publication_requirement_has_a_semantic_conflict_response() {
-        let error = ApiError::from(GrantTemplateOrganizationAccessError::ProjectNotPublished);
+    fn template_requirement_has_a_semantic_conflict_response() {
+        let error = ApiError::from(GrantTemplateOrganizationAccessError::ProjectNotTemplate);
 
         assert_eq!(error.status(), StatusCode::CONFLICT);
-        assert_eq!(error.code(), ApiErrorCode::TemplatePublicationRequired);
+        assert_eq!(error.code(), ApiErrorCode::TemplateRequired);
     }
 
     #[test]

@@ -21,31 +21,11 @@ text_enum! {
     }
 }
 
-text_enum! {
-    #[derive(Default)]
-    #[schema(rename_all = "snake_case")]
-    pub enum PptxConversionMode {
-        Editable => "editable",
-        #[default]
-        Fidelity => "fidelity",
-    }
-}
-
-#[derive(serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
-pub(crate) struct CreatePptxExportInput {
-    #[serde(default)]
-    pub mode: PptxConversionMode,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
+#[derive(serde::Deserialize)]
 pub(crate) struct CreatePptxImportInput {
     pub filename: String,
-    #[serde(default = "editable_pptx_mode")]
-    pub mode: PptxConversionMode,
-}
-
-fn editable_pptx_mode() -> PptxConversionMode {
-    PptxConversionMode::Editable
+    #[serde(default)]
+    pub input_profile: Option<String>,
 }
 
 impl ProcessingOperation {
@@ -159,6 +139,8 @@ pub(crate) struct ProcessingJobList {
 pub(crate) struct ProcessingCapability {
     pub operation: ProcessingOperation,
     pub state: ProcessingCapabilityState,
+    #[schema(required)]
+    pub input_profile_selector: Option<ProcessingInputProfileSelector>,
     pub healthy_sessions: i64,
     pub active_slots: i64,
     pub active_jobs: i64,
@@ -170,6 +152,20 @@ pub(crate) struct ProcessingCapability {
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct ProcessingCapabilities {
     pub capabilities: Vec<ProcessingCapability>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct ProcessingInputProfile {
+    pub id: String,
+    pub label: crate::localized_text::LocalizedText,
+    pub description: crate::localized_text::LocalizedText,
+}
+
+#[derive(Clone, Debug, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct ProcessingInputProfileSelector {
+    pub label: crate::localized_text::LocalizedText,
+    pub default_profile: String,
+    pub profiles: Vec<ProcessingInputProfile>,
 }
 
 text_enum! {

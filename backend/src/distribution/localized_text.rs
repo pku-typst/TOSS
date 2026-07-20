@@ -1,13 +1,7 @@
 //! Localized distribution text and its file-validation policy.
 
 use super::file_format::LocalizedTextFile;
-
-#[derive(Clone, Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct LocalizedText {
-    pub en: String,
-    #[serde(rename = "zh-CN")]
-    pub zh_cn: String,
-}
+pub(crate) use crate::localized_text::LocalizedText;
 
 pub(super) fn validate_localized_text(
     value: LocalizedTextFile,
