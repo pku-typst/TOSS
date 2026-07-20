@@ -166,7 +166,10 @@ async function loadCheckedFile(root, entry) {
 async function loadRuntimeArtifact(manifest, runtimeVersion, name) {
   const entry = manifest[name];
   const manifestRoot = path.resolve(webRoot, "public", "typst-runtime");
-  const expectedRoot = path.resolve(manifestRoot, runtimeVersion);
+  const fileName =
+    name === "compiler"
+      ? "typst_ts_web_compiler_bg.wasm"
+      : "typst_ts_renderer_bg.wasm";
   if (
     !entry ||
     typeof entry.url !== "string" ||
@@ -205,17 +208,11 @@ async function loadRuntimeArtifact(manifest, runtimeVersion, name) {
     }
     bytes = new Uint8Array(await response.arrayBuffer());
   } else {
-    if (
-      path.isAbsolute(entry.url) ||
-      entry.url.includes("\\") ||
-      entry.url.split("/").some((segment) => !segment || segment === "." || segment === "..")
-    ) {
-      throw new Error(`Typst runtime ${name} relative URL is invalid`);
+    const expectedUrl = `${runtimeVersion}/${entry.sha256}/${fileName}`;
+    if (entry.url !== expectedUrl) {
+      throw new Error(`Typst runtime ${name} URL is not content-addressed`);
     }
     const artifactPath = path.resolve(manifestRoot, entry.url);
-    if (path.dirname(artifactPath) !== expectedRoot) {
-      throw new Error(`Typst runtime ${name} URL does not use runtime ${runtimeVersion}`);
-    }
     bytes = new Uint8Array(await fs.readFile(artifactPath));
   }
 

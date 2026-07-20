@@ -18,12 +18,12 @@ function runtimeManifest(
     compiler_source_revision: runtimeConfig.compiler.source_revision,
     renderer_package_version: runtimeConfig.renderer.package_version,
     compiler: {
-      url: "compiler/typst_ts_web_compiler_bg.wasm",
+      url: `${runtimeConfig.runtime_version}/${"a".repeat(64)}/typst_ts_web_compiler_bg.wasm`,
       sha256: "a".repeat(64),
       size_bytes: 1024
     },
     renderer: {
-      url: "renderer/typst_ts_renderer_bg.wasm",
+      url: `${runtimeConfig.runtime_version}/${"b".repeat(64)}/typst_ts_renderer_bg.wasm`,
       sha256: "b".repeat(64),
       size_bytes: 512
     },
@@ -54,6 +54,7 @@ describe("Typst runtime manifest", () => {
     const url = new URL(String(requestUrl));
     expect(url.pathname).toBe("/typst-runtime/manifest.json");
     expect(url.searchParams.get("runtime")).toBe(TYPST_RUNTIME_BUILD_ID);
+    expect(TYPST_RUNTIME_BUILD_ID).toMatch(/^sha256-v1:/);
     expect(requestInit).toMatchObject({ cache: "no-store", credentials: "same-origin" });
     expect(TYPST_RUNTIME_MODULE_CACHE).toContain(TYPST_RUNTIME_BUILD_ID);
   });
@@ -102,8 +103,34 @@ describe("Typst runtime manifest", () => {
       loadTypstRuntimeManifest("https://toss.example/typst-runtime/")
     ).resolves.toMatchObject({
       compiler: { url: runtimeConfig.compiler.browser_url },
-      renderer: { url: "renderer/typst_ts_renderer_bg.wasm" }
+      renderer: {
+        url: `${runtimeConfig.runtime_version}/${"b".repeat(64)}/typst_ts_renderer_bg.wasm`
+      }
     });
+  });
+
+  it("rejects a mutable local runtime URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify(
+            runtimeManifest({
+              compiler: {
+                url: `${runtimeConfig.runtime_version}/typst_ts_web_compiler_bg.wasm`,
+                sha256: "a".repeat(64),
+                size_bytes: 1024
+              }
+            })
+          ),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(
+      loadTypstRuntimeManifest("https://toss.example/typst-runtime/")
+    ).rejects.toThrow("manifest is incomplete");
   });
 
   it.each([

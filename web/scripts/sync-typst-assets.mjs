@@ -210,10 +210,21 @@ async function syncRuntimeModules() {
   );
   const compilerFile = "typst_ts_web_compiler_bg.wasm";
   const rendererFile = "typst_ts_renderer_bg.wasm";
-  const rendererDest = path.join(versionRoot, rendererFile);
+  const [compilerSha256, rendererSha256, compilerStat, rendererStat] = await Promise.all([
+    sha256File(compilerSource),
+    sha256File(rendererSource),
+    fs.stat(compilerSource),
+    fs.stat(rendererSource)
+  ]);
+  const compilerUrl = `${runtimeConfig.runtime_version}/${compilerSha256}/${compilerFile}`;
+  const rendererUrl = `${runtimeConfig.runtime_version}/${rendererSha256}/${rendererFile}`;
+  const compilerDest = path.join(publicRuntimeRoot, compilerUrl);
+  const rendererDest = path.join(publicRuntimeRoot, rendererUrl);
+  await ensureDir(path.dirname(rendererDest));
   await fs.copyFile(rendererSource, rendererDest);
   if (webTarget === "core") {
-    await fs.copyFile(compilerSource, path.join(versionRoot, compilerFile));
+    await ensureDir(path.dirname(compilerDest));
+    await fs.copyFile(compilerSource, compilerDest);
   }
 
   const manifest = {
@@ -227,14 +238,14 @@ async function syncRuntimeModules() {
       url:
         webTarget === "browser"
           ? runtimeConfig.compiler.browser_url
-          : `${runtimeConfig.runtime_version}/${compilerFile}`,
-      sha256: await sha256File(compilerSource),
-      size_bytes: (await fs.stat(compilerSource)).size
+          : compilerUrl,
+      sha256: compilerSha256,
+      size_bytes: compilerStat.size
     },
     renderer: {
-      url: `${runtimeConfig.runtime_version}/${rendererFile}`,
-      sha256: await sha256File(rendererDest),
-      size_bytes: (await fs.stat(rendererDest)).size
+      url: rendererUrl,
+      sha256: rendererSha256,
+      size_bytes: rendererStat.size
     }
   };
   await ensureDir(publicRuntimeRoot);

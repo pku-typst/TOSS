@@ -99,16 +99,17 @@ file count, paths, manifest consistency, structure, and digest.
 
 The public compiler source fork is pinned as `third-party/typst.ts`.
 `web/typst-runtime.config.json` binds that source revision, the exact fork npm
-package, its upstream ABI version, the renderer, and the browser cache version.
+package, its upstream ABI version, the renderer, and the runtime identity.
 The package carries source and upstream provenance and is installed through
 the npm lockfile; an application build never recompiles Rust/WASM implicitly.
 
-Core builds copy the compiler WASM from the installed package into the
-same-origin static runtime. Standalone builds put its exact-version jsDelivr
-URL in the runtime manifest and omit the 30 MiB compiler from the Pages
-artifact. In both cases the manifest records the raw byte length and SHA-256,
-and the worker verifies both before instantiation. CDN gzip or Brotli is only a
-transport encoding and does not change the verified bytes.
+Core builds copy the compiler WASM from the installed package into a
+SHA-256-addressed path in the same-origin static runtime. Standalone builds put
+its exact-version jsDelivr URL in the runtime manifest and omit the 30 MiB
+compiler from the Pages artifact. The same-origin renderer is also
+content-addressed. In both cases the manifest records the raw byte length and
+SHA-256, and the worker verifies both before instantiation. CDN gzip or Brotli
+is only a transport encoding and does not change the verified bytes.
 
 Updating only the submodule does not update the compiler used by the
 application. A runtime upgrade publishes the new immutable fork package first,
@@ -119,11 +120,10 @@ The wasm-bindgen JavaScript glue is part of the hashed application bundle, so
 its ABI must stay coupled to the fetched WASM. The browser derives a runtime
 build identity from the configured compiler and renderer pins, includes it in
 the manifest request and decoded-module cache, and rejects a manifest whose
-pins differ from the application build. The service worker caches only that
-versioned manifest request; the mutable unversioned manifest always bypasses
-its cache. Versioned WASM and font assets remain cache-first. This lets an
-upgrade retain the large runtime-asset cache without pairing a new application
-bundle with a stale compiler binary.
+pins differ from the application build. Runtime manifests always bypass the
+service-worker cache. Content-addressed WASM and versioned font assets remain
+cache-first, so upgrades retain unchanged large assets without allowing stale
+binaries at a reused URL.
 
 ## Related
 
