@@ -111,6 +111,22 @@ fn add_operation_parameters(document: &mut utoipa::openapi::OpenApi) {
     );
     add_parameters(
         document,
+        "/v1/projects/{project_id}/exports/pptx",
+        HttpMethod::Post,
+        &[header("Idempotency-Key", true, ParameterKind::String)],
+    );
+    add_parameters(
+        document,
+        "/v1/imports/pptx",
+        HttpMethod::Post,
+        &[
+            header("Idempotency-Key", true, ParameterKind::String),
+            query("filename", true, ParameterKind::String),
+            query("mode", false, ParameterKind::String),
+        ],
+    );
+    add_parameters(
+        document,
         "/v1/projects/{project_id}/documents",
         HttpMethod::Get,
         &[

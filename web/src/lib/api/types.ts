@@ -30,12 +30,18 @@ export type ProcessingOperation = ApiSchema<"ProcessingOperation">;
 export type ProcessingJobState = ApiSchema<"ProcessingJobState">;
 export type ProcessingPhase = ApiSchema<"ProcessingPhase">;
 export type ProcessingCapabilityState = ApiSchema<"ProcessingCapabilityState">;
+export type ProjectProcessingCapabilityState =
+  ApiSchema<"ProjectProcessingCapabilityState">;
+export type PptxConversionMode = ApiSchema<"PptxConversionMode">;
 export type ProcessingArtifact = ApiSchema<"ProcessingArtifact">;
 export type ProcessingFailure = ApiSchema<"ProcessingFailure">;
 export type ProcessingJob = ApiSchema<"ProcessingJob">;
 export type ProcessingJobList = ApiSchema<"ProcessingJobList">;
 export type ProcessingCapability = ApiSchema<"ProcessingCapability">;
 export type ProcessingCapabilities = ApiSchema<"ProcessingCapabilities">;
+export type ProjectProcessingCapability = ApiSchema<"ProjectProcessingCapability">;
+export type ProjectProcessingCapabilities = ApiSchema<"ProjectProcessingCapabilities">;
+export type CreatePptxExportInput = ApiSchema<"CreatePptxExportInput">;
 
 export type OrganizationMembership = ApiSchema<"OrganizationMembership">;
 export type Organization = ApiSchema<"Organization">;

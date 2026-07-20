@@ -387,7 +387,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let drain = drain_trigger.signal();
     let collaboration = CollaborationContext::new(db.clone(), drain.clone());
     let versioning = crate::versioning::VersioningContext::default();
-    let processing = DocumentProcessingContext::new(db.clone(), deployment.processing);
+    let processing =
+        DocumentProcessingContext::new(db.clone(), storage.clone(), deployment.processing);
     let state = AppState {
         db,
         oidc_defaults,

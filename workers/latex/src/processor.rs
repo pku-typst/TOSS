@@ -133,8 +133,14 @@ impl Processor for LatexProcessor {
         request: ProcessorRequest,
         cancellation: watch::Receiver<bool>,
     ) -> Result<ProcessorResult, ProcessorFailure> {
+        let project = request.project().ok_or_else(|| {
+            invalid_input(
+                "project_input_required",
+                "LaTeX compilation requires a project bundle",
+            )
+        })?;
         let options = validate_options(&request)?;
-        let paths = prepare_job(&request.project_dir).map_err(io_failure)?;
+        let paths = prepare_job(&project.project_dir).map_err(io_failure)?;
         let command = build_command(self, &paths, &options, &request)?;
         let output = run_command(
             command,
@@ -224,15 +230,22 @@ impl Processor for LatexProcessor {
 }
 
 fn validate_options(request: &ProcessorRequest) -> Result<LatexOptions, ProcessorFailure> {
+    let project = request.project().ok_or_else(|| {
+        invalid_input(
+            "project_input_required",
+            "LaTeX compilation requires a project bundle",
+        )
+    })?;
     let options: LatexOptions = serde_json::from_value(request.options.clone())
         .map_err(|_| invalid_input("options_invalid", "LaTeX build options are invalid"))?;
-    if request.manifest.schema != "project-bundle/v1"
-        || request.manifest.project_type != "latex"
+    if project.manifest.schema != "project-bundle/v1"
+        || project.manifest.project_type != "latex"
+        || !project.manifest.packages.is_empty()
         || !matches!(options.engine.as_str(), "pdftex" | "xetex")
         || !safe_relative_path(&options.entry_file_path)
-        || options.entry_file_path != request.manifest.entry_file_path
-        || Some(options.engine.as_str()) != request.manifest.latex_engine.as_deref()
-        || options.source_epoch != request.manifest.source_epoch
+        || options.entry_file_path != project.manifest.entry_file_path
+        || Some(options.engine.as_str()) != project.manifest.latex_engine.as_deref()
+        || options.source_epoch != project.manifest.source_epoch
     {
         return Err(invalid_input(
             "options_manifest_mismatch",

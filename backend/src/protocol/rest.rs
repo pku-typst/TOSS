@@ -110,6 +110,23 @@ macro_rules! binary_operation {
     };
 }
 
+macro_rules! binary_request_operation {
+    ($name:ident, $method:ident, $path:literal, $tag:literal, $content_type:literal, $status:literal, $response:ty) => {
+        #[utoipa::path(
+            $method,
+            path = $path,
+            tag = $tag,
+            request_body(content = [u8], content_type = $content_type),
+            responses(
+                (status = $status, description = "Successful response", body = $response),
+                (status = "default", description = "Error response", body = ApiErrorResponse)
+            )
+        )]
+        #[allow(dead_code, reason = "contract marker consumed by the OpenAPI derive")]
+        pub(super) fn $name() {}
+    };
+}
+
 mod access;
 mod collaboration;
 mod experience;
@@ -170,7 +187,10 @@ pub use external_repositories::ExternalGitCheckpointResponse;
         workspace::create_project,
         workspace::rename_project,
         processing::create_latex_pdf_build,
+        processing::create_typst_pptx_export,
+        processing::create_pptx_import,
         processing::processing_capabilities,
+        processing::project_processing_capabilities,
         processing::list_processing_jobs,
         processing::get_processing_job,
         processing::cancel_processing_job,

@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLatexPdfBuild } from "@/lib/api/processing";
+import {
+  createLatexPdfBuild,
+  createPptxImport,
+  createTypstPptxExport,
+  getProjectProcessingCapabilities
+} from "@/lib/api/processing";
 import type { ProcessingJob } from "@/lib/api/types";
 
 const responseJob: ProcessingJob = {
   id: "job-1",
   operation: "latex.compile.pdf/v1",
   project_id: "project/with spaces",
+  result_project_id: null,
   state: "queued",
   phase: "waiting_for_worker",
   cancellation_requested: false,
@@ -42,5 +48,69 @@ describe("document processing API", () => {
       "content-type": "application/json",
       "idempotency-key": "request-id-1"
     });
+  });
+
+  it("submits PPTX export options to the project operation endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(responseJob), {
+        status: 202,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "request-id-2" });
+
+    await createTypstPptxExport("project/with spaces", "fidelity");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/v1/projects/project%2Fwith%20spaces/exports/pptx");
+    expect(init.body).toBe('{"mode":"fidelity"}');
+    expect(init.headers).toMatchObject({
+      "content-type": "application/json",
+      "idempotency-key": "request-id-2"
+    });
+  });
+
+  it("uploads a raw PPTX body with filename and mode in the query", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(responseJob), {
+        status: 202,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "request-id-3" });
+    const file = new File(["pptx"], "deck & notes.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+
+    await createPptxImport(file, "editable");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/v1/imports/pptx?filename=deck+%26+notes.pptx&mode=editable");
+    expect(init.body).toBe(file);
+    expect(init.headers).toMatchObject({
+      "content-type": file.type,
+      "idempotency-key": "request-id-3"
+    });
+  });
+
+  it("loads project-scoped processing applicability", async () => {
+    const response = { capabilities: [] };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getProjectProcessingCapabilities("project/with spaces")
+    ).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project%2Fwith%20spaces/processing/capabilities",
+      expect.objectContaining({ cache: "no-store", credentials: "include" })
+    );
   });
 });

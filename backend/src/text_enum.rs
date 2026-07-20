@@ -4,7 +4,7 @@ macro_rules! text_enum {
     (
         $(#[$meta:meta])*
         pub enum $name:ident {
-            $($variant:ident => $value:literal),+ $(,)?
+            $($(#[$variant_meta:meta])* $variant:ident => $value:literal),+ $(,)?
         }
     ) => {
         #[derive(
@@ -21,7 +21,7 @@ macro_rules! text_enum {
         $(#[$meta])*
         #[sqlx(type_name = "text")]
         pub enum $name {
-            $(#[serde(rename = $value)] #[sqlx(rename = $value)] #[schema(rename = $value)] $variant),+
+            $($(#[$variant_meta])* #[serde(rename = $value)] #[sqlx(rename = $value)] #[schema(rename = $value)] $variant),+
         }
 
         impl AsRef<str> for $name {

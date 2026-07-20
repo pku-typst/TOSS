@@ -158,6 +158,14 @@
   gap: var(--toss-space-sm);
 }
 
+.processing-task-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--toss-space-sm);
+}
+
 .processing-task-failure {
   max-height: 180px;
   overflow: auto;

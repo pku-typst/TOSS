@@ -12,6 +12,10 @@ import {
 import { UiButton, UiIconButton, UiInput } from "@/components/ui";
 import type { CompileDiagnostic } from "@/lib/typst";
 import type { Translator } from "@/lib/i18n";
+import {
+  PptxExportControl,
+  type PptxExportAction
+} from "@/pages/workspace/components/PptxExportControl";
 
 function boundedPercent(loaded: number, total: number): number | null {
   if (!Number.isFinite(loaded) || !Number.isFinite(total) || total <= 0) return null;
@@ -58,6 +62,7 @@ export function PreviewPanel({
   onJumpToPage,
   onDownloadPdf,
   backgroundBuild,
+  pptxExport,
   onJumpToDiagnostic,
   t
 }: {
@@ -108,6 +113,7 @@ export function PreviewPanel({
     pending: boolean;
     error: string | null;
   };
+  pptxExport: PptxExportAction;
   onJumpToDiagnostic: (diagnostic: CompileDiagnostic) => void;
   t: Translator;
 }) {
@@ -306,6 +312,7 @@ export function PreviewPanel({
               )}
             </UiIconButton>
           )}
+          <PptxExportControl action={pptxExport} t={t} />
         </nve-toolbar>
       </div>
       <div className="panel-content flush preview-panel-content">

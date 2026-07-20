@@ -49,6 +49,7 @@ toml = "1"
 tower-http = { version = "0.7", features = ["trace", "fs", "request-id", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+typst-syntax = "=0.15.0"
 utoipa = { version = "5", features = ["chrono", "preserve_order", "preserve_path_order", "uuid"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }

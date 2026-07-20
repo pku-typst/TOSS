@@ -686,6 +686,10 @@ export function App() {
                 <ProcessingTaskCenter
                   userId={authUser.user_id}
                   projects={projects}
+                  onOpenProject={async (projectId) => {
+                    await refreshProjects();
+                    navigate(`/project/${projectId}`);
+                  }}
                   locale={locale}
                   t={t}
                 />

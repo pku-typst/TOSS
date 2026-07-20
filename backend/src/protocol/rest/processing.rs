@@ -1,11 +1,32 @@
 use super::ApiErrorResponse;
-use crate::document_processing::{ProcessingCapabilities, ProcessingJob, ProcessingJobList};
+use crate::document_processing::{
+    CreatePptxExportInput, ProcessingCapabilities, ProcessingJob, ProcessingJobList,
+    ProjectProcessingCapabilities,
+};
 
 json_operation!(
     create_latex_pdf_build,
     post,
     "/v1/projects/{project_id}/builds",
     "document-processing",
+    202,
+    ProcessingJob
+);
+binary_request_operation!(
+    create_pptx_import,
+    post,
+    "/v1/imports/pptx",
+    "document-processing",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    202,
+    ProcessingJob
+);
+json_operation!(
+    create_typst_pptx_export,
+    post,
+    "/v1/projects/{project_id}/exports/pptx",
+    "document-processing",
+    CreatePptxExportInput,
     202,
     ProcessingJob
 );
@@ -16,6 +37,14 @@ json_operation!(
     "document-processing",
     200,
     ProcessingCapabilities
+);
+json_operation!(
+    project_processing_capabilities,
+    get,
+    "/v1/projects/{project_id}/processing/capabilities",
+    "document-processing",
+    200,
+    ProjectProcessingCapabilities
 );
 json_operation!(
     list_processing_jobs,

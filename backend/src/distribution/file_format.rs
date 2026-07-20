@@ -253,6 +253,25 @@ pub(super) struct FrontendFeaturesFile {
 pub(super) struct DocumentProcessingFile {
     #[serde(default)]
     pub(super) allowed_operations: Vec<ProcessingOperation>,
+    #[serde(default)]
+    pub(super) operation_policies: Vec<ProcessingOperationPolicyFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProcessingOperationPolicyFile {
+    pub(super) operation: ProcessingOperation,
+    #[serde(default)]
+    pub(super) required_typst_packages: Vec<TypstPackageRequirementFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TypstPackageRequirementFile {
+    pub(super) namespace: String,
+    pub(super) name: String,
+    #[serde(default)]
+    pub(super) allowed_versions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

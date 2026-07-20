@@ -4,7 +4,7 @@
   "input_schema": "project-bundle/v1",
   "adapter_revision": 1,
   "worker_sdk_protocol": 1,
-  "implementation_sha256": "c94b9947054728168461c6fd2eaa574513e594e4dc897d2d163cf4e8712138a6",
+  "implementation_sha256": "34a3708cca599dd377b4cd083e158edde73b874a610de255dd019f958ecf7a65",
   "runtime": {
     "image": "texlive/texlive@sha256:d39efa547acfa518072600315280f92357ca8e0b9e295e09b6ccd5f5d82a1373",
     "tex_live_release": "2026",

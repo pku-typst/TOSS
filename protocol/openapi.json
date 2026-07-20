@@ -1735,6 +1735,137 @@
         }
       }
     },
+    "/v1/projects/{project_id}/exports/pptx": {
+      "parameters": [
+        {
+          "name": "project_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "create_typst_pptx_export",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePptxExportInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJob"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/imports/pptx": {
+      "post": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "create_pptx_import",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingJob"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/processing/capabilities": {
       "get": {
         "tags": [
@@ -1748,6 +1879,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProcessingCapabilities"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/processing/capabilities": {
+      "parameters": [
+        {
+          "name": "project_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "document-processing"
+        ],
+        "operationId": "project_processing_capabilities",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectProcessingCapabilities"
                 }
               }
             }
@@ -5376,6 +5547,14 @@
           }
         }
       },
+      "CreatePptxExportInput": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/PptxConversionMode"
+          }
+        }
+      },
       "CreateProjectCopyInput": {
         "type": "object",
         "required": [
@@ -6927,6 +7106,13 @@
           }
         }
       },
+      "PptxConversionMode": {
+        "type": "string",
+        "enum": [
+          "editable",
+          "fidelity"
+        ]
+      },
       "ProcessingArtifact": {
         "type": "object",
         "required": [
@@ -7052,6 +7238,7 @@
           "id",
           "operation",
           "project_id",
+          "result_project_id",
           "state",
           "phase",
           "cancellation_requested",
@@ -7072,6 +7259,13 @@
             "$ref": "#/components/schemas/ProcessingOperation"
           },
           "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "result_project_id": {
             "type": [
               "string",
               "null"
@@ -7546,6 +7740,50 @@
         "enum": [
           "read",
           "write"
+        ]
+      },
+      "ProjectProcessingCapabilities": {
+        "type": "object",
+        "required": [
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectProcessingCapability"
+            }
+          }
+        }
+      },
+      "ProjectProcessingCapability": {
+        "type": "object",
+        "required": [
+          "operation",
+          "state",
+          "reason"
+        ],
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ProcessingOperation"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProjectProcessingCapabilityState"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProjectProcessingCapabilityState": {
+        "type": "string",
+        "enum": [
+          "available",
+          "waiting",
+          "inapplicable"
         ]
       },
       "ProjectRole": {

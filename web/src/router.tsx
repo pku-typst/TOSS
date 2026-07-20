@@ -138,6 +138,7 @@ function ProjectsRoute() {
       organizations={context.organizations}
       enabledProjectTypes={context.enabledProjectTypes}
       externalGitProviders={context.authConfig.external_git_providers}
+      processingUserId={context.authUser?.user_id}
       refreshProjects={context.refreshProjects}
       locale={context.locale}
       t={context.t}
