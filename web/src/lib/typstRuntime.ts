@@ -17,10 +17,12 @@ export type TypstRuntimeManifest = {
   renderer: TypstRuntimeModule;
 };
 
+const TYPST_RUNTIME_LAYOUT = "sha256-v1";
+
 // The wasm-bindgen glue lives in the application bundle. Key the manifest and
-// decoded module cache by every ABI pin so a retained service worker cannot
-// pair a new bundle with a previous compiler or renderer binary.
+// decoded module cache by the asset layout and every ABI pin.
 export const TYPST_RUNTIME_BUILD_ID = [
+  TYPST_RUNTIME_LAYOUT,
   runtimeConfig.runtime_version,
   runtimeConfig.compiler.package_version,
   runtimeConfig.compiler.upstream_package_version,
@@ -29,14 +31,6 @@ export const TYPST_RUNTIME_BUILD_ID = [
 ].join(":");
 
 export const TYPST_RUNTIME_MODULE_CACHE = `typst.runtime.modules.${TYPST_RUNTIME_BUILD_ID}`;
-
-function isRelativeRuntimeModuleUrl(value: string) {
-  return (
-    !value.startsWith("/") &&
-    !value.includes(":") &&
-    value.split("/").every((part) => !!part && part !== "." && part !== "..")
-  );
-}
 
 function isExternalRuntimeModuleUrl(value: string) {
   try {
@@ -56,13 +50,18 @@ function isExternalRuntimeModuleUrl(value: string) {
 function isRuntimeModule(
   value: unknown,
   allowExternal: boolean,
+  fileName: string,
 ): value is TypstRuntimeModule {
   if (!value || typeof value !== "object") return false;
   const module = value as Partial<TypstRuntimeModule>;
+  const contentAddressedUrl =
+    typeof module.sha256 === "string"
+      ? `${runtimeConfig.runtime_version}/${module.sha256}/${fileName}`
+      : "";
   return (
     typeof module.url === "string" &&
     !!module.url &&
-    (isRelativeRuntimeModuleUrl(module.url) ||
+    (module.url === contentAddressedUrl ||
       (allowExternal && isExternalRuntimeModuleUrl(module.url))) &&
     typeof module.sha256 === "string" &&
     /^[a-f0-9]{64}$/i.test(module.sha256) &&
@@ -89,8 +88,8 @@ function parseRuntimeManifest(value: unknown): TypstRuntimeManifest {
     !/^[a-f0-9]{40}$/i.test(manifest.compiler_source_revision) ||
     typeof manifest.renderer_package_version !== "string" ||
     !manifest.renderer_package_version ||
-    !isRuntimeModule(manifest.compiler, true) ||
-    !isRuntimeModule(manifest.renderer, false)
+    !isRuntimeModule(manifest.compiler, true, "typst_ts_web_compiler_bg.wasm") ||
+    !isRuntimeModule(manifest.renderer, false, "typst_ts_renderer_bg.wasm")
   ) {
     throw new Error("Typst runtime manifest is incomplete");
   }

@@ -18,6 +18,7 @@ function serviceWorkerHarness(cachedResponse: Response | null = null) {
     keys: vi.fn(async () => [
       "typst-runtime-v2",
       "typst-runtime-v3",
+      "typst-runtime-v4",
       "toss.project.asset.content.v2.project",
       "unrelated-cache"
     ]),
@@ -71,31 +72,34 @@ async function dispatchFetch(
 }
 
 describe("application service worker", () => {
-  it("cache-hits a manifest identified by its application runtime build", async () => {
+  it.each(["", "?runtime=current-build"])(
+    "bypasses caches for runtime manifest %s",
+    async (query) => {
+      const harness = serviceWorkerHarness(new Response("stale", { status: 200 }));
+
+      const response = await dispatchFetch(
+        harness.listeners,
+        `https://toss.example/typst-runtime/manifest.json${query}`
+      );
+
+      await expect(response.text()).resolves.toBe("network");
+      expect(harness.cache.match).not.toHaveBeenCalled();
+      expect(harness.fetchMock).toHaveBeenCalledOnce();
+      expect(harness.fetchMock.mock.calls[0][1]).toMatchObject({ cache: "no-store" });
+    }
+  );
+
+  it("cache-hits a content-addressed runtime module", async () => {
     const harness = serviceWorkerHarness(new Response("cached", { status: 200 }));
 
     const response = await dispatchFetch(
       harness.listeners,
-      "https://toss.example/typst-runtime/manifest.json?runtime=current-build"
+      `https://toss.example/typst-runtime/current/${"a".repeat(64)}/compiler.wasm`
     );
 
     await expect(response.text()).resolves.toBe("cached");
     expect(harness.cache.match).toHaveBeenCalledOnce();
     expect(harness.fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("bypasses caches for an unversioned runtime manifest", async () => {
-    const harness = serviceWorkerHarness(new Response("stale", { status: 200 }));
-
-    const response = await dispatchFetch(
-      harness.listeners,
-      "https://toss.example/typst-runtime/manifest.json"
-    );
-
-    await expect(response.text()).resolves.toBe("network");
-    expect(harness.cache.match).not.toHaveBeenCalled();
-    expect(harness.fetchMock).toHaveBeenCalledOnce();
-    expect(harness.fetchMock.mock.calls[0][1]).toMatchObject({ cache: "no-store" });
   });
 
   it("removes the previous runtime cache during activation", async () => {
@@ -110,8 +114,9 @@ describe("application service worker", () => {
     await activation;
 
     expect(harness.caches.delete).toHaveBeenCalledWith("typst-runtime-v2");
+    expect(harness.caches.delete).toHaveBeenCalledWith("typst-runtime-v3");
     expect(harness.caches.delete).toHaveBeenCalledWith("unrelated-cache");
-    expect(harness.caches.delete).not.toHaveBeenCalledWith("typst-runtime-v3");
+    expect(harness.caches.delete).not.toHaveBeenCalledWith("typst-runtime-v4");
     expect(harness.caches.delete).not.toHaveBeenCalledWith(
       "toss.project.asset.content.v2.project"
     );
