@@ -127,7 +127,6 @@ pub(crate) async fn create_typst_pptx_export(
             db: &state.db,
             storage: state.storage.as_ref(),
             collaboration: &state.collaboration,
-            distribution: &state.distribution,
             builtin_dir: &state.typst_builtin_dir,
             operation,
             job_id: reserved.job_id,
@@ -608,14 +607,6 @@ pub(crate) async fn project_processing_capabilities(
                 ProjectProcessingCapabilityState::Inapplicable,
                 Some("dynamic_typst_dependency".to_string()),
             )
-        } else if !state
-            .distribution
-            .processing_operation_applicable(operation, dependencies.as_ref())
-        {
-            (
-                ProjectProcessingCapabilityState::Inapplicable,
-                Some("required_typst_package_missing".to_string()),
-            )
         } else {
             let stats = capability_stats(&state.db, operation)
                 .await
@@ -876,10 +867,6 @@ fn capture_failure(error: &CaptureProjectBundleError) -> (&'static str, &'static
             "input_too_large",
             "Project exceeds the processing input limit",
         ),
-        CaptureProjectBundleError::OperationInapplicable => (
-            "operation_inapplicable",
-            "Project does not satisfy the processing operation policy",
-        ),
         CaptureProjectBundleError::Package(
             ResolveProcessingPackagesError::TooManyPackages
             | ResolveProcessingPackagesError::TooLarge,
@@ -889,7 +876,7 @@ fn capture_failure(error: &CaptureProjectBundleError) -> (&'static str, &'static
         ),
         CaptureProjectBundleError::Package(ResolveProcessingPackagesError::DynamicDependency) => (
             "dynamic_typst_dependency",
-            "Project contains a dynamic Typst package dependency",
+            "Project contains a dynamic Typst dependency",
         ),
         CaptureProjectBundleError::Package(_) => (
             "package_capture_failed",
@@ -927,11 +914,6 @@ fn capture_error(error: CaptureProjectBundleError) -> ApiError {
                 "Project exceeds the processing input limit",
             )
         }
-        CaptureProjectBundleError::OperationInapplicable => ApiError::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ApiErrorCode::ProcessingOperationInvalid,
-            "Project does not satisfy the processing operation policy",
-        ),
         CaptureProjectBundleError::Package(
             ResolveProcessingPackagesError::TooManyPackages
             | ResolveProcessingPackagesError::TooLarge,

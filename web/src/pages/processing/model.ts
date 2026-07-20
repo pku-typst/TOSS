@@ -41,8 +41,6 @@ export function processingCapabilityReasonLabel(
   switch (reason) {
     case "worker_temporarily_offline":
       return t("processing.reason.workerOffline");
-    case "required_typst_package_missing":
-      return t("processing.reason.requiredPackageMissing");
     case "dynamic_typst_dependency":
       return t("processing.reason.dynamicDependency");
     default:

@@ -2,21 +2,18 @@
 
 use super::ai_assistant::load_ai_assistant;
 use super::experience_content::load_experience;
-use super::file_format::{
-    DistributionFile, ProcessingInputProfilesFile, ProcessingOperationPolicyFile,
-};
+use super::file_format::{DistributionFile, ProcessingInputProfilesFile};
 use super::template_catalog::load_builtin_templates;
 use super::{
     is_hex_color, read_template, resolve_distribution_file, resolve_path, validate_localized_text,
     validate_slug, CheckpointBranchPrefix, DistributionConfig,
     DocumentProcessingDistributionConfig, FrontendFeature, FrontendFeaturesConfig, GitConfig,
-    ProcessingOperationInputProfiles, ProcessingOperationPolicy, ProductAsset, ProductConfig,
-    CONFIG_SCHEMA_VERSION, MAX_PRODUCT_ASSET_BYTES,
+    ProcessingOperationInputProfiles, ProductAsset, ProductConfig, CONFIG_SCHEMA_VERSION,
+    MAX_PRODUCT_ASSET_BYTES,
 };
 use crate::document_processing::{
     ProcessingInputProfile, ProcessingInputProfileSelector, ProcessingOperation,
 };
-use crate::typst_runtime::TypstPackageRequirement;
 use crate::workspace::ProjectType;
 use std::collections::HashSet;
 use std::env;
@@ -134,10 +131,6 @@ impl DistributionConfig {
             file.document_processing.allowed_operations,
             &project_types,
         )?;
-        let processing_operation_policies = validate_processing_operation_policies(
-            file.document_processing.operation_policies,
-            &processing_operations,
-        )?;
         let processing_input_profiles = validate_processing_input_profiles(
             file.document_processing.input_profiles,
             &processing_operations,
@@ -205,7 +198,6 @@ impl DistributionConfig {
             ai_assistant,
             document_processing: DocumentProcessingDistributionConfig {
                 allowed_operations: processing_operations,
-                operation_policies: processing_operation_policies,
                 input_profiles: processing_input_profiles,
             },
             experience,
@@ -302,68 +294,6 @@ fn validate_processing_operations(
         normalized.push(value);
     }
     Ok(normalized)
-}
-
-fn validate_processing_operation_policies(
-    values: Vec<ProcessingOperationPolicyFile>,
-    allowed_operations: &[ProcessingOperation],
-) -> Result<Vec<ProcessingOperationPolicy>, String> {
-    let mut policies = Vec::with_capacity(values.len());
-    let mut operations = HashSet::new();
-    for value in values {
-        if !allowed_operations.contains(&value.operation) {
-            return Err(format!(
-                "document_processing.operation_policies cannot configure disabled operation {}",
-                value.operation
-            ));
-        }
-        if value.operation.project_type() != Some(ProjectType::Typst) {
-            return Err(format!(
-                "document_processing.operation_policies cannot require Typst packages for {}",
-                value.operation
-            ));
-        }
-        if !operations.insert(value.operation) {
-            return Err(format!(
-                "document_processing.operation_policies repeats operation {}",
-                value.operation
-            ));
-        }
-        if value.required_typst_packages.is_empty() {
-            return Err(format!(
-                "document_processing.operation_policies for {} must contain a requirement",
-                value.operation
-            ));
-        }
-        let mut requirements = Vec::with_capacity(value.required_typst_packages.len());
-        let mut identities = HashSet::new();
-        for requirement in value.required_typst_packages {
-            let identity = format!("@{}/{}", requirement.namespace, requirement.name);
-            if !identities.insert(identity.clone()) {
-                return Err(format!(
-                    "document_processing.operation_policies for {} repeats package {identity}",
-                    value.operation
-                ));
-            }
-            let requirement = TypstPackageRequirement::parse(
-                requirement.namespace,
-                requirement.name,
-                requirement.allowed_versions,
-            )
-            .ok_or_else(|| {
-                format!(
-                    "document_processing.operation_policies for {} contains invalid package {identity}",
-                    value.operation
-                )
-            })?;
-            requirements.push(requirement);
-        }
-        policies.push(ProcessingOperationPolicy {
-            operation: value.operation,
-            required_typst_packages: requirements,
-        });
-    }
-    Ok(policies)
 }
 
 fn validate_processing_input_profiles(

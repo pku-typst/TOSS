@@ -269,8 +269,8 @@ without holding the editor still for the duration of a build.
 The manifest includes schema, project type, entry path, operation-relevant
 settings, Workspace version, content generation, and sorted file records with
 kind, length, and SHA-256. A Typst processing bundle additionally carries the
-exact reachable `@local` and `@preview` package closure. Dynamic package
-imports are rejected because they cannot produce a coherent immutable input.
+exact reachable `@local` and `@preview` package closure. Dynamic imports are
+rejected because they cannot produce a coherent immutable input.
 The `input_digest` covers the canonical manifest and all file and package
 content. It is distinct from the browser's local `CompileWorld` and from a
 user-created named snapshot.

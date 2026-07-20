@@ -100,13 +100,11 @@ distribution loading. See the complete shape and ownership rules in
 `document_processing.allowed_operations` is a closed allowlist of Core-known,
 versioned operations. The default Community distribution enables
 `latex.compile.pdf/v1`; the generic PPTX operations remain available to other
-distributions without embedding a converter in Core. Optional
-`operation_policies` may require exact reachable Typst package identities and
-versions for a project operation. This is product applicability, not worker
-configuration: deployment TOML still binds identities to exact processor
-contracts, and live availability requires a compatible healthy session. Do
-not put worker identities, tokens, or implementation-specific configuration in
-the distribution file.
+distributions without embedding a converter in Core. This is product policy,
+not worker configuration: deployment TOML still binds identities to exact
+processor contracts, and live availability requires a compatible healthy
+session. Do not put worker identities, tokens, or implementation-specific
+configuration in the distribution file.
 
 `document_processing.input_profiles` may give PPTX import a small closed set of
 distribution-owned user choices, with localized labels and descriptions plus

@@ -125,6 +125,7 @@ fn verify_and_extract_project(
     let project_dir = root.path().join("project");
     let packages_dir = root.path().join("packages");
     fs::create_dir(&project_dir).map_err(InputError::Io)?;
+    fs::create_dir(&packages_dir).map_err(InputError::Io)?;
     let mut archive =
         zip::ZipArchive::new(Cursor::new(content)).map_err(|_| InputError::Archive)?;
     if archive.is_empty() || archive.len() > MAX_BUNDLE_FILES + 1 {
@@ -492,6 +493,7 @@ mod tests {
             std::fs::read(verified.project_dir.join("main.tex"))?,
             b"Hello from LaTeX"
         );
+        assert!(verified.packages_dir.is_dir());
         Ok(())
     }
 
