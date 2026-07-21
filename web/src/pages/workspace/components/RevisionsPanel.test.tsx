@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import {
-  cleanup,
   fireEvent,
   render,
   screen,
@@ -13,7 +12,7 @@ import type {
   InputHTMLAttributes,
   ReactNode
 } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Translator } from "@/lib/i18n";
 import { RevisionsPanel } from "@/pages/workspace/components/RevisionsPanel";
 
@@ -72,8 +71,6 @@ vi.mock("@/components/HistoryPanel", () => ({
 }));
 
 const t: Translator = (key) => key;
-
-afterEach(() => cleanup());
 
 function renderPanel(
   overrides: Partial<ComponentProps<typeof RevisionsPanel>> = {}

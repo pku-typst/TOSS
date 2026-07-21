@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -145,7 +145,6 @@ function renderPage(projects: Project[] = []) {
 }
 
 afterEach(() => {
-  cleanup();
   vi.clearAllMocks();
 });
 

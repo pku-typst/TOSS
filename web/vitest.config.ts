@@ -27,6 +27,7 @@ export default defineConfig({
   },
   test: {
     execArgv: ["--no-experimental-webstorage"],
+    setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     exclude: ["tests/e2e/**", "node_modules/**"]
   }
