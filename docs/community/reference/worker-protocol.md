@@ -258,16 +258,17 @@ The SDK verifies transfer size and SHA-256 before materializing one closed
 input variant:
 
 - `project-bundle/v1` contains a project tree and manifest;
-- `typst-project-bundle/v1` additionally contains the exact verified Typst
-  package closure below `packages/{namespace}/{name}/{version}`;
+- `typst-project-bundle/v1` contains the same project-owned data with a
+  Typst-specific schema identity;
 - `pptx-input/v1` contains the already validated presentation bytes.
 
 Archive paths, file kinds, counts, expanded bytes, manifest records, entry
-files, package identities, and every declared digest are rechecked before a
-processor receives the input. Binary input is never written under a
-server-supplied filename by the SDK; the processor chooses its private sandbox
-path. A processor receives exactly one typed input variant and cannot access
-the transfer credential used to obtain it.
+files, and every declared digest are rechecked before a processor receives the
+input. Runtime dependencies such as compiler packages belong to the processor
+environment and are not embedded in project bundles. Binary input is never
+written under a server-supplied filename by the SDK; the processor chooses its
+private sandbox path. A processor receives exactly one typed input variant and
+cannot access the transfer credential used to obtain it.
 
 ## Lease and heartbeat
 

@@ -240,7 +240,6 @@ fn validate_options(request: &ProcessorRequest) -> Result<LatexOptions, Processo
         .map_err(|_| invalid_input("options_invalid", "LaTeX build options are invalid"))?;
     if project.manifest.schema != "project-bundle/v1"
         || project.manifest.project_type != "latex"
-        || !project.manifest.packages.is_empty()
         || !matches!(options.engine.as_str(), "pdftex" | "xetex")
         || !safe_relative_path(&options.entry_file_path)
         || options.entry_file_path != project.manifest.entry_file_path

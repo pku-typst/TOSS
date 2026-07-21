@@ -212,10 +212,9 @@ A new job returns `202`, while an exact replay returns the existing job.
 
 The global capability response contains only distribution-allowed,
 deployment-configured operations and distinguishes `available` from
-configured-but-offline `waiting`. The project capability route also returns
-`inapplicable` when an operation's exact project/package policy is not met.
-Submission rechecks that policy against the captured snapshot. An absent
-operation is not enabled.
+configured-but-offline `waiting`. The project capability route filters by
+project type and reports the current worker availability. An absent operation
+is not enabled.
 
 PPTX import uses a bounded raw PPTX body. A distribution may advertise a closed
 set of input profiles through processing capabilities; clients omit

@@ -30,18 +30,6 @@ impl PackageSpec {
     pub(super) fn is_local(&self) -> bool {
         self.namespace == "local"
     }
-
-    pub(crate) fn namespace(&self) -> &str {
-        &self.namespace
-    }
-
-    pub(crate) fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(crate) fn version(&self) -> &str {
-        &self.version
-    }
 }
 
 #[derive(Clone, Copy)]

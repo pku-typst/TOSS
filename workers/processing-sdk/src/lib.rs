@@ -11,6 +11,6 @@ pub use agent::{
 };
 pub use input::{
     safe_relative_path, BinaryInput, ProcessorInput, ProjectBundleFile, ProjectBundleManifest,
-    ProjectBundlePackage, ProjectBundlePackageFile, ProjectInput,
+    ProjectInput,
 };
 pub use protocol::{WorkerClaimLimits, WorkerFailureClass};

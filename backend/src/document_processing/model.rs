@@ -173,7 +173,6 @@ text_enum! {
     pub enum ProjectProcessingCapabilityState {
         Available => "available",
         Waiting => "waiting",
-        Inapplicable => "inapplicable",
     }
 }
 

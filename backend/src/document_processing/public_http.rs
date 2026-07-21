@@ -12,8 +12,7 @@ use super::persistence::{
 };
 use super::pptx::{validate_pptx, PptxValidationError};
 use super::project_input::{
-    capture_project_bundle, capture_typst_project_bundle, CaptureProjectBundleError,
-    CapturedProjectBundle, TypstProjectBundleCapture,
+    capture_project_bundle, CaptureProjectBundleError, CapturedProjectBundle, ProjectBundleCapture,
 };
 use crate::access::{
     ensure_project_role, ensure_project_role_for_user, required_request_user_id, AccessNeed,
@@ -22,10 +21,7 @@ use crate::access::{
 use crate::app_state::AppState;
 use crate::http_response::ApiError;
 use crate::protocol::ApiErrorCode;
-use crate::typst_runtime::{analyze_project_dependencies, ResolveProcessingPackagesError};
-use crate::workspace::{
-    load_project_content_snapshot, load_project_entry_point, ProjectName, ProjectType,
-};
+use crate::workspace::{load_project_entry_point, ProjectName, ProjectType};
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -75,14 +71,15 @@ pub(crate) async fn create_latex_pdf_build(
     let bundle = capture_or_fail(
         &state,
         reserved.job_id,
-        capture_project_bundle(
-            &state.db,
-            state.storage.as_ref(),
-            &state.collaboration,
-            reserved.job_id,
+        capture_project_bundle(ProjectBundleCapture {
+            db: &state.db,
+            storage: state.storage.as_ref(),
+            collaboration: &state.collaboration,
+            operation,
+            job_id: reserved.job_id,
             project_id,
-            state.processing.config.max_input_bytes,
-        )
+            max_input_bytes: state.processing.config.max_input_bytes,
+        })
         .await,
     )
     .await?;
@@ -123,11 +120,10 @@ pub(crate) async fn create_typst_pptx_export(
     let bundle = capture_or_fail(
         &state,
         reserved.job_id,
-        capture_typst_project_bundle(TypstProjectBundleCapture {
+        capture_project_bundle(ProjectBundleCapture {
             db: &state.db,
             storage: state.storage.as_ref(),
             collaboration: &state.collaboration,
-            builtin_dir: &state.typst_builtin_dir,
             operation,
             job_id: reserved.job_id,
             project_id,
@@ -577,50 +573,27 @@ pub(crate) async fn project_processing_capabilities(
     Path(project_id): Path<Uuid>,
 ) -> Result<Json<ProjectProcessingCapabilities>, ApiError> {
     ensure_project_role(&state.db, &headers, project_id, AccessNeed::Read).await?;
-    let snapshot = load_project_content_snapshot(&state.db, project_id)
-        .await
-        .map_err(|error| {
-            processing_unavailable("project processing capability could not be read", error)
-        })?
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::NOT_FOUND,
-                ApiErrorCode::ProjectNotFound,
-                "Project was not found",
-            )
-        })?;
-    let dependencies = (snapshot.project_type == ProjectType::Typst)
-        .then(|| analyze_project_dependencies(&snapshot.entry_file_path, &snapshot.documents));
+    let entry_point = load_project_entry_point(&state.db, project_id).await?;
     let mut capabilities = Vec::new();
     for operation in state
         .processing
         .configured_operations()
         .into_iter()
         .filter(|operation| state.distribution.supports_processing_operation(*operation))
-        .filter(|operation| operation.project_type() == Some(snapshot.project_type))
+        .filter(|operation| operation.project_type() == Some(entry_point.project_type))
     {
-        let dynamic_dependency = dependencies
-            .as_ref()
-            .is_some_and(|dependencies| dependencies.has_dynamic_imports);
-        let (capability_state, reason) = if dynamic_dependency {
+        let stats = capability_stats(&state.db, operation)
+            .await
+            .map_err(|error| {
+                processing_unavailable("project processing capability could not be read", error)
+            })?;
+        let (capability_state, reason) = if stats.healthy_sessions == 0 {
             (
-                ProjectProcessingCapabilityState::Inapplicable,
-                Some("dynamic_typst_dependency".to_string()),
+                ProjectProcessingCapabilityState::Waiting,
+                Some("worker_temporarily_offline".to_string()),
             )
         } else {
-            let stats = capability_stats(&state.db, operation)
-                .await
-                .map_err(|error| {
-                    processing_unavailable("project processing capability could not be read", error)
-                })?;
-            if stats.healthy_sessions == 0 {
-                (
-                    ProjectProcessingCapabilityState::Waiting,
-                    Some("worker_temporarily_offline".to_string()),
-                )
-            } else {
-                (ProjectProcessingCapabilityState::Available, None)
-            }
+            (ProjectProcessingCapabilityState::Available, None)
         };
         capabilities.push(ProjectProcessingCapability {
             operation,
@@ -867,21 +840,6 @@ fn capture_failure(error: &CaptureProjectBundleError) -> (&'static str, &'static
             "input_too_large",
             "Project exceeds the processing input limit",
         ),
-        CaptureProjectBundleError::Package(
-            ResolveProcessingPackagesError::TooManyPackages
-            | ResolveProcessingPackagesError::TooLarge,
-        ) => (
-            "input_too_large",
-            "Project dependencies exceed the processing input limit",
-        ),
-        CaptureProjectBundleError::Package(ResolveProcessingPackagesError::DynamicDependency) => (
-            "dynamic_typst_dependency",
-            "Project contains a dynamic Typst dependency",
-        ),
-        CaptureProjectBundleError::Package(_) => (
-            "package_capture_failed",
-            "Typst package dependencies could not be captured",
-        ),
         CaptureProjectBundleError::Collaboration(_)
         | CaptureProjectBundleError::Persistence(_)
         | CaptureProjectBundleError::Asset(_)
@@ -913,28 +871,6 @@ fn capture_error(error: CaptureProjectBundleError) -> ApiError {
                 ApiErrorCode::ProcessingInputTooLarge,
                 "Project exceeds the processing input limit",
             )
-        }
-        CaptureProjectBundleError::Package(
-            ResolveProcessingPackagesError::TooManyPackages
-            | ResolveProcessingPackagesError::TooLarge,
-        ) => ApiError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            ApiErrorCode::ProcessingInputTooLarge,
-            "Project dependencies exceed the processing input limit",
-        ),
-        CaptureProjectBundleError::Package(
-            ResolveProcessingPackagesError::DynamicDependency
-            | ResolveProcessingPackagesError::LocalPackageNotFound { .. }
-            | ResolveProcessingPackagesError::UnsafeArchive { .. }
-            | ResolveProcessingPackagesError::Manifest { .. }
-            | ResolveProcessingPackagesError::DuplicateFile { .. },
-        ) => ApiError::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ApiErrorCode::ProcessingInputInvalid,
-            "Typst package dependencies cannot be processed",
-        ),
-        failure @ CaptureProjectBundleError::Package(_) => {
-            processing_unavailable("Typst package dependencies could not be captured", failure)
         }
         failure @ (CaptureProjectBundleError::Collaboration(_)
         | CaptureProjectBundleError::Persistence(_)
