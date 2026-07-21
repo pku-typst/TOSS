@@ -78,10 +78,10 @@ function buildLargeSvg(targetBytes, color) {
 
 async function loginUi(page, email, password) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
+  await page.getByPlaceholder("Email", { exact: true }).fill(email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
-  await page.getByRole("heading", { name: /Projects|项目/ }).waitFor({ timeout: 60000 });
+  await page.getByRole("heading", { name: /^(Projects|项目)$/ }).waitFor({ timeout: 60000 });
 }
 
 async function openWorkspace(page, projectId) {

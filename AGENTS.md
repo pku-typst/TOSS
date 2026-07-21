@@ -185,4 +185,7 @@ compatibility changes must include
 `npm --prefix web run test:release-resilience`, normally through that workflow.
 Documentation changes run `node scripts/check-docs.mjs`. Keep deterministic
 logic in Rust tests or Vitest and browser workflows in Playwright; all fixtures
-remain synthetic and public-safe.
+remain synthetic and public-safe. In Playwright, fixed accessible names and
+visible text use `exact: true`; multiple accepted labels use anchored regular
+expressions. Use substring matching only for intentional containment checks,
+expressed explicitly through a regular expression or `hasText`.

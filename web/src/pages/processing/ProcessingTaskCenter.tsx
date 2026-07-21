@@ -15,11 +15,17 @@ import {
 import type { Translator, UiLocale } from "@/lib/i18n";
 import {
   canCancelProcessingJob,
+  countUnseenProcessingFailures,
   isProcessingJobActive,
+  latestProcessingFailureCompletedAt,
   PROCESSING_TASK_CENTER_OPEN_EVENT,
   processingJobsQueryKey,
-  processingJobsRefetchInterval
+  processingJobsRefetchInterval,
+  readProcessingFailureSeenThrough,
+  writeProcessingFailureSeenThrough
 } from "@/pages/processing/model";
+
+const EMPTY_PROCESSING_JOBS: ProcessingJob[] = [];
 
 function stateTone(job: ProcessingJob): "neutral" | "accent" | "success" | "warning" | "danger" {
   if (job.state === "succeeded") return "success";
@@ -71,6 +77,10 @@ export function ProcessingTaskCenter({
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
   const [openProjectError, setOpenProjectError] = useState<string | null>(null);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [failureSeen, setFailureSeen] = useState(() => ({
+    userId,
+    seenThrough: readProcessingFailureSeenThrough(userId)
+  }));
   const dialogRef = useRef<HTMLElement | null>(null);
   const queryKey = processingJobsQueryKey(userId);
   const jobsQuery = useQuery({
@@ -100,6 +110,10 @@ export function ProcessingTaskCenter({
     setDownloadingArtifactId(null);
     setOpenProjectError(null);
     setOpeningProjectId(null);
+    setFailureSeen({
+      userId,
+      seenThrough: readProcessingFailureSeenThrough(userId)
+    });
   }, [userId]);
 
   useEffect(() => {
@@ -143,9 +157,24 @@ export function ProcessingTaskCenter({
     };
   }, [open]);
 
-  const jobs = jobsQuery.data?.jobs ?? [];
+  const jobs = jobsQuery.data?.jobs ?? EMPTY_PROCESSING_JOBS;
   const activeCount = jobs.filter((job) => isProcessingJobActive(job.state)).length;
-  const failedCount = jobs.filter((job) => job.state === "failed").length;
+  const failureSeenThrough =
+    failureSeen.userId === userId
+      ? failureSeen.seenThrough
+      : readProcessingFailureSeenThrough(userId);
+  const unseenFailureCount = countUnseenProcessingFailures(jobs, failureSeenThrough);
+
+  useEffect(() => {
+    if (!open || failureSeen.userId !== userId) return;
+    const latestFailure = latestProcessingFailureCompletedAt(jobs);
+    if (latestFailure <= failureSeen.seenThrough) return;
+    setFailureSeen({
+      userId,
+      seenThrough: writeProcessingFailureSeenThrough(userId, latestFailure)
+    });
+  }, [failureSeen.seenThrough, failureSeen.userId, jobs, open, userId]);
+
   const projectNames = useMemo(
     () => new Map(projects.map((project) => [project.id, project.name])),
     [projects]
@@ -156,7 +185,7 @@ export function ProcessingTaskCenter({
   );
   const badgeLabel = t("processing.triggerLabel", {
     active: activeCount,
-    failed: failedCount
+    failed: unseenFailureCount
   });
 
   async function downloadArtifact(artifact: ProcessingArtifact) {
@@ -197,9 +226,9 @@ export function ProcessingTaskCenter({
         >
           <ListTodo size={17} aria-hidden />
         </UiIconButton>
-        {(activeCount > 0 || failedCount > 0) && (
+        {(activeCount > 0 || unseenFailureCount > 0) && (
           <span
-            className={`processing-task-count${failedCount > 0 ? " has-failure" : ""}`}
+            className={`processing-task-count${unseenFailureCount > 0 ? " has-failure" : ""}`}
             aria-hidden
           >
             {activeCount > 99 ? "99+" : activeCount || "!"}

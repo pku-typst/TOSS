@@ -449,8 +449,9 @@ Submission remains contextual:
 
 State is centralized in a global task center opened from the application header.
 Desktop uses a right-side drawer; small screens use a full-screen route or
-sheet. The badge counts the current user's queued and running jobs and surfaces
-failed work without adding job lifecycle to the preview component.
+sheet. The badge counts active jobs and surfaces failures completed since this
+user last opened the center. That browser-local acknowledgement only clears the
+indicator; it does not remove durable job history or artifacts.
 
 “Global” is a presentation location, not a global Job bounded context. The
 first view reads Document Processing summaries. Other contexts may later

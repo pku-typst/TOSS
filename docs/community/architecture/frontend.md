@@ -151,8 +151,10 @@ TanStack Query owns the account-scoped job list, capability projection, and
 mutations. Active jobs refresh every two seconds; an open idle drawer refreshes
 every fifteen seconds; a closed drawer with only terminal work stops polling.
 Changing accounts changes the query key and closes/reset the drawer, so stale
-work cannot cross an identity boundary. Component state owns only presentation
-choices and transient download/cancel errors.
+work cannot cross an identity boundary. An account-keyed browser timestamp
+remembers which failed jobs have already been viewed; it affects only the header
+indicator. Component state owns presentation choices and transient
+download/cancel errors.
 
 ## Optional frontend features
 

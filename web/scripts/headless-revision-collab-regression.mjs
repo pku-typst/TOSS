@@ -64,10 +64,10 @@ async function registerOrLogin(email, password, displayName) {
 
 async function login(page, email, password) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  const projectsHeading = page.getByRole("heading", { name: "Projects" });
-  const emailInput = page.getByPlaceholder("Email");
+  const projectsHeading = page.getByRole("heading", { name: "Projects", exact: true });
+  const emailInput = page.getByPlaceholder("Email", { exact: true });
   await emailInput.fill(email);
-  await page.getByPlaceholder("Password").fill(password);
+  await page.getByPlaceholder("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
   await projectsHeading.waitFor({ timeout: 30000 });
 }
@@ -134,7 +134,7 @@ async function main() {
       throw new Error(`expected one marker after typing; got ${count}`);
     }
 
-    await pageA.getByRole("button", { name: "Revisions" }).click();
+    await pageA.getByRole("button", { name: "Revisions", exact: true }).click();
     await pageA.locator(".history-item").first().waitFor({ timeout: 10000 });
     await pageA.locator(".history-item").first().click();
     await pageA.waitForFunction(
@@ -146,7 +146,7 @@ async function main() {
     await pageA.screenshot({ path: revisionShot, fullPage: true });
     artifacts.push(revisionShot);
 
-    await pageA.getByRole("button", { name: "Revisions" }).click();
+    await pageA.getByRole("button", { name: "Revisions", exact: true }).click();
     await pageA.waitForFunction(
       (needle) => (document.querySelector(".cm-content")?.textContent || "").includes(needle),
       marker,

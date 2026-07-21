@@ -30,8 +30,8 @@ test("shows multiple editing sessions for one account without double-counting co
 }) => {
   const account = await createPresenceProject(request);
   await page.goto("/signin");
-  await page.getByPlaceholder("Email").fill(account.email);
-  await page.getByPlaceholder("Password").fill(account.password);
+  await page.getByPlaceholder("Email", { exact: true }).fill(account.email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(account.password);
   await page.locator(".auth-submit").click();
   await expect(
     page.getByRole("heading", { name: "Projects", exact: true }),
