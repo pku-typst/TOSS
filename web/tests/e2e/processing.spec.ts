@@ -72,18 +72,21 @@ test("submits a native LaTeX build and downloads it from the task center", async
 
   await signIn(page.context(), email, password);
   await page.goto(`/project/${project.id}`);
-  const buildButton = page.getByRole("button", { name: "Build PDF in background" });
+  const buildButton = page.getByRole("button", {
+    name: "Build PDF in background",
+    exact: true
+  });
   await expect(buildButton).toBeEnabled({ timeout: 30_000 });
   await buildButton.click();
 
-  const taskCenter = page.getByRole("dialog", { name: "Tasks" });
+  const taskCenter = page.getByRole("dialog", { name: "Tasks", exact: true });
   await expect(taskCenter).toBeVisible();
   const task = taskCenter.locator(".processing-task-item").filter({ hasText: projectName });
   await expect(task).toHaveCount(1);
   await expect(task.getByText("Succeeded", { exact: true })).toBeVisible({ timeout: 120_000 });
 
   const downloadPromise = page.waitForEvent("download");
-  await task.getByRole("button", { name: "main.pdf" }).click();
+  await task.getByRole("button", { name: "main.pdf", exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("main.pdf");
   const stream = await download.createReadStream();

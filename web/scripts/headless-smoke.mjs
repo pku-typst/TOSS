@@ -98,10 +98,10 @@ async function registerOrLogin(email, password, displayName) {
 
 async function login(page, email, password) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
+  await page.getByPlaceholder("Email", { exact: true }).fill(email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
-  await page.getByRole("heading", { name: "Projects" }).waitFor({ timeout: 30000 });
+  await page.getByRole("heading", { name: "Projects", exact: true }).waitFor({ timeout: 30000 });
   await assertStandardPageLayout(page);
 }
 
@@ -115,12 +115,12 @@ async function openWorkspace(page, projectId) {
 }
 
 async function openSettingsStorage(page) {
-  const storageTab = page.getByRole("tab", { name: "Storage" });
+  const storageTab = page.getByRole("tab", { name: "Storage", exact: true });
   await storageTab.waitFor({ timeout: 10000 });
   if ((await storageTab.getAttribute("aria-selected")) !== "true") {
     await storageTab.click();
   }
-  await page.getByText("Git access").waitFor({ timeout: 10000 });
+  await page.getByText("Git access", { exact: true }).waitFor({ timeout: 10000 });
 }
 
 async function waitForActiveFile(page, filePath, timeoutMs = 10000) {
@@ -848,7 +848,7 @@ async function acceptPrompt(page, trigger, value) {
     await modalInput.waitFor({ timeout: 5000 });
     await modalInput.fill(value);
     let saveButton = dialog.getByRole("button", {
-      name: /(Save|Create|OK|Confirm|确认|保存|创建|确定)/i
+      name: /^(Save|Create|OK|Confirm|确认|保存|创建|确定)$/i
     });
     if ((await saveButton.count()) === 0) {
       saveButton = dialog.locator("button");
@@ -875,8 +875,8 @@ async function acceptConfirm(page, trigger, accept = true) {
   const dialog = page.locator(".ui-dialog").last();
   if ((await dialog.count()) > 0 && (await dialog.isVisible().catch(() => false))) {
     const actionPattern = accept
-      ? /(Delete|Confirm|OK|Revoke|确认|删除|撤销|确定)/i
-      : /(Cancel|No|取消)/i;
+      ? /^(Delete|Confirm|OK|Revoke|确认|删除|撤销|确定)$/i
+      : /^(Cancel|No|取消)$/i;
     const actionButton = dialog.getByRole("button", { name: actionPattern }).last();
     if ((await actionButton.count()) > 0) {
       await actionButton.click();
@@ -1232,10 +1232,10 @@ try {
     return { files, editor, preview };
   });
   if ((await pageA.locator(".panel-preview").count()) === 0) {
-    await pageA.getByRole("button", { name: "Preview" }).click();
+    await pageA.getByRole("button", { name: "Preview", exact: true }).click();
   }
   if ((await pageA.locator(".panel-files").count()) === 0) {
-    await pageA.getByRole("button", { name: "Files" }).click();
+    await pageA.getByRole("button", { name: "Files", exact: true }).click();
   }
   currentStep = "resize-layout";
   const filesHandle = pageA.locator(".workspace-stage > .panel-resizer").first();
@@ -1417,7 +1417,7 @@ try {
 
   const fileChooserPromise = pageA.waitForEvent("filechooser");
   currentStep = "upload-file";
-  await pageA.getByRole("button", { name: "Upload" }).first().click();
+  await pageA.getByRole("button", { name: "Upload", exact: true }).first().click();
   const chooser = await fileChooserPromise;
   await chooser.setFiles(tempUploadFile);
   const uploadedFileName = path.basename(tempUploadFile);
@@ -1426,7 +1426,7 @@ try {
     .first()
     .waitFor({ timeout: 10000 });
   await pageA.locator(".tree-label", { hasText: uploadedFileName }).first().click();
-  await pageA.getByText("Uploaded From UI").waitFor({ timeout: 10000 });
+  await pageA.getByText("Uploaded From UI", { exact: true }).waitFor({ timeout: 10000 });
 
   await openContextMenu(pageA, uploadedFileName);
   currentStep = "context-delete-uploaded-file";
@@ -1454,16 +1454,18 @@ try {
 
   await pageA.locator(".tree-label", { hasText: "blob.bin" }).first().click();
   currentStep = "unsupported-file-preview";
-  await pageA.getByText("This file is not editable in web editor. Edit offline and sync with Git.").waitFor({
-    timeout: 10000
-  });
+  await pageA
+    .getByText("This file is not editable in web editor. Edit offline and sync with Git.", {
+      exact: true
+    })
+    .waitFor({ timeout: 10000 });
   if ((await pageA.locator(".file-icon").count()) < 1) {
     throw new Error("unknown file icon is not visible for unsupported file types");
   }
 
   const archiveDownloadPromise = pageA.waitForEvent("download");
   currentStep = "download-archive";
-  await pageA.getByRole("button", { name: "Download ZIP" }).click();
+  await pageA.getByRole("button", { name: "Download ZIP", exact: true }).click();
   const archiveDownload = await archiveDownloadPromise;
   const archivePath = path.join(outDir, "archive.zip");
   await archiveDownload.saveAs(archivePath);
@@ -1472,7 +1474,7 @@ try {
     throw new Error("Archive download is unexpectedly small");
   }
 
-  await pageA.getByRole("button", { name: "Settings" }).click();
+  await pageA.getByRole("button", { name: "Settings", exact: true }).click();
   currentStep = "open-settings";
   const settingsPanelInfo = await pageA.evaluate(() => {
     const panel = document.querySelector(".panel-settings .panel-content");
@@ -1500,13 +1502,16 @@ try {
     throw new Error("entry file select has no options");
   }
   await openSettingsStorage(pageA);
-  const copyButtonBefore = pageA.getByRole("button", { name: "Copy" }).first();
+  const copyButtonBefore = pageA.getByRole("button", { name: "Copy", exact: true }).first();
   await copyButtonBefore.click();
-  await pageA.getByRole("button", { name: "Copied" }).first().waitFor({ timeout: 3000 });
+  await pageA
+    .getByRole("button", { name: "Copied", exact: true })
+    .first()
+    .waitFor({ timeout: 3000 });
   await bearerApi("POST", `/v1/projects/${projectId}/revisions`, owner.sessionToken, {
     summary: "Headless UI checkpoint"
   });
-  await pageA.getByRole("button", { name: "Revisions" }).click();
+  await pageA.getByRole("button", { name: "Revisions", exact: true }).click();
   currentStep = "open-revisions";
   let historyCount = 0;
   for (let i = 0; i < 25; i += 1) {
@@ -1516,7 +1521,7 @@ try {
   }
   if (historyCount < 1) {
     await openWorkspace(pageA, projectId);
-    await pageA.getByRole("button", { name: "Revisions" }).click();
+    await pageA.getByRole("button", { name: "Revisions", exact: true }).click();
     for (let i = 0; i < 25; i += 1) {
       historyCount = await pageA.locator(".history-item").count();
       if (historyCount > 0) break;
@@ -1542,7 +1547,7 @@ try {
     undefined,
     { timeout: 10000 }
   );
-  await pageA.getByRole("button", { name: "Revisions" }).click();
+  await pageA.getByRole("button", { name: "Revisions", exact: true }).click();
   await waitForCanvas(pageA, 20000);
   await assertVisiblePreviewPage(pageA);
 
@@ -1554,7 +1559,7 @@ try {
   await pageA.setViewportSize({ width: 390, height: 844 });
   await wait(300);
   await pageA.getByRole("button", { name: "View", exact: true }).click();
-  await pageA.getByRole("menuitem", { name: "Settings" }).click();
+  await pageA.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await openSettingsStorage(pageA);
   await assertMobileWorkspaceLayout(pageA);
   const mobileSettingsShot = path.join(outDir, "02b-mobile-settings.png");
@@ -1563,8 +1568,8 @@ try {
   await pageA.setViewportSize({ width: 1620, height: 1020 });
   await wait(200);
 
-  await pageA.getByRole("button", { name: "Logout" }).click();
-  await pageA.getByPlaceholder("Email").waitFor({ timeout: 10000 });
+  await pageA.getByRole("button", { name: "Logout", exact: true }).click();
+  await pageA.getByPlaceholder("Email", { exact: true }).waitFor({ timeout: 10000 });
 
   const shot3 = path.join(outDir, "03-logout.png");
   await pageA.screenshot({ path: shot3, fullPage: true });

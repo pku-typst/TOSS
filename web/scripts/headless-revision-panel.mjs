@@ -61,10 +61,10 @@ async function registerOrLogin(email, password, displayName) {
 
 async function login(page, email, password) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
+  await page.getByPlaceholder("Email", { exact: true }).fill(email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
-  await page.getByRole("heading", { name: "Projects" }).waitFor({ timeout: 30000 });
+  await page.getByRole("heading", { name: "Projects", exact: true }).waitFor({ timeout: 30000 });
 }
 
 async function main() {
@@ -107,7 +107,7 @@ async function main() {
     await page.screenshot({ path: liveShot, fullPage: true });
     artifacts.push(liveShot);
 
-    await page.getByRole("button", { name: "Revisions" }).click();
+    await page.getByRole("button", { name: "Revisions", exact: true }).click();
     await page.locator(".history-item").first().waitFor({ timeout: 10000 });
     await page.locator(".history-item").nth(1).click();
     await page.waitForFunction(
@@ -124,7 +124,7 @@ async function main() {
     await page.screenshot({ path: revisionShot, fullPage: true });
     artifacts.push(revisionShot);
 
-    await page.getByRole("button", { name: "Revisions" }).click();
+    await page.getByRole("button", { name: "Revisions", exact: true }).click();
     await page.waitForFunction(
       () => (document.querySelector(".cm-content")?.textContent || "").includes("Version B"),
       undefined,

@@ -42,23 +42,25 @@ test("creates independent projects and manages personal templates from the Galle
   expect(thumbnailResponse.headers()["content-type"]).toMatch(/^image\//);
 
   await page.goto("/signin");
-  await page.getByPlaceholder("Email").fill(account.email);
-  await page.getByPlaceholder("Password").fill(account.password);
-  await page.getByPlaceholder("Password").press("Enter");
+  await page.getByPlaceholder("Email", { exact: true }).fill(account.email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(account.password);
+  await page.getByPlaceholder("Password", { exact: true }).press("Enter");
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
 
   let galleryRequests = 0;
   page.on("request", (browserRequest) => {
     if (new URL(browserRequest.url()).pathname === "/v1/templates") galleryRequests += 1;
   });
-  await page.getByRole("link", { name: "Gallery" }).click();
-  await expect(page.getByRole("heading", { name: "Template Gallery" })).toBeVisible();
+  await page.getByRole("link", { name: "Gallery", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Template Gallery", exact: true })
+  ).toBeVisible();
   await expect(page.locator(".gallery-card").first()).toBeVisible();
   expect(galleryRequests).toBe(1);
 
-  await page.getByRole("link", { name: "Projects" }).click();
+  await page.getByRole("link", { name: "Projects", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Gallery" }).click();
+  await page.getByRole("link", { name: "Gallery", exact: true }).click();
   const firstCard = page.locator(".gallery-card").first();
   await expect(firstCard).toBeVisible();
   await page.waitForTimeout(200);
@@ -66,10 +68,13 @@ test("creates independent projects and manages personal templates from the Galle
   await expect(firstCard.locator(".gallery-thumbnail")).toBeVisible();
 
   const projectName = `Gallery Project ${Date.now()}`;
-  await firstCard.getByRole("button", { name: "Use template" }).click();
-  const createDialog = page.getByRole("dialog", { name: "Create from template" });
+  await firstCard.getByRole("button", { name: "Use template", exact: true }).click();
+  const createDialog = page.getByRole("dialog", {
+    name: "Create from template",
+    exact: true
+  });
   await createDialog.getByRole("textbox").fill(projectName);
-  await createDialog.getByRole("button", { name: "Create project" }).click();
+  await createDialog.getByRole("button", { name: "Create project", exact: true }).click();
   await expect(page).toHaveURL(/\/project\/[0-9a-f-]+$/);
   const projectId = page.url().split("/").pop();
   expect(projectId).toBeTruthy();
@@ -97,15 +102,25 @@ test("creates independent projects and manages personal templates from the Galle
   expect(tree.nodes).toContainEqual({ path: tree.entry_file_path, kind: "file" });
 
   await page.goto("/gallery");
-  await page.getByRole("button", { name: "Create personal template" }).click();
-  const personalDialog = page.getByRole("dialog", { name: "Add a personal template" });
+  await page
+    .getByRole("button", { name: "Create personal template", exact: true })
+    .click();
+  const personalDialog = page.getByRole("dialog", {
+    name: "Add a personal template",
+    exact: true
+  });
   await expect(personalDialog.getByRole("combobox")).toHaveValue(projectId ?? "");
-  await personalDialog.getByRole("button", { name: "Add to Gallery" }).click();
-  await page.getByRole("button", { name: "My templates" }).click();
+  await personalDialog.getByRole("button", { name: "Add to Gallery", exact: true }).click();
+  await page.getByRole("button", { name: "My templates", exact: true }).click();
   const personalCard = page.locator(".gallery-card", { hasText: renamedProjectName });
   await expect(personalCard).toBeVisible();
-  await personalCard.getByRole("button", { name: "Remove from Gallery" }).click();
-  const removeDialog = page.getByRole("dialog", { name: "Remove personal template?" });
+  await personalCard
+    .getByRole("button", { name: "Remove from Gallery", exact: true })
+    .click();
+  const removeDialog = page.getByRole("dialog", {
+    name: "Remove personal template?",
+    exact: true
+  });
   await removeDialog.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(personalCard).toHaveCount(0);
 

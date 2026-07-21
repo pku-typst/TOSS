@@ -128,9 +128,9 @@ test("keeps the project home independent from editor and Typst runtime downloads
   });
 
   await page.goto("/signin");
-  await page.getByPlaceholder("Email").fill(account.email);
-  await page.getByPlaceholder("Password").fill(account.password);
-  await page.getByPlaceholder("Password").press("Enter");
+  await page.getByPlaceholder("Email", { exact: true }).fill(account.email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(account.password);
+  await page.getByPlaceholder("Password", { exact: true }).press("Enter");
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
   await page.waitForTimeout(750);
 

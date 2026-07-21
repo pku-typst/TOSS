@@ -49,8 +49,10 @@ test("provides a branded public entry point, help, and explicit route states", a
   );
 
   await page.setViewportSize({ width: 320, height: 568 });
-  await expect(page.getByRole("button", { name: "Open navigation menu" })).toBeVisible();
-  await page.getByRole("button", { name: "Open navigation menu" }).click();
+  await expect(
+    page.getByRole("button", { name: "Open navigation menu", exact: true })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Open navigation menu", exact: true }).click();
   await expect(page.locator(".app-navigation-menu nve-menu-item").first()).toBeVisible();
   const mobileHomeLayout = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
@@ -146,9 +148,9 @@ test("provides a branded public entry point, help, and explicit route states", a
   const account = await createProductShellAccount(request);
   await page.goto("/profile");
   await expect(page).toHaveURL(/\/signin\?returnTo=%2Fprofile$/);
-  await page.getByPlaceholder("Email").fill(account.email);
-  await page.getByPlaceholder("Password").fill(account.password);
-  await page.getByPlaceholder("Password").press("Enter");
+  await page.getByPlaceholder("Email", { exact: true }).fill(account.email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(account.password);
+  await page.getByPlaceholder("Password", { exact: true }).press("Enter");
   await expect(page).toHaveURL(/\/profile$/);
   await expect(page.getByRole("heading", { name: "Profile Security", exact: true })).toBeVisible();
 

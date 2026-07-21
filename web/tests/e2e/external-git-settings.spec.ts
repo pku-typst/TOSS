@@ -28,12 +28,12 @@ async function openProjectStorage(
   account: { email: string; password: string; projectId: string }
 ) {
   await page.goto("/signin");
-  await page.getByPlaceholder("Email").fill(account.email);
-  await page.getByPlaceholder("Password").fill(account.password);
+  await page.getByPlaceholder("Email", { exact: true }).fill(account.email);
+  await page.getByPlaceholder("Password", { exact: true }).fill(account.password);
   await page.getByRole("button", { name: "Sign in", exact: true }).last().click();
-  await page.getByRole("heading", { name: "Projects" }).waitFor();
+  await page.getByRole("heading", { name: "Projects", exact: true }).waitFor();
   await page.goto(`/project/${account.projectId}`);
-  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("tab", { name: "Storage", exact: true }).click();
 }
 
@@ -169,7 +169,9 @@ test("shows an explicit workspace-only state when external Git is not configured
   await expect(card).toBeVisible();
   await expect(card.locator(".external-git-header-status")).toHaveAttribute("aria-label", /Workspace only/);
   await expect(
-    card.getByText("No external Git provider is configured for this deployment.")
+    card.getByText("No external Git provider is configured for this deployment.", {
+      exact: true
+    })
   ).toBeVisible();
 
   const screenshotPath = testInfo.outputPath("external-git-settings.png");
@@ -239,7 +241,9 @@ test("shows linked repository state and opens branch synchronization", async ({
   await openProjectStorage(page, account);
 
   const card = page.locator(".external-git-card");
-  await expect(card.getByText("owner/repository-backed-slides")).toBeVisible();
+  await expect(
+    card.getByText("owner/repository-backed-slides", { exact: true })
+  ).toBeVisible();
   await expect(card.locator(".external-git-header-status")).toHaveAttribute(
     "aria-label",
     /Synced/
@@ -252,8 +256,8 @@ test("shows linked repository state and opens branch synchronization", async ({
     path: linkedCardScreenshotPath,
     contentType: "image/png"
   });
-  await card.getByRole("button", { name: "Import branch" }).click();
-  const branchSelect = page.getByLabel("Source branch");
+  await card.getByRole("button", { name: "Import branch", exact: true }).click();
+  const branchSelect = page.getByLabel("Source branch", { exact: true });
   await expect(branchSelect).toBeVisible();
   await expect(branchSelect).toHaveValue("slides");
   await expect(branchSelect.locator("option")).toHaveCount(2);
@@ -319,20 +323,20 @@ test("loads repository creation and connection choices on demand", async ({
 
   const card = page.locator(".external-git-card");
   await card
-    .getByRole("button", { name: "Create GitLab repository" })
+    .getByRole("button", { name: "Create GitLab repository", exact: true })
     .click();
-  await expect(card.getByLabel("Repository owner")).toHaveValue("7");
-  await expect(card.getByLabel("Repository name")).toHaveValue(
+  await expect(card.getByLabel("Repository owner", { exact: true })).toHaveValue("7");
+  await expect(card.getByLabel("Repository name", { exact: true })).toHaveValue(
     "Repository-backed Slides"
   );
-  await expect(card.getByLabel("Repository path")).toHaveValue(
+  await expect(card.getByLabel("Repository path", { exact: true })).toHaveValue(
     "repository-backed-slides"
   );
 
   await card
-    .getByRole("button", { name: "Connect existing repository" })
+    .getByRole("button", { name: "Connect existing repository", exact: true })
     .click();
-  await expect(card.getByLabel("GitLab repository")).toHaveValue("101");
+  await expect(card.getByLabel("GitLab repository", { exact: true })).toHaveValue("101");
   await expect(
     card.locator(".external-git-selected-project strong")
   ).toHaveText("owner/existing-slides");

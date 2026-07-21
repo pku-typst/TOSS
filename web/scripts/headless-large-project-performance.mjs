@@ -108,10 +108,10 @@ async function ensureLargeProject(sessionToken) {
 
 async function loginUi(page) {
   await page.goto(`${baseUrl}/signin`, { waitUntil: "domcontentloaded", timeout: 120000 });
-  await page.getByPlaceholder("Email").fill(userEmail);
-  await page.getByPlaceholder("Password").fill(userPassword);
+  await page.getByPlaceholder("Email", { exact: true }).fill(userEmail);
+  await page.getByPlaceholder("Password", { exact: true }).fill(userPassword);
   await page.getByRole("button", { name: /^(Continue|Sign in)$/ }).last().click();
-  await page.getByRole("heading", { name: /Projects|项目/ }).waitFor({ timeout: 60000 });
+  await page.getByRole("heading", { name: /^(Projects|项目)$/ }).waitFor({ timeout: 60000 });
 }
 
 function createMetricCollector(page, cdp) {
