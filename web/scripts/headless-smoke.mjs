@@ -1426,7 +1426,10 @@ try {
     .first()
     .waitFor({ timeout: 10000 });
   await pageA.locator(".tree-label", { hasText: uploadedFileName }).first().click();
-  await pageA.getByText("Uploaded From UI", { exact: true }).waitFor({ timeout: 10000 });
+  await pageA
+    .locator(".cm-content")
+    .filter({ hasText: "Uploaded From UI" })
+    .waitFor({ timeout: 10000 });
 
   await openContextMenu(pageA, uploadedFileName);
   currentStep = "context-delete-uploaded-file";

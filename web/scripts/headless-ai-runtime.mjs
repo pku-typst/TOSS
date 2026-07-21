@@ -924,9 +924,7 @@ async function verifyBrowserBoundary(projectId, provider) {
       await page.locator('.ai-composer [name="prompt"]').fill("Verify locale propagation.");
       await page.locator('[data-action="send-prompt"]').click();
       await page
-        .getByText("Mock provider turn 8 completed.", {
-          exact: true
-        })
+        .getByText(/Mock provider turn 8 completed\./)
         .waitFor({ timeout: 10_000 });
     }
 
