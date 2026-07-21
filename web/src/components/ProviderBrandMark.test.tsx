@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import {
   ProviderBrandMark,
   type ProviderBrand
 } from "@/components/ProviderBrandMark";
-
-afterEach(cleanup);
 
 describe("ProviderBrandMark", () => {
   it("maps each repository brand to its explicit official asset", () => {

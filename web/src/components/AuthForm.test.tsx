@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AuthForm } from "@/components/AuthForm";
 import type { AuthConfig } from "@/lib/api";
 import { translate } from "@/lib/i18n";
@@ -85,7 +85,6 @@ const providers: AuthConfig["identity_providers"] = [
   }
 ];
 
-afterEach(cleanup);
 const t = (key: string, values?: Record<string, string | number>) =>
   translate("en", key, values);
 

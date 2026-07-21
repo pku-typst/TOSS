@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type {
   ButtonHTMLAttributes,
   ComponentProps,
@@ -8,7 +8,7 @@ import type {
   ReactNode,
   SelectHTMLAttributes
 } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ProcessingInputProfileSelector } from "@/lib/api";
 import type { Translator } from "@/lib/i18n";
 import { PptxImportDialog } from "@/pages/projects/PptxImportDialog";
@@ -73,8 +73,6 @@ const selector: ProcessingInputProfileSelector = {
     }
   ]
 };
-
-afterEach(() => cleanup());
 
 function renderDialog(
   overrides: Partial<ComponentProps<typeof PptxImportDialog>> = {}

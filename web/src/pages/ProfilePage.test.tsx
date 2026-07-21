@@ -2,7 +2,6 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  cleanup,
   fireEvent,
   render,
   screen,
@@ -146,7 +145,6 @@ function renderProfile() {
 }
 
 afterEach(() => {
-  cleanup();
   vi.clearAllMocks();
 });
 
