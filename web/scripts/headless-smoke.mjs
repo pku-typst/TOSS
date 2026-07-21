@@ -1553,7 +1553,7 @@ try {
   currentStep = "mobile-settings-layout";
   await pageA.setViewportSize({ width: 390, height: 844 });
   await wait(300);
-  await pageA.getByRole("button", { name: "View" }).click();
+  await pageA.getByRole("button", { name: "View", exact: true }).click();
   await pageA.getByRole("menuitem", { name: "Settings" }).click();
   await openSettingsStorage(pageA);
   await assertMobileWorkspaceLayout(pageA);
