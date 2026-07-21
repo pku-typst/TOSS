@@ -16,6 +16,7 @@ const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_SOURCE_EPOCH: i64 = 253_402_300_799;
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectBundleManifest {
     pub schema: String,
     pub project_type: String,
@@ -25,30 +26,13 @@ pub struct ProjectBundleManifest {
     pub content_generation: i64,
     pub source_epoch: i64,
     pub files: Vec<ProjectBundleFile>,
-    #[serde(default)]
-    pub packages: Vec<ProjectBundlePackage>,
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectBundleFile {
     pub path: String,
     pub kind: String,
-    pub size_bytes: i64,
-    pub sha256: String,
-}
-
-#[derive(Clone, Deserialize)]
-pub struct ProjectBundlePackage {
-    pub namespace: String,
-    pub name: String,
-    pub version: String,
-    pub archive_sha256: String,
-    pub files: Vec<ProjectBundlePackageFile>,
-}
-
-#[derive(Clone, Deserialize)]
-pub struct ProjectBundlePackageFile {
-    pub path: String,
     pub size_bytes: i64,
     pub sha256: String,
 }
@@ -61,7 +45,6 @@ pub enum ProcessorInput {
 pub struct ProjectInput {
     _root: TempDir,
     pub project_dir: PathBuf,
-    pub packages_dir: PathBuf,
     pub manifest: ProjectBundleManifest,
 }
 
@@ -123,9 +106,7 @@ fn verify_and_extract_project(
 ) -> Result<ProjectInput, InputError> {
     let root = tempfile::tempdir().map_err(InputError::Io)?;
     let project_dir = root.path().join("project");
-    let packages_dir = root.path().join("packages");
     fs::create_dir(&project_dir).map_err(InputError::Io)?;
-    fs::create_dir(&packages_dir).map_err(InputError::Io)?;
     let mut archive =
         zip::ZipArchive::new(Cursor::new(content)).map_err(|_| InputError::Archive)?;
     if archive.is_empty() || archive.len() > MAX_BUNDLE_FILES + 1 {
@@ -166,19 +147,14 @@ fn verify_and_extract_project(
             manifest_bytes = Some(bytes);
             continue;
         }
-        let (materialization_root, relative, package_file) =
-            if let Some(relative) = name.strip_prefix("project/") {
-                (&project_dir, relative, false)
-            } else if let Some(relative) = name.strip_prefix("packages/") {
-                (&packages_dir, relative, true)
-            } else {
-                return Err(InputError::UnsafePath);
-            };
+        let relative = name
+            .strip_prefix("project/")
+            .ok_or(InputError::UnsafePath)?;
         if relative.is_empty() {
             continue;
         }
         let relative_path = Path::new(relative);
-        let destination = materialization_root.join(relative_path);
+        let destination = project_dir.join(relative_path);
         if entry.is_dir() {
             if entry.size() != 0 {
                 return Err(InputError::Archive);
@@ -197,27 +173,16 @@ fn verify_and_extract_project(
         actual_expanded = actual_expanded
             .checked_add(written)
             .ok_or(InputError::Limit)?;
-        materialized_files.insert(if package_file {
-            format!("packages/{relative}")
-        } else {
-            format!("project/{relative}")
-        });
+        materialized_files.insert(format!("project/{relative}"));
     }
 
     let manifest: ProjectBundleManifest =
         serde_json::from_slice(manifest_bytes.as_deref().ok_or(InputError::Manifest)?)
             .map_err(|_| InputError::Manifest)?;
-    validate_manifest(
-        &manifest,
-        input_schema,
-        &project_dir,
-        &packages_dir,
-        &materialized_files,
-    )?;
+    validate_manifest(&manifest, input_schema, &project_dir, &materialized_files)?;
     Ok(ProjectInput {
         _root: root,
         project_dir,
-        packages_dir,
         manifest,
     })
 }
@@ -226,27 +191,14 @@ fn validate_manifest(
     manifest: &ProjectBundleManifest,
     input_schema: &str,
     project_dir: &Path,
-    packages_dir: &Path,
     materialized_files: &HashSet<String>,
 ) -> Result<(), InputError> {
-    let package_file_count = manifest
-        .packages
-        .iter()
-        .try_fold(0_usize, |total, package| {
-            total.checked_add(package.files.len())
-        })
-        .ok_or(InputError::ManifestMismatch)?;
     if manifest.schema != input_schema
         || !matches!(
             manifest.schema.as_str(),
             "project-bundle/v1" | "typst-project-bundle/v1"
         )
-        || (manifest.schema == "project-bundle/v1" && !manifest.packages.is_empty())
-        || manifest
-            .files
-            .len()
-            .checked_add(package_file_count)
-            .is_none_or(|count| count != materialized_files.len())
+        || manifest.files.len() != materialized_files.len()
         || !safe_relative_path(&manifest.entry_file_path)
         || manifest.workspace_version < 0
         || manifest.content_generation < 0
@@ -272,7 +224,6 @@ fn validate_manifest(
             return Err(InputError::ManifestMismatch);
         }
     }
-    validate_packages(&manifest.packages, packages_dir, materialized_files)?;
     let entry_is_document = manifest
         .files
         .iter()
@@ -280,14 +231,6 @@ fn validate_manifest(
     let expected_paths = paths
         .into_iter()
         .map(|path| format!("project/{path}"))
-        .chain(manifest.packages.iter().flat_map(|package| {
-            package.files.iter().map(|file| {
-                format!(
-                    "packages/{}/{}/{}/{}",
-                    package.namespace, package.name, package.version, file.path
-                )
-            })
-        }))
         .collect::<HashSet<_>>();
     if expected_paths != *materialized_files
         || !entry_is_document
@@ -296,68 +239,6 @@ fn validate_manifest(
         return Err(InputError::ManifestMismatch);
     }
     Ok(())
-}
-
-fn validate_packages(
-    packages: &[ProjectBundlePackage],
-    packages_dir: &Path,
-    materialized_files: &HashSet<String>,
-) -> Result<(), InputError> {
-    let mut identities = HashSet::new();
-    for package in packages {
-        let identity = format!("{}/{}/{}", package.namespace, package.name, package.version);
-        if !matches!(package.namespace.as_str(), "local" | "preview")
-            || !safe_segment(&package.name)
-            || !safe_version(&package.version)
-            || package.archive_sha256.len() != 64
-            || !package
-                .archive_sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-            || !identities.insert(identity.clone())
-        {
-            return Err(InputError::ManifestMismatch);
-        }
-        let mut package_paths = HashSet::new();
-        for file in &package.files {
-            let materialized = format!("packages/{identity}/{}", file.path);
-            if !safe_relative_path(&file.path)
-                || !package_paths.insert(file.path.clone())
-                || !materialized_files.contains(&materialized)
-                || file.size_bytes < 0
-                || file.sha256.len() != 64
-            {
-                return Err(InputError::ManifestMismatch);
-            }
-            let bytes =
-                fs::read(packages_dir.join(&identity).join(&file.path)).map_err(InputError::Io)?;
-            if i64::try_from(bytes.len()).ok() != Some(file.size_bytes)
-                || hex::encode(Sha256::digest(&bytes)) != file.sha256
-            {
-                return Err(InputError::ManifestMismatch);
-            }
-        }
-        if package_paths.is_empty() {
-            return Err(InputError::ManifestMismatch);
-        }
-    }
-    Ok(())
-}
-
-fn safe_segment(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
-        })
-}
-
-fn safe_version(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
 }
 
 fn safe_archive_name(name: &str) -> bool {
@@ -428,15 +309,17 @@ mod tests {
     use std::io::Write as _;
 
     fn project_bundle(
+        schema: &str,
+        project_type: &str,
         kind: &str,
         source_epoch: i64,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let source = b"Hello from LaTeX";
         let manifest = serde_json::to_vec(&json!({
-            "schema": "project-bundle/v1",
-            "project_type": "latex",
+            "schema": schema,
+            "project_type": project_type,
             "entry_file_path": "main.tex",
-            "latex_engine": "pdftex",
+            "latex_engine": (project_type == "latex").then_some("pdftex"),
             "workspace_version": 7,
             "content_generation": 3,
             "source_epoch": source_epoch,
@@ -459,9 +342,9 @@ mod tests {
         Ok(writer.finish()?.into_inner())
     }
 
-    fn claim_for(content: &[u8]) -> WorkerClaimInput {
+    fn claim_for(content: &[u8], schema: &str) -> WorkerClaimInput {
         WorkerClaimInput {
-            schema: "project-bundle/v1".to_string(),
+            schema: schema.to_string(),
             size_bytes: i64::try_from(content.len()).unwrap_or(i64::MAX),
             sha256: hex::encode(Sha256::digest(content)),
             download_url: "/unused".to_string(),
@@ -484,8 +367,10 @@ mod tests {
 
     #[test]
     fn verifies_the_core_project_bundle_shape() -> Result<(), Box<dyn std::error::Error>> {
-        let bundle = project_bundle("document", 1_700_000_000)?;
-        let ProcessorInput::Project(verified) = verify_input(&bundle, &claim_for(&bundle))? else {
+        let schema = "project-bundle/v1";
+        let bundle = project_bundle(schema, "latex", "document", 1_700_000_000)?;
+        let ProcessorInput::Project(verified) = verify_input(&bundle, &claim_for(&bundle, schema))?
+        else {
             return Err("project bundle was materialized as a binary input".into());
         };
         assert_eq!(verified.manifest.content_generation, 3);
@@ -493,21 +378,34 @@ mod tests {
             std::fs::read(verified.project_dir.join("main.tex"))?,
             b"Hello from LaTeX"
         );
-        assert!(verified.packages_dir.is_dir());
+        Ok(())
+    }
+
+    #[test]
+    fn verifies_typst_bundles_without_runtime_packages() -> Result<(), Box<dyn std::error::Error>> {
+        let schema = "typst-project-bundle/v1";
+        let bundle = project_bundle(schema, "typst", "document", 1_700_000_000)?;
+        let ProcessorInput::Project(verified) = verify_input(&bundle, &claim_for(&bundle, schema))?
+        else {
+            return Err("Typst bundle was materialized as a binary input".into());
+        };
+        assert_eq!(verified.manifest.project_type, "typst");
+        assert!(verified.project_dir.join("main.tex").is_file());
         Ok(())
     }
 
     #[test]
     fn rejects_unknown_file_kinds_and_invalid_source_epochs(
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let unknown_kind = project_bundle("executable", 1_700_000_000)?;
+        let schema = "project-bundle/v1";
+        let unknown_kind = project_bundle(schema, "latex", "executable", 1_700_000_000)?;
         assert!(matches!(
-            verify_input(&unknown_kind, &claim_for(&unknown_kind)),
+            verify_input(&unknown_kind, &claim_for(&unknown_kind, schema)),
             Err(InputError::ManifestMismatch)
         ));
-        let negative_epoch = project_bundle("document", -1)?;
+        let negative_epoch = project_bundle(schema, "latex", "document", -1)?;
         assert!(matches!(
-            verify_input(&negative_epoch, &claim_for(&negative_epoch)),
+            verify_input(&negative_epoch, &claim_for(&negative_epoch, schema)),
             Err(InputError::ManifestMismatch)
         ));
         Ok(())

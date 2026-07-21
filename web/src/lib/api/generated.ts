@@ -2356,7 +2356,7 @@ export interface components {
             state: components["schemas"]["ProjectProcessingCapabilityState"];
         };
         /** @enum {string} */
-        ProjectProcessingCapabilityState: "available" | "waiting" | "inapplicable";
+        ProjectProcessingCapabilityState: "available" | "waiting";
         /** @enum {string} */
         ProjectRole: "Owner" | "ReadWrite" | "ReadOnly";
         ProjectRoleBinding: {

@@ -5,7 +5,7 @@ import { processingCapabilityReasonLabel } from "@/pages/processing/model";
 
 export type PptxExportAction = {
   visible: boolean;
-  state: "available" | "waiting" | "inapplicable" | "loading" | "error";
+  state: "available" | "waiting" | "loading" | "error";
   reason: string | null;
   submit: () => Promise<unknown>;
   pending: boolean;
@@ -22,7 +22,7 @@ export function PptxExportControl({
 }) {
   if (!action.visible) return null;
 
-  const unavailable = ["inapplicable", "loading", "error"].includes(action.state);
+  const unavailable = ["loading", "error"].includes(action.state);
   const label = action.pending
     ? t("processing.submitting")
     : action.state === "waiting"

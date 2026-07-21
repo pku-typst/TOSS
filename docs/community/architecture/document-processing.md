@@ -268,12 +268,11 @@ without holding the editor still for the duration of a build.
 
 The manifest includes schema, project type, entry path, operation-relevant
 settings, Workspace version, content generation, and sorted file records with
-kind, length, and SHA-256. A Typst processing bundle additionally carries the
-exact reachable `@local` and `@preview` package closure. Dynamic imports are
-rejected because they cannot produce a coherent immutable input.
-The `input_digest` covers the canonical manifest and all file and package
-content. It is distinct from the browser's local `CompileWorld` and from a
-user-created named snapshot.
+kind, length, and SHA-256. It contains only project-owned documents and assets;
+compiler packages and other runtime dependencies belong to the processor
+contract and its package store. The `input_digest` covers the canonical
+manifest and all project content. It is distinct from the browser's local
+`CompileWorld` and from a user-created named snapshot.
 
 Job identifiers, queue timestamps, and other volatile submission metadata do
 not enter the content digest. If a processor consumes a source epoch, that
@@ -335,11 +334,9 @@ capability projection. Their live state is:
 An absent operation is not enabled by this deployment. It is not represented
 as a third `unavailable` worker-health state.
 
-Project capability queries add applicability to the same projection. A
-configured project operation is `inapplicable` when its project type or exact
-package policy is not satisfied; live worker health cannot make an
-inapplicable project eligible. Submission captures a fresh coherent snapshot
-and rechecks the policy, so the query is guidance rather than authorization.
+Project capability queries filter the same projection by project type. The
+query is guidance rather than authorization; submission checks the project
+type again and captures a fresh coherent snapshot.
 
 A waiting operation may accept a bounded, expiring job while workers are
 temporarily offline. The frontend presents that condition before submission
