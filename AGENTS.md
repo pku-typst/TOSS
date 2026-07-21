@@ -64,6 +64,34 @@ domain model. Public API changes regenerate OpenAPI and browser types together;
 worker-wire changes regenerate worker OpenAPI separately. Worker credentials
 and lifecycle routes never enter the browser generator.
 
+## Change ownership and acceptance
+
+Before implementation, state the user-visible outcome, the owner of every
+decision, and one end-to-end acceptance scenario. Trace that scenario through
+Web, Core, the durable job input, the worker, and the returned artifact before
+choosing files to change. Existing code placement is evidence, not proof of
+correct ownership.
+
+Core owns admission, authorization, immutable capture of project-owned input,
+job state, leases, quotas, and artifacts. A worker owns processor-specific
+semantics, toolchains, dependency and package resolution, caches, and output
+diagnostics. Immutable capture means project files, assets, settings, and
+source identity; it does not make Core a second compiler or package resolver.
+Distribution configuration may enable a neutral operation and describe its
+user-facing inputs, but must not introduce processor-specific source analysis
+into Core.
+
+When a policy is removed, search the whole execution path and remove the
+enforcement, derived capability state, capture logic, protocol fields, tests,
+and documentation that existed only for that policy. Do not retain a lower
+layer of the same assumption after removing its UI or configuration gate.
+
+Type checks, contract hashes, worker registration, health endpoints, and queue
+state are necessary infrastructure checks, not feature acceptance. A processing
+change is complete only after a representative project creates a job, reaches
+the real processor, and produces a downloadable artifact or the intended
+structured failure.
+
 Community begins with immutable `202607120001_baseline.sql` and does not support
 in-place upgrades from earlier histories. Never edit, renumber, delete, or
 consolidate a published migration. Add forward migrations and validate fresh
